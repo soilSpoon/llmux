@@ -21,6 +21,16 @@
  * ```
  */
 
+export type {
+  CacheKey,
+  ModelFamily,
+  SignatureCacheOptions,
+} from './cache/signature'
+export {
+  createTextHash,
+  getModelFamily,
+  SignatureCache,
+} from './cache/signature'
 export { AnthropicProvider } from './providers/anthropic'
 export type {
   AnthropicMessage,
@@ -61,9 +71,7 @@ export {
   registerProvider,
 } from './providers/registry'
 export type { TransformOptions, TransformResponseOptions } from './transform'
-// Transform functions
 export { transformRequest, transformResponse } from './transform'
-// Core types
 export type {
   ContentPart,
   GenerationConfig,

@@ -170,9 +170,6 @@ function mapFinishReason(finishReason?: GeminiFinishReason, hasFunctionCall?: bo
     case 'PROHIBITED_CONTENT':
     case 'SPII':
       return 'content_filter'
-    case 'RECITATION':
-    case 'OTHER':
-    case 'FINISH_REASON_UNSPECIFIED':
     default:
       return null
   }
@@ -253,7 +250,6 @@ function mapStopReason(stopReason: StopReason): GeminiFinishReason | undefined {
       return 'SAFETY'
     case 'error':
       return 'OTHER'
-    case null:
     default:
       return undefined
   }
@@ -265,4 +261,12 @@ function mapStopReason(stopReason: StopReason): GeminiFinishReason | undefined {
 
 function generateId(): string {
   return `resp_${Math.random().toString(36).slice(2, 11)}`
+}
+
+export function extractSignatureFromResponse(response: GeminiResponse): string | null {
+  const candidate = response.candidates[0]
+  if (!candidate?.content?.parts) return null
+
+  const thinkingPart = candidate.content.parts.find((part) => part.thought === true)
+  return thinkingPart?.thoughtSignature ?? null
 }

@@ -219,3 +219,10 @@ function transformUsage(usage?: UsageInfo): AnthropicUsage {
 function generateMessageId(): string {
   return `msg_${Math.random().toString(36).slice(2, 11)}${Math.random().toString(36).slice(2, 11)}`
 }
+
+export function extractSignatureFromResponse(response: AnthropicResponse): string | null {
+  const thinkingBlock = response.content.find(
+    (block): block is AnthropicThinkingBlock => block.type === 'thinking'
+  )
+  return thinkingBlock?.signature ?? null
+}
