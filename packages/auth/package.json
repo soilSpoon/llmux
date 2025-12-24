@@ -5,13 +5,20 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "scripts": {
-    "build": "echo 'auth package not yet implemented'",
+    "build": "bunup ./src/index.ts --dts",
     "typecheck": "tsc --noEmit",
     "test": "bun test"
   },
   "devDependencies": {
     "@types/bun": "^1.3.5",
+    "bunup": "^0.16.11",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

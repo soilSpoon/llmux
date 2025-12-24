@@ -1,5 +1,9 @@
-/**
- * @llmux/auth - Authentication module (placeholder)
- */
-
-export const placeholder = true
+export { AntigravityProvider } from './providers/antigravity'
+export type { AuthMethod, AuthProvider, AuthResult } from './providers/base'
+export type { DeviceCodeResponse } from './providers/github-copilot'
+export { GithubCopilotProvider, pollForToken, requestDeviceCode } from './providers/github-copilot'
+export { OpencodeZenProvider } from './providers/opencode-zen'
+export { AuthProviderRegistry } from './providers/registry'
+export { TokenRefresh } from './refresh'
+export { CredentialStorage } from './storage'
+export * from './types'

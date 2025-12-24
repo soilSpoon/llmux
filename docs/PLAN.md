@@ -3,7 +3,7 @@
 **Version:** 2.0  
 **Created:** 2025-12-24  
 **Updated:** 2025-12-24  
-**Status:** ✅ Phase 1-10 Complete | 🟡 Phase 11 Partial  
+**Status:** ✅ Phase 1-13 Complete | ⏳ Phase 14-16 Pending  
 **Language:** TypeScript + Bun  
 **Architecture:** Hub-and-Spoke + Strategy Pattern
 
@@ -30,6 +30,8 @@ const response = await llmux.proxy(geminiRequest, {
 3. **스트리밍 지원**: SSE 기반 실시간 스트리밍 변환
 4. **Thinking 지원**: Claude thinking 블록, Gemini thoughtSignature 처리
 5. **인증 통합**: OAuth, API Key, Device Flow 등 다양한 인증 방식
+6. **AI SDK 호환**: `@ai-sdk/*` (Vercel AI SDK) 스키마와 양방향 호환
+7. **LiteLLM 호환**: LiteLLM (Python) 요청/응답 형식 지원
 
 ### 지원 공급사
 
@@ -40,6 +42,8 @@ const response = await llmux.proxy(geminiRequest, {
 | **Gemini** | `contents[].parts[]` | `candidates[]` | thoughtSignature, thinkingConfig |
 | **Antigravity** | Gemini-style wrapped | Gemini-style wrapped | unified gateway, VALIDATED mode |
 | **Copilot** (추후) | OpenAI 호환 | OpenAI 호환 | GitHub Device Flow |
+| **AI SDK** | `LanguageModelV2Prompt` | `LanguageModelV2Content` | @ai-sdk/* 호환 |
+| **LiteLLM** | OpenAI 호환 확장 | OpenAI 호환 확장 | Python SDK 호환 |
 
 ### 변환 매트릭스
 
@@ -67,8 +71,11 @@ const response = await llmux.proxy(geminiRequest, {
 | 9 | Transform API | ✅ Complete | ~1h |
 | 10 | 공개 API & 빌드 | ✅ Complete | ~0.5h |
 | 11 | 테스트 & 문서화 | ✅ Complete | ~3h |
-| 12 | Auth 모듈 (선택) | ⏳ Pending | 4h |
-| 13 | Server 모듈 (선택) | ⏳ Pending | 3h |
+| 12 | Auth 모듈 | ✅ Complete | ~1h |
+| 13 | Server 모듈 | ✅ Complete | ~1h |
+| 14 | CLI 통합 패키지 | ⏳ Pending | 2h |
+| 15 | AI SDK 호환 레이어 | ⏳ Pending | 4h |
+| 16 | LiteLLM 호환 레이어 | ⏳ Pending | 3h |
 
 ---
 
@@ -81,17 +88,20 @@ const response = await llmux.proxy(geminiRequest, {
 - ✅ Phase 9: Transform API (request, response, registry)
 - ✅ Phase 10: 공개 API export + 빌드 (bunup)
 - ✅ Phase 11: 테스트 & 문서화 (통합 테스트, edge case 테스트)
+- ✅ Phase 12: Auth 모듈 (CredentialStorage, Provider Registry, 58 tests)
+- ✅ Phase 13: Server 모듈 (Bun.serve, Router, Format Detection, 42 tests)
 
 ### 통계
-- **소스 파일**: 67개 TypeScript 파일
-- **테스트 파일**: 31개 테스트 파일
-- **테스트 통과**: 915개 단위/통합 테스트
-- **커버리지**: 94.43% Lines, 96.03% Functions
-- **빌드 크기**: 105KB (gzip 18KB)
+- **소스 파일**: 80+개 TypeScript 파일
+- **테스트 파일**: 45+개 테스트 파일
+- **테스트 통과**: 1,015개 단위/통합 테스트 (core 915 + auth 58 + server 42)
+- **빌드 크기**: @llmux/core 84KB, @llmux/auth 8.5KB, @llmux/server 13KB
 - **타입 체크**: ✅ 통과
 
 ### 미완료 작업
-- ⏳ **Phase 12-13**: Auth, Server 모듈 (선택 사항)
+- ⏳ **Phase 14**: CLI 통합 패키지
+- ⏳ **Phase 15**: AI SDK 호환 레이어 (`@ai-sdk/*` 스키마 호환)
+- ⏳ **Phase 16**: LiteLLM 호환 레이어 (Python SDK 호환)
 
 ---
 
@@ -637,39 +647,710 @@ bun test --coverage      # ✅ 94.43% Lines, 96.03% Funcs (목표 80% 달성)
 
 ---
 
-## Phase 12: Auth 모듈 (선택) ⏳ Pending
+## Phase 12: Auth 모듈 🟡 In Progress
 
-**예상 시간:** 4시간  
+**예상 시간:** 6시간  
 **리스크:** 🟡 Medium
+
+### 개요
+
+`llmux auth login` CLI 명령으로 여러 LLM provider에 인증하고, 저장된 자격증명을 사용해 요청을 프록시하는 시스템.
+
+### 지원 Provider
+
+| Provider | 인증 방식 | 참조 구현 | 특징 |
+|----------|----------|----------|------|
+| **Opencode Zen** | OAuth 2.0 + API Key | `opencode/src/auth/` | opencode.ai 인증 |
+| **GitHub Copilot** | GitHub Device Flow | `opencode-copilot-auth` | Device Code → Token |
+| **Antigravity** | Google OAuth + PKCE | `opencode-antigravity-auth` | gemini-cli fallback 지원 |
+
+### 프로젝트 구조
+
+```
+packages/auth/
+├── src/
+│   ├── index.ts                    # 공개 API
+│   ├── types.ts                    # 타입 정의
+│   ├── storage.ts                  # Credential storage (JSON file)
+│   ├── refresh.ts                  # Token refresh manager
+│   ├── providers/
+│   │   ├── base.ts                 # AuthProvider 인터페이스
+│   │   ├── registry.ts             # Provider registry
+│   │   ├── opencode-zen/
+│   │   │   ├── index.ts            # Opencode Zen auth
+│   │   │   └── oauth.ts
+│   │   ├── github-copilot/
+│   │   │   ├── index.ts            # GitHub Copilot auth
+│   │   │   └── device-flow.ts      # Device Flow 구현
+│   │   └── antigravity/
+│   │       ├── index.ts            # Antigravity auth
+│   │       ├── oauth.ts            # Google OAuth + PKCE
+│   │       └── gemini-fallback.ts  # gemini-cli fallback
+│   └── cli/
+│       ├── index.ts                # CLI entry point
+│       ├── login.ts                # auth login command
+│       ├── logout.ts               # auth logout command
+│       └── list.ts                 # auth list command
+├── test/
+└── package.json
+```
 
 ### Tasks
 
-- [ ] 12.1 `@llmux/auth` 패키지 초기화
-- [ ] 12.2 OAuth 2.0 구현
-- [ ] 12.3 API Key 관리
-- [ ] 12.4 Provider별 인증
-  - Anthropic OAuth
-  - Google OAuth
-  - GitHub Device Flow (Copilot)
+- [ ] 12.1 Core Types & Storage
+  ```typescript
+  // types.ts
+  export type AuthType = 'oauth' | 'api' | 'device-flow'
+  export type ProviderID = 'opencode-zen' | 'github-copilot' | 'antigravity'
+  
+  export interface OAuthCredential {
+    type: 'oauth'
+    accessToken: string
+    refreshToken: string
+    expiresAt: number
+    projectId?: string  // Antigravity용
+    email?: string
+  }
+  
+  export interface ApiKeyCredential {
+    type: 'api'
+    key: string
+  }
+  
+  export type Credential = OAuthCredential | ApiKeyCredential
+  
+  // storage.ts - ~/.llmux/credentials.json
+  export namespace CredentialStorage {
+    export async function get(provider: ProviderID): Promise<Credential | undefined>
+    export async function set(provider: ProviderID, credential: Credential): Promise<void>
+    export async function remove(provider: ProviderID): Promise<void>
+    export async function all(): Promise<Record<ProviderID, Credential>>
+  }
+  ```
+
+- [ ] 12.2 AuthProvider Interface
+  ```typescript
+  // providers/base.ts
+  export interface AuthProvider {
+    id: ProviderID
+    name: string
+    
+    // 인증 방법 목록
+    methods: AuthMethod[]
+    
+    // 현재 자격증명 가져오기 (자동 refresh 포함)
+    getCredential(): Promise<Credential | undefined>
+    
+    // API 호출용 헤더 생성
+    getHeaders(): Promise<Record<string, string>>
+    
+    // Endpoint URL
+    getEndpoint(model: string): string
+  }
+  
+  export interface AuthMethod {
+    type: 'oauth' | 'api' | 'device-flow'
+    label: string
+    authorize(): Promise<AuthResult>
+  }
+  ```
+
+- [ ] 12.3 Opencode Zen Provider
+  - OAuth 2.0 flow (opencode.ai 인증)
+  - API Key 직접 입력 지원
+  - 참조: `opencode/packages/opencode/src/cli/cmd/auth.ts#L344-L346`
+
+- [ ] 12.4 GitHub Copilot Provider
+  - GitHub Device Flow 구현
+  - Device Code 요청 → 사용자 인증 → Access Token 획득
+  - 참조: `opencode-copilot-auth` npm 패키지
+  ```typescript
+  // device-flow.ts
+  interface DeviceCodeResponse {
+    device_code: string
+    user_code: string
+    verification_uri: string
+    expires_in: number
+    interval: number
+  }
+  
+  async function requestDeviceCode(): Promise<DeviceCodeResponse>
+  async function pollForToken(deviceCode: string, interval: number): Promise<TokenResponse>
+  ```
+
+- [ ] 12.5 Antigravity Provider
+  - Google OAuth 2.0 + PKCE
+  - loadCodeAssist API로 projectId 획득
+  - tier 감지 (free/paid)
+  - gemini-cli fallback 지원
+  - 참조: `opencode-antigravity-auth/src/antigravity/oauth.ts`
+  ```typescript
+  // oauth.ts
+  export async function authorizeAntigravity(projectId?: string): Promise<AuthorizationResult>
+  export async function exchangeAntigravity(code: string, state: string): Promise<TokenResult>
+  
+  // gemini-fallback.ts
+  export async function tryGeminiCLI(): Promise<Credential | undefined>
+  ```
+
+- [ ] 12.6 Token Refresh Manager
+  ```typescript
+  // refresh.ts
+  export namespace TokenRefresh {
+    // Access token 만료 전 자동 refresh
+    export async function ensureFresh(provider: ProviderID): Promise<Credential>
+    
+    // Provider별 refresh 로직
+    export async function refreshOpencode(credential: OAuthCredential): Promise<OAuthCredential>
+    export async function refreshGitHubCopilot(credential: OAuthCredential): Promise<OAuthCredential>
+    export async function refreshAntigravity(credential: OAuthCredential): Promise<OAuthCredential>
+  }
+  ```
+
+- [ ] 12.7 CLI Commands
+  ```bash
+  # 로그인
+  llmux auth login                    # Interactive provider 선택
+  llmux auth login opencode-zen       # 특정 provider
+  llmux auth login antigravity        # Antigravity (gemini fallback 포함)
+  
+  # 로그아웃
+  llmux auth logout                   # Interactive 선택
+  llmux auth logout github-copilot    # 특정 provider
+  
+  # 목록
+  llmux auth list                     # 저장된 자격증명 목록
+  ```
+
+### 의존성
+
+```json
+{
+  "dependencies": {
+    "@openauthjs/openauth": "^0.4.3",
+    "@clack/prompts": "^0.9.1",
+    "yargs": "^17.7.2"
+  }
+}
+```
+
+### Quality Gate
+
+```bash
+bun test packages/auth/       # 테스트 통과
+bun run typecheck             # 타입 체크
+llmux auth login              # E2E 테스트
+```
 
 ---
 
-## Phase 13: Server 모듈 (선택) ⏳ Pending
+## Phase 13: Server 모듈 🟡 In Progress
 
-**예상 시간:** 3시간  
-**리스크:** 🟢 Low
+**예상 시간:** 5시간  
+**리스크:** 🟡 Medium
+
+### 개요
+
+인증된 provider를 사용해 LLM 요청을 프록시하고, 요청/응답을 caller가 원하는 형식으로 변환하는 HTTP 서버.
+
+### 프로젝트 구조
+
+```
+packages/server/
+├── src/
+│   ├── index.ts                    # 공개 API
+│   ├── server.ts                   # Bun.serve() HTTP 서버
+│   ├── router.ts                   # 라우팅 로직
+│   ├── handlers/
+│   │   ├── proxy.ts                # 프록시 핸들러
+│   │   ├── health.ts               # Health check
+│   │   └── auth-callback.ts        # OAuth callback
+│   ├── middleware/
+│   │   ├── auth.ts                 # 인증 미들웨어
+│   │   ├── transform.ts            # 요청/응답 변환
+│   │   └── streaming.ts            # SSE 스트리밍
+│   └── config.ts                   # 서버 설정
+├── test/
+└── package.json
+```
+
+### API Endpoints
+
+```
+# 프록시 엔드포인트 (형식 자동 감지)
+POST /v1/chat/completions           # OpenAI 형식 요청
+POST /v1/messages                   # Anthropic 형식 요청
+POST /v1/generateContent            # Gemini 형식 요청
+
+# 프록시 엔드포인트 (명시적 변환)
+POST /v1/proxy
+Headers:
+  X-Source-Format: openai|anthropic|gemini|antigravity
+  X-Target-Provider: opencode-zen|github-copilot|antigravity
+  X-Target-Model: claude-sonnet-4-20250514 (optional)
+
+# OAuth Callback
+GET /auth/callback                  # OAuth redirect 처리
+
+# Health
+GET /health                         # 서버 상태
+GET /providers                      # 인증된 provider 목록
+```
 
 ### Tasks
 
-- [ ] 13.1 `@llmux/server` 패키지 초기화
-- [ ] 13.2 Bun.serve() HTTP 서버
-- [ ] 13.3 프록시 엔드포인트
+- [ ] 13.1 Server Core
+  ```typescript
+  // server.ts
+  export interface ServerConfig {
+    port: number                    // 기본값: 8080
+    host: string                    // 기본값: localhost
+    corsOrigins?: string[]          // CORS 설정
+  }
+  
+  export function createServer(config?: Partial<ServerConfig>): Server
+  export function startServer(config?: Partial<ServerConfig>): Promise<void>
   ```
-  POST /v1/proxy
-  X-From-Provider: gemini
-  X-To-Provider: anthropic
+
+- [ ] 13.2 Proxy Handler
+  ```typescript
+  // handlers/proxy.ts
+  export async function handleProxy(request: Request): Promise<Response> {
+    // 1. 요청 형식 감지 (OpenAI/Anthropic/Gemini/Antigravity)
+    const sourceFormat = detectFormat(request)
+    
+    // 2. 대상 provider 결정 (헤더 또는 기본값)
+    const targetProvider = getTargetProvider(request)
+    
+    // 3. 인증 정보 가져오기
+    const credential = await AuthProvider.getCredential(targetProvider)
+    
+    // 4. 요청 변환 (source → target)
+    const transformedRequest = transformRequest(body, {
+      from: sourceFormat,
+      to: targetProvider.format
+    })
+    
+    // 5. provider API 호출
+    const response = await callProvider(targetProvider, transformedRequest, credential)
+    
+    // 6. 응답 변환 (target → source)
+    const transformedResponse = transformResponse(response, {
+      from: targetProvider.format,
+      to: sourceFormat
+    })
+    
+    return transformedResponse
+  }
   ```
-- [ ] 13.4 스트리밍 프록시
+
+- [ ] 13.3 Streaming Proxy
+  ```typescript
+  // middleware/streaming.ts
+  export async function handleStreamingProxy(request: Request): Promise<Response> {
+    // SSE 스트리밍 변환
+    const sourceFormat = detectFormat(request)
+    const targetProvider = getTargetProvider(request)
+    
+    // TransformStream으로 실시간 변환
+    const { readable, writable } = new TransformStream({
+      transform(chunk, controller) {
+        const transformed = transformStreamChunk(chunk, {
+          from: targetProvider.format,
+          to: sourceFormat
+        })
+        controller.enqueue(transformed)
+      }
+    })
+    
+    return new Response(readable, {
+      headers: { 'Content-Type': 'text/event-stream' }
+    })
+  }
+  ```
+
+- [ ] 13.4 Provider Routing
+  ```typescript
+  // router.ts
+  export interface RoutingConfig {
+    // 기본 provider (인증된 것 중 첫 번째)
+    defaultProvider?: ProviderID
+    
+    // 모델 → provider 매핑
+    modelMapping?: Record<string, ProviderID>
+    
+    // Fallback 순서
+    fallbackOrder?: ProviderID[]
+  }
+  
+  export function getTargetProvider(request: Request, config: RoutingConfig): AuthProvider
+  ```
+
+- [ ] 13.5 Auth Callback Handler
+  ```typescript
+  // handlers/auth-callback.ts
+  // OAuth callback 처리 (브라우저 → 로컬 서버)
+  export async function handleAuthCallback(request: Request): Promise<Response> {
+    const url = new URL(request.url)
+    const code = url.searchParams.get('code')
+    const state = url.searchParams.get('state')
+    
+    // Provider별 token exchange
+    const result = await exchangeToken(code, state)
+    
+    // Credential 저장
+    await CredentialStorage.set(result.provider, result.credential)
+    
+    // 성공 페이지 반환 또는 CLI로 redirect
+    return new Response('Login successful! You can close this window.')
+  }
+  ```
+
+- [ ] 13.6 CLI Integration
+  ```bash
+  # 서버 시작
+  llmux serve                       # 기본 포트 (8080)
+  llmux serve --port 3000           # 커스텀 포트
+  llmux serve --provider antigravity # 특정 provider만
+  
+  # 설정 파일 (선택)
+  # ~/.llmux/config.yaml
+  server:
+    port: 8080
+    defaultProvider: antigravity
+    modelMapping:
+      claude-*: antigravity
+      gpt-*: github-copilot
+  ```
+
+### 요청/응답 흐름
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Client (OpenAI SDK)                                        │
+│  POST /v1/chat/completions                                  │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  llmux server                                               │
+│  1. Detect format: OpenAI                                   │
+│  2. Get target: Antigravity (from config)                   │
+│  3. Get credential: OAuth token                             │
+│  4. Transform: OpenAI → Gemini (Antigravity format)         │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Antigravity API                                            │
+│  POST /v1/generateContent                                   │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  llmux server                                               │
+│  5. Transform response: Gemini → OpenAI                     │
+│  6. Return to client                                        │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────┐
+│  Client receives OpenAI-format response                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 의존성
+
+```json
+{
+  "dependencies": {
+    "@llmux/core": "workspace:*",
+    "@llmux/auth": "workspace:*"
+  }
+}
+```
+
+### Quality Gate
+
+```bash
+bun test packages/server/     # 테스트 통과
+bun run typecheck             # 타입 체크
+curl localhost:8080/health    # E2E 테스트
+```
+
+---
+
+## Phase 14: CLI 통합 패키지 ⏳ Pending
+
+**예상 시간:** 2시간  
+**리스크:** 🟢 Low
+
+### 개요
+
+`llmux` CLI 명령어를 제공하는 통합 패키지.
+
+### 프로젝트 구조
+
+```
+packages/cli/
+├── src/
+│   ├── index.ts                    # CLI entry point
+│   ├── commands/
+│   │   ├── auth.ts                 # auth login/logout/list
+│   │   ├── serve.ts                # serve command
+│   │   └── config.ts               # config management
+│   └── utils/
+│       └── ui.ts                   # Terminal UI helpers
+├── bin/
+│   └── llmux                       # Executable
+└── package.json
+```
+
+### Commands
+
+```bash
+llmux auth login [provider]         # 인증
+llmux auth logout [provider]        # 로그아웃
+llmux auth list                     # 자격증명 목록
+
+llmux serve [--port] [--provider]   # 프록시 서버 시작
+llmux config set <key> <value>      # 설정 변경
+llmux config get <key>              # 설정 조회
+
+llmux --version                     # 버전
+llmux --help                        # 도움말
+```
+
+---
+
+## Phase 15: AI SDK 호환 레이어 ⏳ Pending
+
+**예상 시간:** 4시간  
+**리스크:** 🟡 Medium  
+**위치:** `@llmux/core` (core 패키지 확장)
+
+### 개요
+
+Vercel AI SDK (`@ai-sdk/*`)의 `LanguageModelV2` 스키마와 llmux의 `UnifiedRequest/Response` 간 양방향 변환을 지원하여, AI SDK 기반 애플리케이션에서 llmux를 직접 사용할 수 있게 함.
+
+### 스키마 매핑
+
+| @ai-sdk/provider | @llmux/core | 변환 방향 |
+|------------------|-------------|----------|
+| `LanguageModelV2Prompt` | `UnifiedMessage[]` | ↔ |
+| `LanguageModelV2CallOptions` | `UnifiedRequest` | ↔ |
+| `LanguageModelV2Content` | `ContentPart[]` | ↔ |
+| `LanguageModelV2TextPart` | `ContentPart.text` | ↔ |
+| `LanguageModelV2ReasoningPart` | `ContentPart.thinking` | ↔ |
+| `LanguageModelV2ToolCallPart` | `ContentPart.toolCall` | ↔ |
+| `LanguageModelV2FilePart` | `ContentPart.image` | ↔ |
+| `LanguageModelV2StreamPart` | `StreamChunk` | ↔ |
+
+### 프로젝트 구조
+
+```
+packages/core/src/
+├── providers/
+│   └── ai-sdk/                     # 새로운 AI SDK 호환 provider
+│       ├── index.ts                # AiSdkProvider export
+│       ├── types.ts                # AI SDK 타입 정의 (또는 @ai-sdk/provider import)
+│       ├── request.ts              # LanguageModelV2CallOptions → UnifiedRequest
+│       ├── response.ts             # UnifiedResponse → LanguageModelV2Content
+│       └── streaming.ts            # StreamChunk → LanguageModelV2StreamPart
+└── adapters/
+    └── ai-sdk-adapter.ts           # AI SDK LanguageModelV2 구현체
+```
+
+### Tasks
+
+- [ ] 15.1 AI SDK 타입 분석 및 매핑 정의
+  - `@ai-sdk/provider` 패키지 의존성 추가
+  - 타입 호환성 테이블 작성
+  
+- [ ] 15.2 Request 변환 (`LanguageModelV2CallOptions` → `UnifiedRequest`)
+  ```typescript
+  // providers/ai-sdk/request.ts
+  import type { LanguageModelV2CallOptions } from '@ai-sdk/provider'
+  
+  export function parse(options: LanguageModelV2CallOptions): UnifiedRequest {
+    return {
+      messages: parsePrompt(options.prompt),
+      config: {
+        maxTokens: options.maxOutputTokens,
+        temperature: options.temperature,
+        topP: options.topP,
+        topK: options.topK,
+        stopSequences: options.stopSequences,
+      },
+      tools: parseTools(options.tools),
+    }
+  }
+  ```
+
+- [ ] 15.3 Response 변환 (`UnifiedResponse` → AI SDK 형식)
+  ```typescript
+  // providers/ai-sdk/response.ts
+  import type { LanguageModelV2Content, LanguageModelV2FinishReason } from '@ai-sdk/provider'
+  
+  export function transform(response: UnifiedResponse): {
+    content: LanguageModelV2Content[]
+    finishReason: LanguageModelV2FinishReason
+    usage: LanguageModelV2Usage
+  }
+  ```
+
+- [ ] 15.4 Streaming 변환
+  ```typescript
+  // providers/ai-sdk/streaming.ts
+  import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
+  
+  export function transformStreamChunk(chunk: StreamChunk): LanguageModelV2StreamPart
+  ```
+
+- [ ] 15.5 AI SDK Adapter (LanguageModelV2 구현체)
+  ```typescript
+  // adapters/ai-sdk-adapter.ts
+  import type { LanguageModelV2 } from '@ai-sdk/provider'
+  
+  export function createLlmuxAdapter(config: {
+    targetProvider: ProviderID
+    credential: Credential
+  }): LanguageModelV2 {
+    return {
+      specificationVersion: 'v2',
+      provider: 'llmux',
+      modelId: config.targetProvider,
+      
+      async doGenerate(options) {
+        // 1. AI SDK → Unified 변환
+        // 2. Target provider로 요청
+        // 3. Unified → AI SDK 변환
+      },
+      
+      async doStream(options) {
+        // 스트리밍 버전
+      }
+    }
+  }
+  ```
+
+### 사용 예시
+
+```typescript
+import { createLlmuxAdapter } from '@llmux/core'
+import { generateText } from 'ai'
+
+// llmux를 AI SDK provider로 사용
+const model = createLlmuxAdapter({
+  targetProvider: 'antigravity',
+  credential: await getCredential('antigravity')
+})
+
+// AI SDK의 generateText와 호환
+const result = await generateText({
+  model,
+  prompt: 'Hello, world!'
+})
+```
+
+### Quality Gate
+
+```bash
+bun test packages/core/test/providers/ai-sdk/
+bun run typecheck
+```
+
+---
+
+## Phase 16: LiteLLM 호환 레이어 ⏳ Pending
+
+**예상 시간:** 3시간  
+**리스크:** 🟢 Low  
+**위치:** `@llmux/core` (core 패키지 확장) + `@llmux/server` (엔드포인트)
+
+### 개요
+
+LiteLLM (Python LLM 프록시)의 요청/응답 형식을 지원하여, LiteLLM 클라이언트가 llmux 서버에 직접 연결할 수 있게 함. LiteLLM은 기본적으로 OpenAI 형식을 확장한 형태.
+
+### LiteLLM 특수 필드
+
+| LiteLLM 필드 | 설명 | llmux 매핑 |
+|-------------|------|-----------|
+| `model` | `provider/model` 형식 (e.g., `anthropic/claude-3`) | provider + model 분리 |
+| `api_base` | Custom endpoint | Server routing |
+| `custom_llm_provider` | Provider override | ProviderID |
+| `metadata` | Request metadata | RequestMetadata |
+| `caching` | Response caching | SignatureCache |
+| `fallbacks` | Fallback 모델 목록 | Server routing config |
+| `num_retries` | 재시도 횟수 | Server middleware |
+
+### 프로젝트 구조
+
+```
+packages/core/src/providers/
+└── litellm/
+    ├── index.ts                    # LiteLLMProvider
+    ├── types.ts                    # LiteLLM 확장 필드 타입
+    ├── request.ts                  # LiteLLM → UnifiedRequest
+    └── response.ts                 # UnifiedResponse → LiteLLM
+
+packages/server/src/handlers/
+└── litellm.ts                      # /litellm/* 엔드포인트
+```
+
+### Tasks
+
+- [ ] 16.1 LiteLLM 타입 정의
+  ```typescript
+  // providers/litellm/types.ts
+  export interface LiteLLMRequest extends OpenAIRequest {
+    // LiteLLM 확장 필드
+    custom_llm_provider?: string
+    api_base?: string
+    metadata?: Record<string, unknown>
+    caching?: boolean
+    fallbacks?: string[]
+    num_retries?: number
+  }
+  ```
+
+- [ ] 16.2 모델 파싱 (`provider/model` 형식)
+  ```typescript
+  // providers/litellm/request.ts
+  export function parseModelString(model: string): { provider: string; model: string } {
+    // "anthropic/claude-3-opus" → { provider: "anthropic", model: "claude-3-opus" }
+    // "gpt-4" → { provider: "openai", model: "gpt-4" }
+  }
+  ```
+
+- [ ] 16.3 Request/Response 변환
+  - OpenAI 형식 기반이므로 대부분 OpenAIProvider 재사용
+  - LiteLLM 확장 필드만 추가 처리
+
+- [ ] 16.4 Server 엔드포인트
+  ```typescript
+  // handlers/litellm.ts
+  // POST /litellm/chat/completions
+  // LiteLLM SDK가 기대하는 형식으로 응답
+  ```
+
+### 사용 예시
+
+```python
+# Python (LiteLLM 클라이언트)
+import litellm
+
+# llmux 서버를 통해 요청
+response = litellm.completion(
+    model="antigravity/claude-3-opus",
+    messages=[{"role": "user", "content": "Hello"}],
+    api_base="http://localhost:8080/litellm",
+    custom_llm_provider="llmux"
+)
+```
+
+### Quality Gate
+
+```bash
+bun test packages/core/test/providers/litellm/
+curl -X POST http://localhost:8080/litellm/chat/completions
+```
 
 ---
 
