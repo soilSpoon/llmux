@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "noEmit": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "types": ["bun"],
+    "paths": {
+      "@llmux/core": ["./packages/core/src"],
+      "@llmux/core/*": ["./packages/core/src/*"],
+      "@llmux/auth": ["./packages/auth/src"],
+      "@llmux/auth/*": ["./packages/auth/src/*"],
+      "@llmux/server": ["./packages/server/src"],
+      "@llmux/server/*": ["./packages/server/src/*"]
+    }
+  },
+  "include": [],
+  "references": [
+    { "path": "./packages/core" },
+    { "path": "./packages/auth" },
+    { "path": "./packages/server" }
+  ]
+}

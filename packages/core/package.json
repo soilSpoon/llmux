@@ -1,0 +1,53 @@
+{
+  "name": "@llmux/core",
+  "version": "0.1.0",
+  "description": "LLM Provider Proxy Library - Bidirectional transformation between AI providers",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./providers": {
+      "types": "./dist/providers/index.d.ts",
+      "import": "./dist/providers/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "echo 'lint not configured'",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "llm",
+    "ai",
+    "openai",
+    "anthropic",
+    "gemini",
+    "claude",
+    "proxy",
+    "transform",
+    "streaming"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.14",
+    "typescript": "^5.7.2"
+  },
+  "peerDependencies": {}
+}
