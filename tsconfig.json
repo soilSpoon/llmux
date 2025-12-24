@@ -27,13 +27,16 @@
       "@llmux/auth": ["./packages/auth/src"],
       "@llmux/auth/*": ["./packages/auth/src/*"],
       "@llmux/server": ["./packages/server/src"],
-      "@llmux/server/*": ["./packages/server/src/*"]
+      "@llmux/server/*": ["./packages/server/src/*"],
+      "@llmux/cli": ["./packages/cli/src"],
+      "@llmux/cli/*": ["./packages/cli/src/*"]
     }
   },
   "include": [],
   "references": [
     { "path": "./packages/core" },
     { "path": "./packages/auth" },
-    { "path": "./packages/server" }
+    { "path": "./packages/server" },
+    { "path": "./packages/cli" }
   ]
 }
