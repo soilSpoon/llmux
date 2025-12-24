@@ -50,7 +50,7 @@ export class MemoryStorage implements SignatureStorage {
 }
 
 export class SQLiteStorage implements SignatureStorage {
-  private db: ReturnType<typeof import('bun:sqlite').Database.prototype.constructor>
+  private db: InstanceType<typeof import('bun:sqlite').Database>
 
   constructor(dbPath: string = 'signatures.db') {
     const { Database } = require('bun:sqlite')

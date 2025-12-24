@@ -382,6 +382,248 @@ describe('Gemini Response Transformations', () => {
         expect(result.stopReason).toBeNull()
       })
     })
+
+    describe('edge cases', () => {
+      it('should handle undefined candidates', () => {
+        const gemini = {
+          responseId: 'resp_123',
+        } as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.id).toBe('resp_123')
+        expect(result.content).toHaveLength(0)
+        expect(result.stopReason).toBeNull()
+      })
+
+      it('should handle null candidates', () => {
+        const gemini = {
+          candidates: null,
+          responseId: 'resp_123',
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.content).toHaveLength(0)
+        expect(result.stopReason).toBeNull()
+      })
+
+      it('should handle empty candidates array', () => {
+        const gemini: GeminiResponse = {
+          candidates: [],
+          responseId: 'resp_123',
+        }
+
+        const result = parseResponse(gemini)
+
+        expect(result.content).toHaveLength(0)
+        expect(result.stopReason).toBeNull()
+      })
+
+      it('should handle missing content in candidate', () => {
+        const gemini = {
+          candidates: [
+            {
+              finishReason: 'STOP',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.content).toHaveLength(0)
+        expect(result.stopReason).toBe('end_turn')
+      })
+
+      it('should handle invalid finishReason values', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Hi' }] },
+              finishReason: 'INVALID_REASON',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.stopReason).toBeNull()
+      })
+
+      it('should map BLOCKLIST to content_filter', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'BLOCKLIST',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+        expect(result.stopReason).toBe('content_filter')
+      })
+
+      it('should map PROHIBITED_CONTENT to content_filter', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'PROHIBITED_CONTENT',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+        expect(result.stopReason).toBe('content_filter')
+      })
+
+      it('should map SPII to content_filter', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'SPII',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+        expect(result.stopReason).toBe('content_filter')
+      })
+
+      it('should handle malformed usageMetadata with missing fields', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Hi' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 10,
+          },
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.usage?.inputTokens).toBe(10)
+        expect(result.usage?.outputTokens).toBeUndefined()
+        expect(result.usage?.totalTokens).toBeUndefined()
+      })
+
+      it('should handle empty usageMetadata object', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Hi' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {},
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.usage).toBeDefined()
+      })
+
+      it('should handle empty parts array', () => {
+        const gemini: GeminiResponse = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'STOP',
+            },
+          ],
+        }
+
+        const result = parseResponse(gemini)
+
+        expect(result.content).toHaveLength(0)
+        expect(result.thinking).toBeUndefined()
+      })
+
+      it('should handle mixed content types (text + functionCall + inlineData)', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  { text: 'Here is the result:' },
+                  { functionCall: { name: 'get_image', args: { query: 'cat' } } },
+                  { inlineData: { mimeType: 'image/png', data: 'base64data' } },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.content.length).toBeGreaterThanOrEqual(2)
+        expect(result.content[0].type).toBe('text')
+        expect(result.content[0].text).toBe('Here is the result:')
+        expect(result.content[1].type).toBe('tool_call')
+        expect(result.content[1].toolCall?.name).toBe('get_image')
+      })
+
+      it('should handle inlineData response parsing', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+                    },
+                  },
+                ],
+              },
+              finishReason: 'STOP',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.stopReason).toBe('end_turn')
+      })
+
+      it('should handle candidate with undefined parts', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model' },
+              finishReason: 'STOP',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+
+        expect(result.content).toHaveLength(0)
+      })
+
+      it('should handle RECITATION finishReason as null', () => {
+        const gemini = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [] },
+              finishReason: 'RECITATION',
+            },
+          ],
+        } as unknown as GeminiResponse
+
+        const result = parseResponse(gemini)
+        expect(result.stopReason).toBeNull()
+      })
+    })
   })
 
   describe('transformResponse (UnifiedResponse → GeminiResponse)', () => {

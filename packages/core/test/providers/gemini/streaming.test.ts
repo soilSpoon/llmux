@@ -542,4 +542,451 @@ describe('Gemini Streaming Transformations', () => {
       })
     })
   })
+
+  describe('error handling edge cases', () => {
+    describe('malformed SSE - missing data: prefix variations', () => {
+      it('should return null for line without data: prefix', () => {
+        const sse = `{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should return null for DATA: (uppercase)', () => {
+        const sse = `DATA: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should return null for datas: typo', () => {
+        const sse = `datas: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should return null for data without colon', () => {
+        const sse = `data {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+    })
+
+    describe('incomplete/truncated JSON chunks', () => {
+      it('should return null for truncated JSON object', () => {
+        const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should return null for JSON missing closing brackets', () => {
+        const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should return null for empty JSON object', () => {
+        const sse = `data: {}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+    })
+
+    describe('JSON with extra characters before/after', () => {
+      it('should return null for JSON with leading garbage', () => {
+        const sse = `data: xxx{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should handle JSON with trailing whitespace', () => {
+        const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}   `
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).not.toBeNull()
+        expect(result?.delta?.text).toBe('Hello')
+      })
+
+      it('should handle JSON with trailing newlines', () => {
+        const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}\n\n`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).not.toBeNull()
+        expect(result?.delta?.text).toBe('Hello')
+      })
+    })
+
+    describe('nested SSE (data: data: ...)', () => {
+      it('should return null for double data: prefix', () => {
+        const sse = `data: data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should return null for data: inside JSON string', () => {
+        const sse = `data: {"text":"data: test"}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+    })
+
+    describe('large chunk handling', () => {
+      it('should handle very large text content', () => {
+        const largeText = 'A'.repeat(100000)
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: largeText }],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.type).toBe('content')
+        expect(result?.delta?.text).toBe(largeText)
+        expect(result?.delta?.text?.length).toBe(100000)
+      })
+
+      it('should handle many parts in a single chunk', () => {
+        const parts = Array.from({ length: 100 }, (_, i) => ({ text: `part${i}` }))
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts,
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.type).toBe('content')
+        expect(result?.delta?.text).toBe(parts.map((p) => p.text).join(''))
+      })
+    })
+
+    describe('unicode in content', () => {
+      it('should handle unicode characters in text', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: '你好世界 🌍 مرحبا العالم' }],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.text).toBe('你好世界 🌍 مرحبا العالم')
+      })
+
+      it('should handle emoji sequences', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: '👨‍👩‍👧‍👦 👩🏽‍💻 🏳️‍🌈' }],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.text).toBe('👨‍👩‍👧‍👦 👩🏽‍💻 🏳️‍🌈')
+      })
+
+      it('should handle escaped unicode in JSON', () => {
+        const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"\\u4f60\\u597d"}]}}]}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.text).toBe('你好')
+      })
+    })
+
+    describe('special characters in function arguments', () => {
+      it('should handle JSON with nested quotes in args', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'write_file',
+                      args: { content: 'He said "Hello"' },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.toolCall?.arguments).toEqual({ content: 'He said "Hello"' })
+      })
+
+      it('should handle newlines and tabs in function args', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'write_file',
+                      args: { content: 'line1\n\tline2\r\nline3' },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.toolCall?.arguments).toEqual({ content: 'line1\n\tline2\r\nline3' })
+      })
+
+      it('should handle backslashes in function args', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'run_command',
+                      args: { path: 'C:\\Users\\test\\file.txt' },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.toolCall?.arguments).toEqual({ path: 'C:\\Users\\test\\file.txt' })
+      })
+    })
+
+    describe('empty candidate content but valid structure', () => {
+      it('should handle candidate with empty parts array', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should handle candidate with null parts', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: null,
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+
+      it('should handle candidate with undefined content fields', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result).toBeNull()
+      })
+    })
+
+    describe('multiple candidates in single chunk (should use first)', () => {
+      it('should use first candidate when multiple are present', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: 'First candidate' }],
+              },
+            },
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: 'Second candidate' }],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.text).toBe('First candidate')
+      })
+
+      it('should use first candidate even if subsequent have different finish reasons', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: 'First' }],
+              },
+              finishReason: 'STOP',
+            },
+            {
+              content: {
+                role: 'model',
+                parts: [{ text: 'Second' }],
+              },
+              finishReason: 'MAX_TOKENS',
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.text).toBe('First')
+        expect(result?.stopReason).toBe('end_turn')
+      })
+    })
+
+    describe('usageMetadata without candidatesTokenCount', () => {
+      it('should handle usageMetadata with only promptTokenCount', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Hi' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 10,
+          },
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.usage?.inputTokens).toBe(10)
+        expect(result?.usage?.outputTokens).toBeUndefined()
+      })
+
+      it('should handle usageMetadata with zero values', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Hi' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 0,
+            candidatesTokenCount: 0,
+            totalTokenCount: 0,
+          },
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.usage).toEqual({
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+        })
+      })
+
+      it('should handle empty usageMetadata object', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: { role: 'model', parts: [{ text: 'Hi' }] },
+              finishReason: 'STOP',
+            },
+          ],
+          usageMetadata: {},
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.usage?.inputTokens).toBeUndefined()
+        expect(result?.usage?.outputTokens).toBeUndefined()
+      })
+    })
+  })
 })

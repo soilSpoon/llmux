@@ -309,4 +309,93 @@ describe('Integration: Complex Scenarios', () => {
       expect(targetResponse).toBeDefined()
     }
   })
+
+  it('should handle thinking blocks in response', () => {
+    const response = createUnifiedResponse({
+      content: [{ type: 'text', text: 'The answer is 42.' }],
+      thinking: [{ text: 'Let me think about this...', signature: 'sig123' }],
+      stopReason: 'end_turn',
+    })
+
+    for (const { from, to } of providerCombinations) {
+      const sourceProvider = getProvider(from)
+      const sourceResponse = sourceProvider.transformResponse(response)
+      const targetResponse = transformResponse(sourceResponse, { from, to })
+
+      expect(targetResponse).toBeDefined()
+    }
+  })
+
+  it('should handle system prompts', () => {
+    const request = createUnifiedRequest({
+      system: 'You are a helpful assistant.',
+      messages: [createUnifiedMessage('user', 'Hello!')],
+    })
+
+    for (const { from, to } of providerCombinations) {
+      const sourceProvider = getProvider(from)
+      const sourceRequest = sourceProvider.transform(request)
+      const targetRequest = transformRequest(sourceRequest, { from, to })
+
+      const targetProvider = getProvider(to)
+      const parsed = targetProvider.parse(targetRequest)
+
+      expect(parsed.messages).toHaveLength(1)
+    }
+  })
+
+  it('should handle image content in messages', () => {
+    const request = createUnifiedRequest({
+      messages: [
+        {
+          role: 'user',
+          parts: [
+            { type: 'text', text: 'What is in this image?' },
+            {
+              type: 'image',
+              image: {
+                mimeType: 'image/png',
+                data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              },
+            },
+          ],
+        },
+      ],
+    })
+
+    for (const { from, to } of providerCombinations) {
+      const sourceProvider = getProvider(from)
+      const sourceRequest = sourceProvider.transform(request)
+      const targetRequest = transformRequest(sourceRequest, { from, to })
+
+      expect(targetRequest).toBeDefined()
+    }
+  })
+
+  it('should handle usage information in responses', () => {
+    const response = createUnifiedResponse({
+      content: [{ type: 'text', text: 'Hello!' }],
+      stopReason: 'end_turn',
+      usage: {
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150,
+        thinkingTokens: 200,
+        cachedTokens: 30,
+      },
+    })
+
+    for (const { from, to } of providerCombinations) {
+      const sourceProvider = getProvider(from)
+      const sourceResponse = sourceProvider.transformResponse(response)
+      const targetResponse = transformResponse(sourceResponse, { from, to })
+
+      const targetProvider = getProvider(to)
+      const parsed = targetProvider.parseResponse(targetResponse)
+
+      expect(parsed.usage).toBeDefined()
+      expect(parsed.usage?.inputTokens).toBe(100)
+      expect(parsed.usage?.outputTokens).toBe(50)
+    }
+  })
 })
