@@ -20,12 +20,15 @@
       "import": "./dist/types/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "bunup src/index.ts --dts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "lint": "echo 'lint not configured'",
+    "lint": "biome lint src",
     "clean": "rm -rf dist"
   },
   "keywords": [
@@ -46,8 +49,8 @@
     "url": ""
   },
   "devDependencies": {
-    "@types/bun": "^1.1.14",
-    "typescript": "^5.7.2"
+    "@types/bun": "^1.3.5",
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {}
 }

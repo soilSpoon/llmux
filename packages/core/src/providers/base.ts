@@ -1,23 +1,19 @@
-import type {
-  UnifiedRequest,
-  UnifiedResponse,
-  StreamChunk,
-} from "../types/unified";
+import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../types/unified'
 
 /**
  * Supported provider names
  */
-export type ProviderName = "openai" | "anthropic" | "gemini" | "antigravity";
+export type ProviderName = 'openai' | 'anthropic' | 'gemini' | 'antigravity'
 
 /**
  * Provider configuration
  */
 export interface ProviderConfig {
-  name: ProviderName;
-  supportsStreaming: boolean;
-  supportsThinking: boolean;
-  supportsTools: boolean;
-  defaultMaxTokens?: number;
+  name: ProviderName
+  supportsStreaming: boolean
+  supportsThinking: boolean
+  supportsTools: boolean
+  defaultMaxTokens?: number
 }
 
 /**
@@ -30,52 +26,52 @@ export interface ProviderConfig {
  * 4. UnifiedResponse → transformResponse() → Source Response
  */
 export interface Provider {
-  readonly name: ProviderName;
-  readonly config: ProviderConfig;
+  readonly name: ProviderName
+  readonly config: ProviderConfig
 
   /**
    * Parse provider-specific request format into UnifiedRequest
    */
-  parse(request: unknown): UnifiedRequest;
+  parse(request: unknown): UnifiedRequest
 
   /**
    * Transform UnifiedRequest into provider-specific request format
    */
-  transform(request: UnifiedRequest): unknown;
+  transform(request: UnifiedRequest): unknown
 
   /**
    * Parse provider-specific response format into UnifiedResponse
    */
-  parseResponse(response: unknown): UnifiedResponse;
+  parseResponse(response: unknown): UnifiedResponse
 
   /**
    * Transform UnifiedResponse into provider-specific response format
    */
-  transformResponse(response: UnifiedResponse): unknown;
+  transformResponse(response: UnifiedResponse): unknown
 
   /**
    * Parse a streaming chunk from provider format to unified format
    */
-  parseStreamChunk?(chunk: string): StreamChunk | null;
+  parseStreamChunk?(chunk: string): StreamChunk | null
 
   /**
    * Transform a unified stream chunk to provider format
    */
-  transformStreamChunk?(chunk: StreamChunk): string;
+  transformStreamChunk?(chunk: StreamChunk): string
 }
 
 /**
  * Abstract base class for providers with common functionality
  */
 export abstract class BaseProvider implements Provider {
-  abstract readonly name: ProviderName;
-  abstract readonly config: ProviderConfig;
+  abstract readonly name: ProviderName
+  abstract readonly config: ProviderConfig
 
-  abstract parse(request: unknown): UnifiedRequest;
-  abstract transform(request: UnifiedRequest): unknown;
-  abstract parseResponse(response: unknown): UnifiedResponse;
-  abstract transformResponse(response: UnifiedResponse): unknown;
+  abstract parse(request: unknown): UnifiedRequest
+  abstract transform(request: UnifiedRequest): unknown
+  abstract parseResponse(response: unknown): UnifiedResponse
+  abstract transformResponse(response: UnifiedResponse): unknown
 
-  parseStreamChunk?(chunk: string): StreamChunk | null;
-  transformStreamChunk?(chunk: StreamChunk): string;
+  parseStreamChunk?(chunk: string): StreamChunk | null
+  transformStreamChunk?(chunk: StreamChunk): string
 }
