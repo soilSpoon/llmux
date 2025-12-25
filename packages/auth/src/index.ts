@@ -1,5 +1,11 @@
 export { AntigravityProvider } from './providers/antigravity'
-export type { AuthMethod, AuthProvider, AuthResult } from './providers/base'
+export type {
+  AuthIntermediate,
+  AuthMethod,
+  AuthProvider,
+  AuthResult,
+  AuthStep,
+} from './providers/base'
 export type { DeviceCodeResponse } from './providers/github-copilot'
 export { GithubCopilotProvider, pollForToken, requestDeviceCode } from './providers/github-copilot'
 export { OpencodeZenProvider } from './providers/opencode-zen'

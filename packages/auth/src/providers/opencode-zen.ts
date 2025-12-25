@@ -25,12 +25,12 @@ export const OpencodeZenProvider: AuthProvider = {
   methods: [apiKeyMethod],
 
   async getCredential(): Promise<Credential | undefined> {
-    return CredentialStorage.get(PROVIDER_ID)
+    const credentials = await CredentialStorage.get(PROVIDER_ID)
+    return credentials[0]
   },
 
-  async getHeaders(): Promise<Record<string, string>> {
-    const credential = await this.getCredential()
-    if (!credential || !isApiKeyCredential(credential)) {
+  async getHeaders(credential: Credential): Promise<Record<string, string>> {
+    if (!isApiKeyCredential(credential)) {
       return {}
     }
     return { Authorization: `Bearer ${credential.key}` }

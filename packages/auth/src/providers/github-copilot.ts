@@ -119,12 +119,12 @@ export const GithubCopilotProvider: AuthProvider = {
   methods: [deviceFlowMethod],
 
   async getCredential(): Promise<Credential | undefined> {
-    return CredentialStorage.get(PROVIDER_ID)
+    const credentials = await CredentialStorage.get(PROVIDER_ID)
+    return credentials[0]
   },
 
-  async getHeaders(): Promise<Record<string, string>> {
-    const credential = await this.getCredential()
-    if (!credential || !isOAuthCredential(credential)) {
+  async getHeaders(credential: Credential): Promise<Record<string, string>> {
+    if (!isOAuthCredential(credential)) {
       return {}
     }
     return {
@@ -135,5 +135,46 @@ export const GithubCopilotProvider: AuthProvider = {
 
   getEndpoint(_model: string): string {
     return 'https://api.githubcopilot.com/chat/completions'
+  },
+
+  async refresh(credential: Credential): Promise<Credential> {
+    if (!isOAuthCredential(credential) || !credential.refreshToken) {
+      return credential
+    }
+
+    const response = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        grant_type: 'refresh_token',
+        refresh_token: credential.refreshToken,
+      }),
+    })
+
+    const data = (await response.json()) as {
+      error?: string
+      access_token?: string
+      refresh_token?: string
+      expires_in?: number
+    }
+
+    if (data.error) {
+      throw new Error(`Failed to refresh GitHub Copilot token: ${data.error}`)
+    }
+
+    if (data.access_token) {
+      return {
+        ...credential,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || credential.refreshToken,
+        expiresAt: Date.now() + (data.expires_in || 28800) * 1000,
+      }
+    }
+
+    throw new Error('Unknown error refreshing GitHub Copilot token')
   },
 }

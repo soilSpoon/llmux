@@ -1,39 +1,30 @@
 import { CredentialStorage } from '../storage'
-import type { ApiKeyCredential, Credential } from '../types'
+import type { Credential } from '../types'
 import { isApiKeyCredential, isOAuthCredential } from '../types'
-import type { AuthMethod, AuthProvider, AuthResult } from './base'
+import { authorizeAntigravity, refreshAntigravityToken } from './antigravity-oauth'
+import type { AuthMethod, AuthProvider } from './base'
 
 const PROVIDER_ID = 'antigravity'
+let activeIndex = 0
 
-const apiKeyMethod: AuthMethod = {
-  type: 'api',
-  label: 'API Key',
-  async authorize(inputs?: Record<string, string>): Promise<AuthResult> {
-    const key = inputs?.key
-    if (!key) {
-      return { type: 'failed', error: 'API key is required' }
-    }
-    const credential: ApiKeyCredential = { type: 'api', key }
-    await CredentialStorage.set(PROVIDER_ID, credential)
-    return { type: 'success', credential }
-  },
+const oauthMethod: AuthMethod = {
+  type: 'oauth',
+  label: 'Google OAuth',
+  authorize: () => authorizeAntigravity(),
 }
 
 export const AntigravityProvider: AuthProvider = {
   id: PROVIDER_ID,
   name: 'Antigravity (Gemini)',
-  methods: [apiKeyMethod],
+  methods: [oauthMethod],
 
   async getCredential(): Promise<Credential | undefined> {
-    return CredentialStorage.get(PROVIDER_ID)
+    const credentials = await CredentialStorage.get(PROVIDER_ID)
+    if (credentials.length === 0) return undefined
+    return credentials[activeIndex % credentials.length]
   },
 
-  async getHeaders(): Promise<Record<string, string>> {
-    const credential = await this.getCredential()
-    if (!credential) {
-      return {}
-    }
-
+  async getHeaders(credential: Credential): Promise<Record<string, string>> {
     if (isApiKeyCredential(credential)) {
       return {
         'x-goog-api-key': credential.key,
@@ -53,5 +44,16 @@ export const AntigravityProvider: AuthProvider = {
 
   getEndpoint(model: string): string {
     return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+  },
+
+  async refresh(credential: Credential): Promise<Credential> {
+    if (isOAuthCredential(credential)) {
+      return refreshAntigravityToken(credential)
+    }
+    return credential
+  },
+
+  rotate() {
+    activeIndex++
   },
 }

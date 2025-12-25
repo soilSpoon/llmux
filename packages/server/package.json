@@ -17,6 +17,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@llmux/auth": "workspace:*",
     "@llmux/core": "workspace:*"
   },
   "devDependencies": {

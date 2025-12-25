@@ -1,3 +1,4 @@
+import { AuthProviderRegistry } from '@llmux/auth'
 import { type ProviderName, transformRequest, transformResponse } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 
@@ -12,7 +13,6 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-  antigravity: 'https://api.antigravity.ai/v1/generateContent',
 }
 
 function formatToProvider(format: RequestFormat): ProviderName {
@@ -37,9 +37,6 @@ function buildHeaders(targetProvider: string, apiKey?: string): Record<string, s
     case 'gemini':
       headers['x-goog-api-key'] = apiKey
       break
-    case 'antigravity':
-      headers['Authorization'] = `Bearer ${apiKey}`
-      break
   }
 
   return headers
@@ -58,38 +55,80 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       ;(transformedRequest as { model?: string }).model = options.targetModel
     }
 
-    const endpoint = PROVIDER_ENDPOINTS[options.targetProvider]
-    if (!endpoint) {
-      return new Response(
-        JSON.stringify({ error: `Unknown provider: ${options.targetProvider}` }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-    const headers = buildHeaders(options.targetProvider, options.apiKey)
+    const authProvider = AuthProviderRegistry.get(options.targetProvider)
 
-    let upstreamResponse: Response
-    try {
-      upstreamResponse = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(transformedRequest),
-      })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Network error'
-      return new Response(JSON.stringify({ error: message }), {
-        status: 502,
+    // Retry loop for rotation
+    const maxAttempts = 5
+    let attempt = 0
+    let lastResponse: Response | undefined
+
+    while (attempt < maxAttempts) {
+      attempt++
+
+      let endpoint = ''
+      let headers: Record<string, string> = {}
+
+      if (authProvider && !options.apiKey) {
+        endpoint = authProvider.getEndpoint(options.targetModel || 'gemini-pro')
+        const credential = await authProvider.getCredential()
+        if (!credential) {
+          return new Response(
+            JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          )
+        }
+        headers = await authProvider.getHeaders(credential)
+      } else {
+        const url = PROVIDER_ENDPOINTS[options.targetProvider]
+        if (!url) {
+          return new Response(
+            JSON.stringify({ error: `Unknown provider: ${options.targetProvider}` }),
+            { status: 400, headers: { 'Content-Type': 'application/json' } }
+          )
+        }
+        endpoint = url
+        headers = buildHeaders(options.targetProvider, options.apiKey)
+      }
+
+      let upstreamResponse: Response
+      try {
+        upstreamResponse = await fetch(endpoint, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(transformedRequest),
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Network error'
+        return new Response(JSON.stringify({ error: message }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      lastResponse = upstreamResponse
+
+      if (upstreamResponse.status === 429) {
+        if (authProvider && !options.apiKey && authProvider.rotate) {
+          authProvider.rotate()
+          continue
+        }
+      }
+
+      break
+    }
+
+    if (!lastResponse) {
+      return new Response(JSON.stringify({ error: 'Request failed' }), { status: 500 })
+    }
+
+    if (!lastResponse.ok) {
+      return new Response(lastResponse.body, {
+        status: lastResponse.status,
         headers: { 'Content-Type': 'application/json' },
       })
     }
 
-    if (!upstreamResponse.ok) {
-      return new Response(upstreamResponse.body, {
-        status: upstreamResponse.status,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    const upstreamBody = await upstreamResponse.json()
+    const upstreamBody = await lastResponse.json()
 
     const transformedResponse = transformResponse(upstreamBody, {
       from: options.targetProvider as ProviderName,

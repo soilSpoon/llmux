@@ -5,14 +5,26 @@ export interface AuthProvider {
   name: string
   methods: AuthMethod[]
   getCredential(): Promise<Credential | undefined>
-  getHeaders(): Promise<Record<string, string>>
+  getHeaders(credential: Credential): Promise<Record<string, string>>
   getEndpoint(model: string): string
+  refresh?(credential: Credential): Promise<Credential>
+  rotate?(): void
 }
 
 export interface AuthMethod {
   type: 'oauth' | 'api' | 'device-flow'
   label: string
-  authorize(inputs?: Record<string, string>): Promise<AuthResult>
+  authorize(inputs?: Record<string, string>): Promise<AuthStep>
+}
+
+export type AuthStep = AuthResult | AuthIntermediate
+
+export interface AuthIntermediate {
+  type: 'intermediate'
+  url?: string
+  message?: string
+  auto?: boolean
+  callback(input?: string): Promise<AuthResult>
 }
 
 export interface AuthResult {
