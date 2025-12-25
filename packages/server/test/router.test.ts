@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createRouter, type Route } from '../src/router'
+import { createRouter, type Route, type RouteParams } from '../src/router'
 
 describe('createRouter', () => {
   test('matches GET route', async () => {
@@ -127,5 +127,291 @@ describe('createRouter', () => {
     expect(response.status).toBe(500)
     const data = await response.json()
     expect(data.error).toBe('Test error')
+  })
+})
+
+describe('path parameters', () => {
+  test('should pass single path param to handler', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/provider/:provider/models',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/api/provider/openai/models')
+    )
+    expect(res.status).toBe(200)
+    expect(capturedParams?.provider).toBe('openai')
+  })
+
+  test('should pass multiple path params to handler', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/:provider/v1/:endpoint',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/api/openai/v1/chat')
+    )
+    expect(res.status).toBe(200)
+    expect(capturedParams?.provider).toBe('openai')
+    expect(capturedParams?.endpoint).toBe('chat')
+  })
+
+  test('should match path with param in middle segment', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'POST',
+        path: '/users/:id/profile',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/users/123/profile', { method: 'POST' })
+    )
+    expect(res.status).toBe(200)
+    expect(capturedParams?.id).toBe('123')
+  })
+
+  test('should not match when segment count differs', async () => {
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/:provider/models',
+        handler: async () => new Response('ok'),
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/api/openai/extra/models')
+    )
+    expect(res.status).toBe(404)
+  })
+})
+
+describe('wildcard matching', () => {
+  test('should match *wildcard and capture rest of path', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'POST',
+        path: '/v1beta/models/*action',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/v1beta/models/gemini-pro:generateContent', {
+        method: 'POST',
+      })
+    )
+    expect(res.status).toBe(200)
+    expect(capturedParams?.action).toBe('gemini-pro:generateContent')
+  })
+
+  test('should capture multi-segment path in wildcard', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/files/*path',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/files/a/b/c.txt')
+    )
+    expect(res.status).toBe(200)
+    expect(capturedParams?.path).toBe('a/b/c.txt')
+  })
+
+  test('should match wildcard with empty capture', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/*rest',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(new Request('http://localhost/api/'))
+    expect(res.status).toBe(200)
+    expect(capturedParams?.rest).toBe('')
+  })
+
+  test('should combine param and wildcard', async () => {
+    let capturedParams: RouteParams | undefined
+    const routes: Route[] = [
+      {
+        method: 'POST',
+        path: '/api/provider/:provider/v1beta/*action',
+        handler: async (_req, params) => {
+          capturedParams = params
+          return new Response('ok')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request(
+        'http://localhost/api/provider/google/v1beta/models/gemini:generate',
+        { method: 'POST' }
+      )
+    )
+    expect(res.status).toBe(200)
+    expect(capturedParams?.provider).toBe('google')
+    expect(capturedParams?.action).toBe('models/gemini:generate')
+  })
+})
+
+describe('route priority', () => {
+  test('should prioritize exact match over param match', async () => {
+    let matchedRoute = ''
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/:resource',
+        handler: async () => {
+          matchedRoute = 'param'
+          return new Response('param')
+        },
+      },
+      {
+        method: 'GET',
+        path: '/api/health',
+        handler: async () => {
+          matchedRoute = 'exact'
+          return new Response('exact')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(new Request('http://localhost/api/health'))
+    expect(res.status).toBe(200)
+    expect(matchedRoute).toBe('exact')
+  })
+
+  test('should prioritize param match over wildcard match', async () => {
+    let matchedRoute = ''
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/*rest',
+        handler: async () => {
+          matchedRoute = 'wildcard'
+          return new Response('wildcard')
+        },
+      },
+      {
+        method: 'GET',
+        path: '/api/:resource',
+        handler: async () => {
+          matchedRoute = 'param'
+          return new Response('param')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(new Request('http://localhost/api/users'))
+    expect(res.status).toBe(200)
+    expect(matchedRoute).toBe('param')
+  })
+
+  test('should use wildcard when no exact or param match', async () => {
+    let matchedRoute = ''
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/health',
+        handler: async () => {
+          matchedRoute = 'exact'
+          return new Response('exact')
+        },
+      },
+      {
+        method: 'GET',
+        path: '/api/*rest',
+        handler: async () => {
+          matchedRoute = 'wildcard'
+          return new Response('wildcard')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res = await router(
+      new Request('http://localhost/api/some/nested/path')
+    )
+    expect(res.status).toBe(200)
+    expect(matchedRoute).toBe('wildcard')
+  })
+
+  test('should prioritize more specific param routes', async () => {
+    let matchedRoute = ''
+    const routes: Route[] = [
+      {
+        method: 'GET',
+        path: '/api/:a/:b',
+        handler: async () => {
+          matchedRoute = 'two-params'
+          return new Response('two')
+        },
+      },
+      {
+        method: 'GET',
+        path: '/api/:a',
+        handler: async () => {
+          matchedRoute = 'one-param'
+          return new Response('one')
+        },
+      },
+    ]
+    const router = createRouter(routes)
+
+    const res1 = await router(new Request('http://localhost/api/users'))
+    expect(matchedRoute).toBe('one-param')
+
+    const res2 = await router(new Request('http://localhost/api/users/123'))
+    expect(matchedRoute).toBe('two-params')
   })
 })

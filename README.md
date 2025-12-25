@@ -64,6 +64,72 @@ bun run build
 bun test
 ```
 
+## Amp CLI Support
+
+llmux supports [Amp CLI](https://ampcode.com) compatible routing. This allows you to use local API keys (free) while falling back to ampcode.com when needed.
+
+### Quick Start
+
+```typescript
+import { startServer, type AmpConfig } from '@llmux/server'
+
+const ampConfig: AmpConfig = {
+  handlers: {
+    openai: async (req) => {
+      // Handle OpenAI requests with your local API key
+      return fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: req.body,
+      })
+    },
+    anthropic: async (req) => {
+      // Handle Anthropic requests
+      return fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': process.env.ANTHROPIC_API_KEY!,
+          'Content-Type': 'application/json',
+          'anthropic-version': '2023-06-01',
+        },
+        body: req.body,
+      })
+    },
+  },
+  // Fallback to ampcode.com when local provider is unavailable
+  upstreamUrl: 'https://api.ampcode.com',
+  upstreamApiKey: process.env.AMP_API_KEY,
+  // Check if local provider is available for the model
+  providerChecker: (model) => {
+    const localModels = ['gpt-4o', 'gpt-4o-mini', 'claude-sonnet-4-20250514']
+    return localModels.includes(model)
+  },
+}
+
+const server = await startServer({ port: 8080, amp: ampConfig })
+console.log(`Amp-compatible server running on port ${server.port}`)
+```
+
+### Amp Routes
+
+When `amp` config is provided, the following routes are registered:
+
+| Route | Method | Description |
+|-------|--------|-------------|
+| `/api/provider/:provider/v1/chat/completions` | POST | OpenAI chat completions |
+| `/api/provider/:provider/v1/messages` | POST | Anthropic messages |
+| `/api/provider/:provider/v1/models` | GET | List models |
+| `/v1beta/models/*action` | POST | Gemini generateContent |
+
+### Fallback Behavior
+
+1. **Local Provider Available**: Request is handled locally (free)
+2. **No Local Provider + Upstream Configured**: Request is proxied to ampcode.com (uses Amp credits)
+3. **No Local Provider + No Upstream**: Returns 503 error
+
 ## License
 
 MIT

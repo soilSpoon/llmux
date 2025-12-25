@@ -1,15 +1,26 @@
 import { getRegisteredProviders } from '@llmux/core'
+import { createAmpRoutes, type ProviderHandlers } from './amp/routes'
+import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
 import { handleProxy, type ProxyOptions } from './handlers/proxy'
 import { handleStreamingProxy } from './handlers/streaming'
 import { corsMiddleware } from './middleware/cors'
 import { detectFormat } from './middleware/format'
 import { createRouter, type Route } from './router'
+import { createUpstreamProxy } from './upstream/proxy'
+
+export interface AmpConfig {
+  handlers: ProviderHandlers
+  upstreamUrl?: string
+  upstreamApiKey?: string
+  providerChecker?: ProviderChecker
+}
 
 export interface ServerConfig {
   port: number
   hostname: string
   corsOrigins?: string[]
+  amp?: AmpConfig
 }
 
 export interface LlmuxServer {
@@ -150,6 +161,29 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
   const mergedConfig = { ...defaultConfig, ...config }
 
   const routes = createDefaultRoutes()
+
+  if (mergedConfig.amp) {
+    const ampConfig = mergedConfig.amp
+    let fallbackHandler: FallbackHandler | undefined
+
+    if (ampConfig.upstreamUrl || ampConfig.providerChecker) {
+      const proxy = ampConfig.upstreamUrl
+        ? createUpstreamProxy({
+            targetUrl: ampConfig.upstreamUrl,
+            apiKey: ampConfig.upstreamApiKey,
+          })
+        : null
+      const providerChecker = ampConfig.providerChecker ?? (() => false)
+      fallbackHandler = new FallbackHandler(() => proxy, providerChecker)
+    }
+
+    const ampRoutes = createAmpRoutes({
+      handlers: ampConfig.handlers,
+      fallbackHandler,
+    })
+    routes.push(...ampRoutes)
+  }
+
   let fetchHandler = createRouter(routes)
 
   if (mergedConfig.corsOrigins && mergedConfig.corsOrigins.length > 0) {
