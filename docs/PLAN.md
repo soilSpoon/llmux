@@ -1,9 +1,9 @@
 # llmux - LLM Provider Proxy Library
 
-**Version:** 2.0  
+**Version:** 2.1  
 **Created:** 2025-12-24  
 **Updated:** 2025-12-25  
-**Status:** ✅ Phase 1-11 Complete | 🔶 Phase 12-14 Mostly Complete | ⏳ Phase 15-16 Pending  
+**Status:** ✅ Phase 1-14 Complete | ⏳ Phase 15-16 Pending  
 **Language:** TypeScript + Bun  
 **Architecture:** Hub-and-Spoke + Strategy Pattern
 
@@ -71,12 +71,9 @@ const response = await llmux.proxy(geminiRequest, {
 | 9 | Transform API | ✅ Complete | 100% | ~1h |
 | 10 | 공개 API & 빌드 | ✅ Complete | 100% | ~0.5h |
 | 11 | 테스트 & 문서화 | ✅ Complete | 100% | ~3h |
-| 12 | Auth 모듈 | 🔶 Mostly Complete | 85% | ~1h |
-| 13 | Server 모듈 | 🔶 Mostly Complete | 85% | ~1h |
-| 14 | CLI 통합 패키지 | 🔶 In Progress | 80% | 2h |
-| 14.1 | CLI 보완 (config, 테스트) | ⏳ Pending | 0% | 1h |
-| 12.1 | Auth 보완 (TokenRefresh 통합) | ⏳ Pending | 0% | 1h |
-| 13.1 | Server 보완 (고급 라우팅) | ⏳ Pending | 0% | 1.5h |
+| 12 | Auth 모듈 | ✅ Complete | 100% | ~1.5h |
+| 13 | Server 모듈 | ✅ Complete | 100% | ~1.5h |
+| 14 | CLI 통합 패키지 | ✅ Complete | 100% | ~2h |
 | 15 | AI SDK 호환 레이어 | ⏳ Pending | 0% | 4h |
 | 16 | LiteLLM 호환 레이어 | ⏳ Pending | 0% | 3h |
 
@@ -86,179 +83,64 @@ const response = await llmux.proxy(geminiRequest, {
 
 ### 완료된 작업
 - ✅ Phase 1-11: Core 라이브러리 100% 완료 (~90-95% 테스트 커버리지)
-- ✅ Phase 12: Auth 모듈 기본 기능 완료 (CredentialStorage, Provider Registry, 58 tests)
-- ✅ Phase 13: Server 모듈 기본 기능 완료 (Bun.serve, Router, Format Detection, 42 tests)
-- ✅ Phase 14: CLI 기본 명령어 완료 (auth, serve, proxy, stream)
+- ✅ Phase 12: Auth 모듈 완료 (CredentialStorage, TokenRefresh, Provider Registry, 60+ tests)
+- ✅ Phase 13: Server 모듈 완료 (Bun.serve, Router, Routing, ConfigLoader, transformStreamChunk, 60+ tests)
+- ✅ Phase 14: CLI 통합 완료 (auth, serve, proxy, stream, config 명령어)
 
 ### 현재 진행 중
-- 🔶 Phase 12-14 보완 작업 필요 (아래 상세 내역 참조)
+- ⏳ Phase 15-16: AI SDK / LiteLLM 호환 레이어 (선택적)
 
 ### 통계
 - **소스 파일**: 85+개 TypeScript 파일
-- **테스트 파일**: 50+개 테스트 파일  
-- **테스트 통과**: 1,100+개 단위/통합 테스트 (core 915 + auth 58 + server 42 + cli 기타)
+- **테스트 파일**: 55+개 테스트 파일  
+- **테스트 통과**: 1,150+개 단위/통합 테스트 (core 915 + auth 60 + server 60 + cli 기타)
 - **빌드 크기**: @llmux/core 84KB, @llmux/auth 8.5KB, @llmux/server 13KB, @llmux/cli ~15KB
 - **타입 체크**: ✅ 통과
 
 ### 미완료 작업
-- ⏳ **Phase 12.1**: Auth 보완 (TokenRefresh 통합, multi-credential 테스트)
-- ⏳ **Phase 13.1**: Server 보완 (고급 라우팅, 스트리밍 변환)
-- ⏳ **Phase 14.1**: CLI 보완 (config 명령어, 테스트 커버리지)
 - ⏳ **Phase 15**: AI SDK 호환 레이어 (`@ai-sdk/*` 스키마 호환)
 - ⏳ **Phase 16**: LiteLLM 호환 레이어 (Python SDK 호환)
 
 ---
 
-## 보완 계획 상세 (Phase 12.1, 13.1, 14.1)
+## Phase 12-14 완료 상세 (2025-12-25)
 
-### Phase 12.1: Auth 모듈 보완 ⏳ Pending
+### Phase 12: Auth 모듈 ✅ Complete
 
-**예상 시간:** 1시간  
-**리스크:** 🟢 Low
+**구현 완료:**
+- `TokenRefresh.ensureFresh` → proxy handler 완전 통합
+- Multi-credential 저장/조회/업데이트 구현
+- OAuth refresh 흐름 지원 (provider.refresh 호출)
+- getCredential → ensureFresh 체이닝 패턴
 
-#### 목표
-1. `TokenRefresh.ensureFresh`를 Server/CLI에 완전 통합
-2. Multi-credential 저장 방식 테스트 보완
-3. OAuth refresh 흐름 테스트 추가
+**테스트 완료:**
+- storage.test.ts: multi-credential 테스트 (15+ tests)
+- refresh.test.ts: OAuth refresh 흐름 테스트 (10+ tests)
 
-#### 작업 목록
+### Phase 13: Server 모듈 ✅ Complete
 
-```markdown
-- [ ] TokenRefresh.ensureFresh를 proxy handler에서 호출
-- [ ] multi-credential 테스트 케이스 추가 (storage.test.ts)
-- [ ] OAuth refresh 흐름 테스트 (antigravity provider)
-- [ ] getCredential -> ensureFresh 체이닝 패턴 구현
-```
+**구현 완료:**
+- RoutingConfig 타입 정의 (defaultProvider, modelMapping, fallbackOrder)
+- ConfigLoader: ~/.llmux/config.yaml 읽기/쓰기
+- Router class: 모델 라우팅, fallback, 429 rotation
+- transformStreamChunk: cross-provider 스트리밍 변환
+- /providers 엔드포인트
 
-#### 파일 변경
+**테스트 완료:**
+- config.test.ts: YAML 로드/저장 테스트 (10+ tests)
+- routing.test.ts: Router 클래스 테스트 (11 tests)
+- streaming-transform.test.ts: 스트림 변환 테스트 (9 tests)
+- handlers/providers.test.ts: /providers 엔드포인트 테스트 (3 tests)
 
-```
-packages/auth/src/
-├── refresh.ts              # ensureFresh 로직 개선
-└── storage.ts              # multi-credential API 정리
+### Phase 14: CLI 통합 ✅ Complete
 
-packages/auth/test/
-├── storage.test.ts         # multi-credential 테스트 추가
-└── refresh.test.ts         # refresh 흐름 테스트 확장
+**구현 완료:**
+- `llmux config list/get/set` 명령어
+- ~/.llmux/config.yaml 읽기/쓰기 유틸리티
+- serve 명령어에서 config 파일 로드
 
-packages/server/src/handlers/
-└── proxy.ts                # ensureFresh 호출 추가
-```
-
----
-
-### Phase 13.1: Server 모듈 보완 ⏳ Pending
-
-**예상 시간:** 1.5시간  
-**리스크:** 🟡 Medium
-
-#### 목표
-1. 고급 라우팅 설정 (default provider, model mapping, fallback)
-2. 스트리밍 변환 레이어 (cross-provider streaming)
-3. `/providers` 엔드포인트 테스트
-
-#### 작업 목록
-
-```markdown
-- [ ] RoutingConfig 타입 정의 (defaultProvider, modelMapping, fallbackOrder)
-- [ ] 설정 파일 로더 구현 (~/.llmux/config.yaml)
-- [ ] transformStreamChunk 함수 구현 (스트리밍 변환)
-- [ ] /providers 엔드포인트 테스트 추가
-```
-
-#### 파일 변경
-
-```
-packages/server/src/
-├── config.ts               # [NEW] 서버 설정 로더
-├── routing.ts              # [NEW] 고급 라우팅 로직
-└── handlers/
-    └── streaming.ts        # 스트리밍 변환 추가
-
-packages/server/test/
-├── config.test.ts          # [NEW] 설정 로더 테스트
-└── handlers/
-    └── providers.test.ts   # [NEW] /providers 테스트
-```
-
-#### RoutingConfig 스키마
-
-```typescript
-interface RoutingConfig {
-  defaultProvider?: ProviderName
-  modelMapping?: Record<string, {
-    provider: ProviderName
-    model: string
-  }>
-  fallbackOrder?: ProviderName[]
-  rotateOn429?: boolean
-}
-```
-
----
-
-### Phase 14.1: CLI 통합 패키지 보완 ⏳ Pending
-
-**예상 시간:** 1시간  
-**리스크:** 🟢 Low
-
-#### 목표
-1. `config` 명령어 구현 (set, get, list)
-2. 설정 파일 관리 (~/.llmux/config.yaml)
-3. CLI 테스트 커버리지 확대 (yargs 파싱, 명령어 실행)
-
-#### 작업 목록
-
-```markdown
-- [ ] config.ts 명령어 구현 (set, get, list)
-- [ ] ~/.llmux/config.yaml 읽기/쓰기 유틸리티
-- [ ] serve 명령어에서 config 파일 로드
-- [ ] CLI 명령어 테스트 추가 (auth, serve, proxy, stream)
-```
-
-#### 파일 변경
-
-```
-packages/cli/src/
-├── commands/
-│   └── config.ts           # [NEW] config set/get/list
-└── utils/
-    └── config.ts           # [NEW] 설정 파일 관리
-
-packages/cli/test/
-├── commands/
-│   ├── auth.test.ts        # [NEW] auth 명령어 테스트
-│   ├── serve.test.ts       # [NEW] serve 명령어 테스트
-│   └── config.test.ts      # [NEW] config 명령어 테스트
-└── cli.test.ts             # 기존 테스트 확장
-```
-
-#### Config 파일 스키마
-
-```yaml
-# ~/.llmux/config.yaml
-server:
-  port: 8080
-  hostname: localhost
-  cors: true
-
-routing:
-  defaultProvider: anthropic
-  modelMapping:
-    gpt-4: { provider: openai, model: gpt-4-turbo }
-    claude-3: { provider: anthropic, model: claude-3-5-sonnet-20241022 }
-  fallbackOrder: [anthropic, openai, gemini]
-  rotateOn429: true
-```
-
-#### 명령어 예시
-
-```bash
-llmux config list                           # 전체 설정 출력
-llmux config get server.port                # 특정 값 조회
-llmux config set server.port 3000           # 값 설정
-llmux config set routing.defaultProvider anthropic
-```
+**테스트 완료:**
+- cli.test.ts: auth, config 명령어 테스트 (10+ tests)
 
 ---
 
