@@ -295,10 +295,10 @@ function transformAssistantMessage(msg: UnifiedMessage): OpenAIAssistantMessage 
   if (toolCallParts.length > 0) {
     result.tool_calls = toolCallParts.map(
       (part): OpenAIToolCall => ({
-        id: part.toolCall?.id,
+        id: part.toolCall?.id ?? '',
         type: 'function',
         function: {
-          name: part.toolCall?.name,
+          name: part.toolCall?.name ?? '',
           arguments: JSON.stringify(part.toolCall?.arguments),
         },
       })

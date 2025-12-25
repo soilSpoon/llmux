@@ -15,7 +15,7 @@
  *   bun run examples/amp-server.ts
  *
  *   # Configure Amp CLI to use this server
- *   amp config set api.url http://localhost:8080
+ *   amp config set api.url http://localhost:8743
  */
 
 import { startServer, type AmpConfig } from '../src/server'
@@ -130,7 +130,7 @@ function createProviderHandlers(): ProviderHandlers {
 }
 
 async function main() {
-  const port = parseInt(process.env.PORT ?? '8080', 10)
+  const port = parseInt(process.env.PORT ?? '8743', 10)
   const handlers = createProviderHandlers()
   const providerChecker = createProviderChecker()
 

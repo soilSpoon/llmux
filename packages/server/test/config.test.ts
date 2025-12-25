@@ -26,14 +26,14 @@ describe('ConfigLoader', () => {
 
   test('load returns default config when no file exists', async () => {
     const config = await ConfigLoader.load()
-    expect(config.server.port).toBe(8080)
+    expect(config.server.port).toBe(8743)
     expect(config.server.hostname).toBe('localhost')
     expect(config.routing.defaultProvider).toBe('anthropic')
   })
 
   test('getDefault returns default configuration', () => {
     const config = ConfigLoader.getDefault()
-    expect(config.server.port).toBe(8080)
+    expect(config.server.port).toBe(8743)
     expect(config.server.cors).toBe(true)
     expect(config.routing.rotateOn429).toBe(true)
   })
@@ -63,7 +63,7 @@ describe('ConfigLoader', () => {
 
   test('get returns specific section', async () => {
     const server = await ConfigLoader.get('server')
-    expect(server.port).toBe(8080)
+    expect(server.port).toBe(8743)
   })
 
   test('set updates specific section', async () => {
@@ -101,7 +101,7 @@ describe('ConfigLoader', () => {
     await writeFile(
       join(dir, 'config.yaml'),
       `server:
-  port: 8080
+  port: 8743
   hostname: localhost
   cors: true
 

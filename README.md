@@ -109,7 +109,7 @@ const ampConfig: AmpConfig = {
   },
 }
 
-const server = await startServer({ port: 8080, amp: ampConfig })
+const server = await startServer({ port: 8743, amp: ampConfig })
 console.log(`Amp-compatible server running on port ${server.port}`)
 ```
 

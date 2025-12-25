@@ -125,8 +125,8 @@ function parseFunctionCallChunk(
       type: 'tool_call',
       toolCall: {
         id: part.functionCall?.id || generateId(),
-        name: part.functionCall?.name,
-        arguments: part.functionCall?.args,
+        name: part.functionCall?.name ?? '',
+        arguments: part.functionCall?.args ?? {},
       },
     },
   }

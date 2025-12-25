@@ -144,7 +144,7 @@ describe('FallbackHandler.wrap', () => {
 
   test('should use local handler when provider available', async () => {
     let localHandlerCalled = false
-    const localHandler = async (req: Request) => {
+    const localHandler = async (_req: Request) => {
       localHandlerCalled = true
       return new Response(JSON.stringify({ source: 'local' }), {
         headers: { 'Content-Type': 'application/json' },
@@ -163,7 +163,7 @@ describe('FallbackHandler.wrap', () => {
     })
 
     const response = await wrappedHandler(request, {})
-    const data = await response.json()
+    const data = await response.json() as { source: string }
 
     expect(localHandlerCalled).toBe(true)
     expect(data.source).toBe('local')
@@ -189,7 +189,7 @@ describe('FallbackHandler.wrap', () => {
     })
 
     const response = await wrappedHandler(request, {})
-    const data = await response.json()
+    const data = await response.json() as { source: string }
 
     expect(localHandlerCalled).toBe(false)
     expect(data.source).toBe('upstream')
@@ -211,7 +211,7 @@ describe('FallbackHandler.wrap', () => {
     const response = await wrappedHandler(request, {})
 
     expect(response.status).toBe(503)
-    const data = await response.json()
+    const data = await response.json() as { error: string }
     expect(data.error).toBeDefined()
   })
 
@@ -264,7 +264,7 @@ describe('FallbackHandler.wrap', () => {
 
   test('should pass params to wrapped handler', async () => {
     let receivedParams: Record<string, string> | undefined
-    const localHandler = async (req: Request, params?: Record<string, string>) => {
+    const localHandler = async (_req: Request, params?: Record<string, string>) => {
       receivedParams = params
       return new Response('ok')
     }

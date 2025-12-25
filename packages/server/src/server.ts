@@ -30,7 +30,7 @@ export interface LlmuxServer {
 }
 
 const defaultConfig: ServerConfig = {
-  port: 0,
+  port: 8743,
   hostname: 'localhost',
 }
 
@@ -56,20 +56,37 @@ interface RequestBody {
   stream?: boolean
 }
 
-async function handleChatCompletions(request: Request): Promise<Response> {
-  const body = (await request.clone().json()) as RequestBody
-  const sourceFormat = detectFormat(body)
+type RequestFormat = ProxyOptions['sourceFormat']
 
-  const targetProvider = request.headers.get('X-Target-Provider') ?? 'anthropic'
+interface BuildProxyOptionsParams {
+  request: Request
+  body: RequestBody
+  defaultTargetProvider?: string
+  overrideSourceFormat?: RequestFormat
+}
+
+function buildProxyOptions({
+  request,
+  body,
+  defaultTargetProvider = 'anthropic',
+  overrideSourceFormat,
+}: BuildProxyOptionsParams): ProxyOptions {
+  const sourceFormat = overrideSourceFormat ?? detectFormat(body)
+  const targetProvider = request.headers.get('X-Target-Provider') ?? defaultTargetProvider
   const targetModel = request.headers.get('X-Target-Model') ?? undefined
   const apiKey = request.headers.get('X-API-Key') ?? undefined
 
-  const options: ProxyOptions = {
+  return {
     sourceFormat,
     targetProvider,
     targetModel,
     apiKey,
   }
+}
+
+async function handleChatCompletions(request: Request): Promise<Response> {
+  const body = (await request.clone().json()) as RequestBody
+  const options = buildProxyOptions({ request, body })
 
   if (body.stream) {
     return handleStreamingProxy(request, options)
@@ -79,17 +96,12 @@ async function handleChatCompletions(request: Request): Promise<Response> {
 
 async function handleMessages(request: Request): Promise<Response> {
   const body = (await request.clone().json()) as RequestBody
-
-  const targetProvider = request.headers.get('X-Target-Provider') ?? 'openai'
-  const targetModel = request.headers.get('X-Target-Model') ?? undefined
-  const apiKey = request.headers.get('X-API-Key') ?? undefined
-
-  const options: ProxyOptions = {
-    sourceFormat: 'anthropic',
-    targetProvider,
-    targetModel,
-    apiKey,
-  }
+  const options = buildProxyOptions({
+    request,
+    body,
+    defaultTargetProvider: 'openai',
+    overrideSourceFormat: 'anthropic',
+  })
 
   if (body.stream) {
     return handleStreamingProxy(request, options)
@@ -99,18 +111,7 @@ async function handleMessages(request: Request): Promise<Response> {
 
 async function handleGenerateContent(request: Request): Promise<Response> {
   const body = (await request.clone().json()) as RequestBody
-  const sourceFormat = detectFormat(body)
-
-  const targetProvider = request.headers.get('X-Target-Provider') ?? 'anthropic'
-  const targetModel = request.headers.get('X-Target-Model') ?? undefined
-  const apiKey = request.headers.get('X-API-Key') ?? undefined
-
-  const options: ProxyOptions = {
-    sourceFormat,
-    targetProvider,
-    targetModel,
-    apiKey,
-  }
+  const options = buildProxyOptions({ request, body })
 
   if (body.stream) {
     return handleStreamingProxy(request, options)
@@ -119,9 +120,6 @@ async function handleGenerateContent(request: Request): Promise<Response> {
 }
 
 async function handleExplicitProxy(request: Request): Promise<Response> {
-  const body = (await request.clone().json()) as RequestBody
-  const sourceFormat = detectFormat(body)
-
   const targetProvider = request.headers.get('X-Target-Provider')
   if (!targetProvider) {
     return new Response(JSON.stringify({ error: 'X-Target-Provider header required' }), {
@@ -130,15 +128,12 @@ async function handleExplicitProxy(request: Request): Promise<Response> {
     })
   }
 
-  const targetModel = request.headers.get('X-Target-Model') ?? undefined
-  const apiKey = request.headers.get('X-API-Key') ?? undefined
-
-  const options: ProxyOptions = {
-    sourceFormat,
-    targetProvider,
-    targetModel,
-    apiKey,
-  }
+  const body = (await request.clone().json()) as RequestBody
+  const options = buildProxyOptions({
+    request,
+    body,
+    defaultTargetProvider: targetProvider,
+  })
 
   if (body.stream) {
     return handleStreamingProxy(request, options)
@@ -150,9 +145,17 @@ function createDefaultRoutes(): Route[] {
   return [
     { method: 'GET', path: '/health', handler: handleHealth },
     { method: 'GET', path: '/providers', handler: handleProviders },
-    { method: 'POST', path: '/v1/chat/completions', handler: handleChatCompletions },
+    {
+      method: 'POST',
+      path: '/v1/chat/completions',
+      handler: handleChatCompletions,
+    },
     { method: 'POST', path: '/v1/messages', handler: handleMessages },
-    { method: 'POST', path: '/v1/generateContent', handler: handleGenerateContent },
+    {
+      method: 'POST',
+      path: '/v1/generateContent',
+      handler: handleGenerateContent,
+    },
     { method: 'POST', path: '/v1/proxy', handler: handleExplicitProxy },
   ]
 }

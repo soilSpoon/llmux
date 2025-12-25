@@ -95,7 +95,7 @@ describe('CLI', () => {
 
     it('should return default config when no file exists', async () => {
       const config = await ConfigLoader.load()
-      expect(config.server.port).toBe(8080)
+      expect(config.server.port).toBe(8743)
       expect(config.server.hostname).toBe('localhost')
     })
 

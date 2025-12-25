@@ -408,8 +408,8 @@ function transformPart(part: ContentPart): GeminiPart {
     case 'tool_call':
       return {
         functionCall: {
-          name: part.toolCall?.name,
-          args: part.toolCall?.arguments,
+          name: part.toolCall?.name ?? '',
+          args: part.toolCall?.arguments ?? {},
           id: part.toolCall?.id,
         },
       }

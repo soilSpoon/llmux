@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { corsMiddleware } from '../../src/middleware/cors'
 
 describe('corsMiddleware', () => {
-  const mockHandler = async (req: Request) =>
+  const mockHandler = async (_req: Request) =>
     new Response(JSON.stringify({ ok: true }), {
       headers: { 'Content-Type': 'application/json' },
     })
@@ -67,7 +67,7 @@ describe('corsMiddleware', () => {
     })
     const response = await handler(request)
 
-    const data = await response.json()
+    const data = await response.json() as { ok: boolean }
     expect(data.ok).toBe(true)
   })
 

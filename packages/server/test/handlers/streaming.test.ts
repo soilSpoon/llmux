@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, mock, afterEach } from 'bun:test'
 import '../setup'
 import {
   handleStreamingProxy,
@@ -24,12 +24,12 @@ describe('handleStreamingProxy', () => {
       },
     })
 
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = Object.assign(mock(async () => {
       return new Response(mockStream, {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
       })
-    })
+    }), { preconnect: () => {} }) as typeof fetch
 
     const request = new Request('http://localhost/v1/proxy', {
       method: 'POST',
@@ -54,9 +54,9 @@ describe('handleStreamingProxy', () => {
   })
 
   test('handles network errors in streaming', async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = Object.assign(mock(async () => {
       throw new Error('Stream connection failed')
-    })
+    }), { preconnect: () => {} }) as typeof fetch
 
     const request = new Request('http://localhost/v1/proxy', {
       method: 'POST',
@@ -79,12 +79,12 @@ describe('handleStreamingProxy', () => {
   })
 
   test('handles upstream error response', async () => {
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = Object.assign(mock(async () => {
       return new Response(JSON.stringify({ error: 'Rate limited' }), {
         status: 429,
         headers: { 'Content-Type': 'application/json' },
       })
-    })
+    }), { preconnect: () => {} }) as typeof fetch
 
     const request = new Request('http://localhost/v1/proxy', {
       method: 'POST',
@@ -124,12 +124,12 @@ describe('handleStreamingProxy', () => {
       },
     })
 
-    globalThis.fetch = mock(async () => {
+    globalThis.fetch = Object.assign(mock(async () => {
       return new Response(mockStream, {
         status: 200,
         headers: { 'Content-Type': 'text/event-stream' },
       })
-    })
+    }), { preconnect: () => {} }) as typeof fetch
 
     const request = new Request('http://localhost/v1/proxy', {
       method: 'POST',

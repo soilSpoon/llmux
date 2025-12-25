@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, describe, expect, test } from 'bun:test'
 import { startServer, type LlmuxServer, type AmpConfig } from '../../src/server'
 import { type ProviderChecker } from '../../src/handlers/fallback'
 import type { ProviderHandlers } from '../../src/amp/routes'
@@ -67,7 +67,7 @@ describe('Amp Integration Tests', () => {
 
       const handlers: ProviderHandlers = {
         openai: async (req) => {
-          const body = await req.json()
+          const body = await req.json() as { model: string }
           return new Response(
             JSON.stringify({
               id: 'chatcmpl-local',
@@ -108,11 +108,11 @@ describe('Amp Integration Tests', () => {
       )
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await response.json() as { source: string; model: string; choices: Array<{ message: { content: string } }> }
 
       expect(data.source).toBe('local')
       expect(data.model).toBe('gpt-4o')
-      expect(data.choices[0].message.content).toBe('Response from local provider')
+      expect(data.choices[0]?.message.content).toBe('Response from local provider')
       expect(upstreamRequests.length).toBe(0)
     })
 
@@ -122,7 +122,7 @@ describe('Amp Integration Tests', () => {
 
       const handlers: ProviderHandlers = {
         anthropic: async (req) => {
-          const body = await req.json()
+          const body = await req.json() as { model: string }
           return new Response(
             JSON.stringify({
               id: 'msg-local',
@@ -157,7 +157,7 @@ describe('Amp Integration Tests', () => {
       )
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await response.json() as { source: string }
 
       expect(data.source).toBe('local')
       expect(upstreamRequests.length).toBe(0)
@@ -193,11 +193,11 @@ describe('Amp Integration Tests', () => {
       )
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await response.json() as { source: string }
 
       expect(data.source).toBe('upstream')
       expect(upstreamRequests.length).toBe(1)
-      expect(upstreamRequests[0].path).toBe('/api/provider/openai/v1/chat/completions')
+      expect(upstreamRequests[0]!.path).toBe('/api/provider/openai/v1/chat/completions')
     })
 
     test('should forward request body to upstream correctly', async () => {
@@ -235,7 +235,7 @@ describe('Amp Integration Tests', () => {
       )
 
       expect(upstreamRequests.length).toBe(1)
-      expect(upstreamRequests[0].body).toEqual(requestBody)
+      expect(upstreamRequests[0]!.body).toEqual(requestBody)
     })
   })
 
@@ -268,7 +268,7 @@ describe('Amp Integration Tests', () => {
       )
 
       expect(response.status).toBe(503)
-      const data = await response.json()
+      const data = await response.json() as { error: string }
       expect(data.error).toContain('No provider available')
     })
   })
@@ -280,7 +280,7 @@ describe('Amp Integration Tests', () => {
 
       const handlers: ProviderHandlers = {
         openai: async (req) => {
-          const body = await req.json()
+          const body = await req.json() as { model: string }
           return new Response(
             JSON.stringify({ source: 'local', model: body.model }),
             { headers: { 'Content-Type': 'application/json' } }
@@ -305,7 +305,7 @@ describe('Amp Integration Tests', () => {
           body: JSON.stringify({ model: 'gpt-4o-mini', messages: [] }),
         }
       )
-      const localData = await localResponse.json()
+      const localData = await localResponse.json() as { source: string }
       expect(localData.source).toBe('local')
 
       // Request 2: upstream model
@@ -317,7 +317,7 @@ describe('Amp Integration Tests', () => {
           body: JSON.stringify({ model: 'o1-pro', messages: [] }),
         }
       )
-      const upstreamData = await upstreamResponse.json()
+      const upstreamData = await upstreamResponse.json() as { source: string }
       expect(upstreamData.source).toBe('upstream')
 
       expect(upstreamRequests.length).toBe(1)
@@ -330,7 +330,7 @@ describe('Amp Integration Tests', () => {
       const providerChecker: ProviderChecker = (model) => localModels.has(model)
 
       const handlers: ProviderHandlers = {
-        google: async (req, params) => {
+        google: async (_req, params) => {
           return new Response(
             JSON.stringify({
               candidates: [{ content: { parts: [{ text: 'Gemini response' }] } }],
@@ -360,7 +360,7 @@ describe('Amp Integration Tests', () => {
       )
 
       expect(response.ok).toBe(true)
-      const data = await response.json()
+      const data = await response.json() as { source: string; action: string }
 
       expect(data.source).toBe('local')
       expect(data.action).toBe('gemini-2.0-flash:generateContent')
@@ -378,7 +378,7 @@ describe('Amp Integration Tests', () => {
       const response = await fetch(`http://localhost:${server.port}/health`)
       expect(response.ok).toBe(true)
 
-      const data = await response.json()
+      const data = await response.json() as { status: string }
       expect(data.status).toBe('ok')
     })
 
@@ -392,7 +392,7 @@ describe('Amp Integration Tests', () => {
       const response = await fetch(`http://localhost:${server.port}/providers`)
       expect(response.ok).toBe(true)
 
-      const data = await response.json()
+      const data = await response.json() as { providers: unknown }
       expect(data.providers).toBeDefined()
     })
   })

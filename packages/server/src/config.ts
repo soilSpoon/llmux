@@ -27,7 +27,7 @@ export interface LlmuxConfig {
 
 const DEFAULT_CONFIG: LlmuxConfig = {
   server: {
-    port: 8080,
+    port: 8743,
     hostname: 'localhost',
     cors: true,
   },

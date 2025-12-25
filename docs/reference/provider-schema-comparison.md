@@ -346,7 +346,7 @@ export GOOGLE_API_KEY=...
 go run ./cmd/server
 
 # curl로 변환 테스트
-curl http://localhost:8080/v1/chat/completions \
+curl http://localhost:8743/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "X-Target-Provider: gemini" \
   -d '{"model": "gpt-4", "messages": [{"role": "user", "content": "Hello"}]}'

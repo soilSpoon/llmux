@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { detectFormat, type RequestFormat } from '../../src/middleware/format'
+import { detectFormat } from '../../src/middleware/format'
 
 describe('detectFormat', () => {
   test('detects OpenAI format (model + messages, no system)', () => {

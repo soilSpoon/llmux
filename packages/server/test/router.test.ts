@@ -16,7 +16,7 @@ describe('createRouter', () => {
     const response = await router(request)
 
     expect(response.status).toBe(200)
-    const data = await response.json()
+    const data = await response.json() as { status: string }
     expect(data.status).toBe('ok')
   })
 
@@ -38,7 +38,7 @@ describe('createRouter', () => {
     const response = await router(request)
 
     expect(response.status).toBe(200)
-    const data = await response.json()
+    const data = await response.json() as { message: string }
     expect(data.message).toBe('received')
   })
 
@@ -125,7 +125,7 @@ describe('createRouter', () => {
     const response = await router(request)
 
     expect(response.status).toBe(500)
-    const data = await response.json()
+    const data = await response.json() as { error: string }
     expect(data.error).toBe('Test error')
   })
 })
@@ -408,10 +408,10 @@ describe('route priority', () => {
     ]
     const router = createRouter(routes)
 
-    const res1 = await router(new Request('http://localhost/api/users'))
+    await router(new Request('http://localhost/api/users'))
     expect(matchedRoute).toBe('one-param')
 
-    const res2 = await router(new Request('http://localhost/api/users/123'))
+    await router(new Request('http://localhost/api/users/123'))
     expect(matchedRoute).toBe('two-params')
   })
 })

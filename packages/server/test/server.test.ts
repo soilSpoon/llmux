@@ -1,16 +1,16 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, startServer, type LlmuxServer } from '../src/server'
 
 describe('createServer', () => {
   test('creates server with default config', () => {
     const server = createServer()
-    expect(server.port).toBe(0)
+    expect(server.port).toBe(8743)
     expect(server.hostname).toBe('localhost')
   })
 
   test('creates server with custom port', () => {
-    const server = createServer({ port: 8080 })
-    expect(server.port).toBe(8080)
+    const server = createServer({ port: 8743 })
+    expect(server.port).toBe(8743)
   })
 
   test('creates server with custom hostname', () => {
@@ -20,7 +20,7 @@ describe('createServer', () => {
 
   test('creates server with corsOrigins', () => {
     const server = createServer({ corsOrigins: ['http://localhost:3000'] })
-    expect(server.port).toBe(0)
+    expect(server.port).toBe(8743)
   })
 })
 
@@ -62,7 +62,7 @@ describe('startServer', () => {
     server = await startServer({ port: 0 })
     const response = await fetch(`http://localhost:${server.port}/health`)
     expect(response.ok).toBe(true)
-    const data = await response.json()
+    const data = await response.json() as { status: string }
     expect(data.status).toBe('ok')
   })
 })

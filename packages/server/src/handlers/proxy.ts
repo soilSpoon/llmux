@@ -1,5 +1,10 @@
 import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
-import { type ProviderName, transformRequest, transformResponse } from '@llmux/core'
+import {
+  isValidProviderName,
+  type ProviderName,
+  transformRequest,
+  transformResponse,
+} from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 
 export interface ProxyOptions {
@@ -16,10 +21,13 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
 }
 
 function formatToProvider(format: RequestFormat): ProviderName {
-  return format as ProviderName
+  if (!isValidProviderName(format)) {
+    throw new Error(`Invalid source format: ${format}`)
+  }
+  return format
 }
 
-function buildHeaders(targetProvider: string, apiKey?: string): Record<string, string> {
+function buildHeaders(targetProvider: ProviderName, apiKey?: string): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   }
@@ -43,19 +51,29 @@ function buildHeaders(targetProvider: string, apiKey?: string): Record<string, s
 }
 
 export async function handleProxy(request: Request, options: ProxyOptions): Promise<Response> {
+  const targetProviderInput = options.targetProvider
+  if (!isValidProviderName(targetProviderInput)) {
+    return new Response(JSON.stringify({ error: `Invalid provider: ${targetProviderInput}` }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  const targetProvider: ProviderName = targetProviderInput
+
   try {
     const body = await request.json()
 
     const transformedRequest = transformRequest(body, {
       from: formatToProvider(options.sourceFormat),
-      to: options.targetProvider as ProviderName,
+      to: targetProvider,
     })
 
     if (options.targetModel) {
       ;(transformedRequest as { model?: string }).model = options.targetModel
     }
 
-    const authProvider = AuthProviderRegistry.get(options.targetProvider)
+    const authProvider = AuthProviderRegistry.get(targetProvider)
 
     // Retry loop for rotation
     const maxAttempts = 5
@@ -73,10 +91,10 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
         let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
         try {
-          credentials = await TokenRefresh.ensureFresh(options.targetProvider)
+          credentials = await TokenRefresh.ensureFresh(targetProvider)
         } catch {
           return new Response(
-            JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),
+            JSON.stringify({ error: `No credentials found for ${targetProvider}` }),
             { status: 401, headers: { 'Content-Type': 'application/json' } }
           )
         }
@@ -84,21 +102,21 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         const credential = credentials[0]
         if (!credential) {
           return new Response(
-            JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),
+            JSON.stringify({ error: `No credentials found for ${targetProvider}` }),
             { status: 401, headers: { 'Content-Type': 'application/json' } }
           )
         }
         headers = await authProvider.getHeaders(credential)
       } else {
-        const url = PROVIDER_ENDPOINTS[options.targetProvider]
+        const url = PROVIDER_ENDPOINTS[targetProvider]
         if (!url) {
-          return new Response(
-            JSON.stringify({ error: `Unknown provider: ${options.targetProvider}` }),
-            { status: 400, headers: { 'Content-Type': 'application/json' } }
-          )
+          return new Response(JSON.stringify({ error: `Unknown provider: ${targetProvider}` }), {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          })
         }
         endpoint = url
-        headers = buildHeaders(options.targetProvider, options.apiKey)
+        headers = buildHeaders(targetProvider, options.apiKey)
       }
 
       let upstreamResponse: Response
@@ -119,10 +137,12 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       lastResponse = upstreamResponse
 
       if (upstreamResponse.status === 429) {
+        const delay = Math.min(1000 * 2 ** (attempt - 1), 16000)
+        await new Promise((r) => setTimeout(r, delay))
         if (authProvider && !options.apiKey && authProvider.rotate) {
           authProvider.rotate()
-          continue
         }
+        continue
       }
 
       break
@@ -133,8 +153,25 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     }
 
     if (!lastResponse.ok) {
+      const contentType = lastResponse.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        const text = await lastResponse.text()
+        return new Response(JSON.stringify({ error: text || 'Non-JSON response from upstream' }), {
+          status: lastResponse.status,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
       return new Response(lastResponse.body, {
         status: lastResponse.status,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const contentType = lastResponse.headers.get('content-type') || ''
+    if (!contentType.includes('application/json')) {
+      const text = await lastResponse.text()
+      return new Response(JSON.stringify({ error: text || 'Non-JSON response from upstream' }), {
+        status: 502,
         headers: { 'Content-Type': 'application/json' },
       })
     }
@@ -142,7 +179,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     const upstreamBody = await lastResponse.json()
 
     const transformedResponse = transformResponse(upstreamBody, {
-      from: options.targetProvider as ProviderName,
+      from: targetProvider,
       to: formatToProvider(options.sourceFormat),
     })
 

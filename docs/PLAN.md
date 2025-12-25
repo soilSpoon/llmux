@@ -942,7 +942,7 @@ GET /providers                      # 인증된 provider 목록
   ```typescript
   // server.ts
   export interface ServerConfig {
-    port: number                    // 기본값: 8080
+    port: number                    // 기본값: 8743
     host: string                    // 기본값: localhost
     corsOrigins?: string[]          // CORS 설정
   }
@@ -1048,14 +1048,14 @@ GET /providers                      # 인증된 provider 목록
 - [ ] 13.6 CLI Integration
   ```bash
   # 서버 시작
-  llmux serve                       # 기본 포트 (8080)
+  llmux serve                       # 기본 포트 (8743)
   llmux serve --port 3000           # 커스텀 포트
   llmux serve --provider antigravity # 특정 provider만
   
   # 설정 파일 (선택)
   # ~/.llmux/config.yaml
   server:
-    port: 8080
+    port: 8743
     defaultProvider: antigravity
     modelMapping:
       claude-*: antigravity
@@ -1110,7 +1110,7 @@ GET /providers                      # 인증된 provider 목록
 ```bash
 bun test packages/server/     # 테스트 통과
 bun run typecheck             # 타입 체크
-curl localhost:8080/health    # E2E 테스트
+curl localhost:8743/health    # E2E 테스트
 ```
 
 ---
@@ -1158,51 +1158,50 @@ llmux --help                        # 도움말
 
 ---
 
-## Phase 15: AI SDK 호환 레이어 ⏳ Pending
+## Phase 15: AI SDK 호환 레이어 ✅ Complete
 
 **예상 시간:** 4시간  
+**실제 시간:** ~3시간
 **리스크:** 🟡 Medium  
 **위치:** `@llmux/core` (core 패키지 확장)
 
 ### 개요
 
-Vercel AI SDK (`@ai-sdk/*`)의 `LanguageModelV2` 스키마와 llmux의 `UnifiedRequest/Response` 간 양방향 변환을 지원하여, AI SDK 기반 애플리케이션에서 llmux를 직접 사용할 수 있게 함.
+Vercel AI SDK (`@ai-sdk/*`)의 `LanguageModelV3` 스키마와 llmux의 `UnifiedRequest/Response` 간 양방향 변환을 지원하여, AI SDK 기반 애플리케이션에서 llmux를 직접 사용할 수 있게 함.
 
 ### 스키마 매핑
 
-| @ai-sdk/provider | @llmux/core | 변환 방향 |
+| @ai-sdk/provider (V3) | @llmux/core | 변환 방향 |
 |------------------|-------------|----------|
-| `LanguageModelV2Prompt` | `UnifiedMessage[]` | ↔ |
-| `LanguageModelV2CallOptions` | `UnifiedRequest` | ↔ |
-| `LanguageModelV2Content` | `ContentPart[]` | ↔ |
-| `LanguageModelV2TextPart` | `ContentPart.text` | ↔ |
-| `LanguageModelV2ReasoningPart` | `ContentPart.thinking` | ↔ |
-| `LanguageModelV2ToolCallPart` | `ContentPart.toolCall` | ↔ |
-| `LanguageModelV2FilePart` | `ContentPart.image` | ↔ |
-| `LanguageModelV2StreamPart` | `StreamChunk` | ↔ |
+| `LanguageModelV3Prompt` | `UnifiedMessage[]` | ↔ |
+| `LanguageModelV3CallOptions` | `UnifiedRequest` | ↔ |
+| `LanguageModelV3Content` | `ContentPart[]` | ↔ |
+| `LanguageModelV3TextPart` | `ContentPart.text` | ↔ |
+| `LanguageModelV3ReasoningPart` | `ContentPart.thinking` | ↔ |
+| `LanguageModelV3ToolCallPart` | `ContentPart.toolCall` | ↔ |
+| `LanguageModelV3FilePart` | `ContentPart.image` | ↔ |
+| `LanguageModelV3StreamPart` | `StreamChunk` | ↔ |
 
 ### 프로젝트 구조
 
 ```
 packages/core/src/
 ├── providers/
-│   └── ai-sdk/                     # 새로운 AI SDK 호환 provider
+│   └── ai-sdk/                     # AI SDK 호환 provider
 │       ├── index.ts                # AiSdkProvider export
-│       ├── types.ts                # AI SDK 타입 정의 (또는 @ai-sdk/provider import)
-│       ├── request.ts              # LanguageModelV2CallOptions → UnifiedRequest
-│       ├── response.ts             # UnifiedResponse → LanguageModelV2Content
-│       └── streaming.ts            # StreamChunk → LanguageModelV2StreamPart
-└── adapters/
-    └── ai-sdk-adapter.ts           # AI SDK LanguageModelV2 구현체
+│       ├── types.ts                # AI SDK 타입 re-export + type guards
+│       ├── request.ts              # LanguageModelV3CallOptions → UnifiedRequest
+│       ├── response.ts             # UnifiedResponse → LanguageModelV3GenerateResult
+│       └── streaming.ts            # StreamChunk ↔ LanguageModelV3StreamPart
 ```
 
 ### Tasks
 
-- [ ] 15.1 AI SDK 타입 분석 및 매핑 정의
-  - `@ai-sdk/provider` 패키지 의존성 추가
-  - 타입 호환성 테이블 작성
+- [x] 15.1 AI SDK 타입 분석 및 매핑 정의
+  - `@ai-sdk/provider@3.0.0` 패키지 의존성 추가 (devDependencies)
+  - V3 스펙 기반 타입 re-export 및 type guards 구현
   
-- [ ] 15.2 Request 변환 (`LanguageModelV2CallOptions` → `UnifiedRequest`)
+- [x] 15.2 Request 변환 (`LanguageModelV3CallOptions` → `UnifiedRequest`)
   ```typescript
   // providers/ai-sdk/request.ts
   import type { LanguageModelV2CallOptions } from '@ai-sdk/provider'
@@ -1222,77 +1221,42 @@ packages/core/src/
   }
   ```
 
-- [ ] 15.3 Response 변환 (`UnifiedResponse` → AI SDK 형식)
-  ```typescript
-  // providers/ai-sdk/response.ts
-  import type { LanguageModelV2Content, LanguageModelV2FinishReason } from '@ai-sdk/provider'
-  
-  export function transform(response: UnifiedResponse): {
-    content: LanguageModelV2Content[]
-    finishReason: LanguageModelV2FinishReason
-    usage: LanguageModelV2Usage
-  }
-  ```
+- [x] 15.3 Response 변환 (`UnifiedResponse` → AI SDK 형식)
+  - `parseResponse`: LanguageModelV3GenerateResult → UnifiedResponse
+  - `transformResponse`: UnifiedResponse → LanguageModelV3GenerateResult
+  - Finish reason 양방향 매핑 (stop ↔ end_turn, length ↔ max_tokens 등)
+  - Usage 변환 (V3 nested 형식 ↔ flat UsageInfo)
 
-- [ ] 15.4 Streaming 변환
-  ```typescript
-  // providers/ai-sdk/streaming.ts
-  import type { LanguageModelV2StreamPart } from '@ai-sdk/provider'
-  
-  export function transformStreamChunk(chunk: StreamChunk): LanguageModelV2StreamPart
-  ```
+- [x] 15.4 Streaming 변환
+  - `parseStreamPart`: LanguageModelV3StreamPart → StreamChunk
+  - `transformStreamPart`: StreamChunk → LanguageModelV3StreamPart
+  - text-delta, reasoning-delta, tool-call, finish 등 지원
 
-- [ ] 15.5 AI SDK Adapter (LanguageModelV2 구현체)
-  ```typescript
-  // adapters/ai-sdk-adapter.ts
-  import type { LanguageModelV2 } from '@ai-sdk/provider'
-  
-  export function createLlmuxAdapter(config: {
-    targetProvider: ProviderID
-    credential: Credential
-  }): LanguageModelV2 {
-    return {
-      specificationVersion: 'v2',
-      provider: 'llmux',
-      modelId: config.targetProvider,
-      
-      async doGenerate(options) {
-        // 1. AI SDK → Unified 변환
-        // 2. Target provider로 요청
-        // 3. Unified → AI SDK 변환
-      },
-      
-      async doStream(options) {
-        // 스트리밍 버전
-      }
-    }
-  }
-  ```
+- [x] 15.5 AiSdkProvider 클래스
+  - BaseProvider 상속
+  - parse/transform, parseResponse/transformResponse 구현
+  - parseStreamChunk/transformStreamChunk 구현
+  - 테스트: 86개 테스트 통과
 
 ### 사용 예시
 
 ```typescript
-import { createLlmuxAdapter } from '@llmux/core'
-import { generateText } from 'ai'
+import { AiSdkProvider, parseAiSdkRequest, transformAiSdkResponse } from '@llmux/core'
+import type { LanguageModelV3CallOptions, LanguageModelV3GenerateResult } from '@llmux/core'
 
-// llmux를 AI SDK provider로 사용
-const model = createLlmuxAdapter({
-  targetProvider: 'antigravity',
-  credential: await getCredential('antigravity')
-})
+// AI SDK 요청 → llmux UnifiedRequest 변환
+const unified = parseAiSdkRequest(aiSdkCallOptions)
 
-// AI SDK의 generateText와 호환
-const result = await generateText({
-  model,
-  prompt: 'Hello, world!'
-})
+// llmux UnifiedResponse → AI SDK 응답 변환  
+const aiSdkResult = transformAiSdkResponse(unifiedResponse)
 ```
 
-### Quality Gate
+### Quality Gate ✅
 
 ```bash
-bun test packages/core/test/providers/ai-sdk/
-bun run typecheck
+bun test packages/core/test/providers/ai-sdk/  # 86 tests passed
+bun run typecheck                               # No ai-sdk related errors
+bun run build                                   # 105KB bundle
 ```
 
 ---
@@ -1379,7 +1343,7 @@ import litellm
 response = litellm.completion(
     model="antigravity/claude-3-opus",
     messages=[{"role": "user", "content": "Hello"}],
-    api_base="http://localhost:8080/litellm",
+    api_base="http://localhost:8743/litellm",
     custom_llm_provider="llmux"
 )
 ```
@@ -1388,7 +1352,7 @@ response = litellm.completion(
 
 ```bash
 bun test packages/core/test/providers/litellm/
-curl -X POST http://localhost:8080/litellm/chat/completions
+curl -X POST http://localhost:8743/litellm/chat/completions
 ```
 
 ---

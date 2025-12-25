@@ -6,7 +6,21 @@
     "composite": true,
     "noEmit": false
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "../core" }, { "path": "../auth" }]
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "examples"
+  ],
+  "references": [
+    {
+      "path": "../core"
+    },
+    {
+      "path": "../auth"
+    }
+  ]
 }

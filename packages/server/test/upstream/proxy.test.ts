@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { createUpstreamProxy, type UpstreamProxyConfig } from '../../src/upstream/proxy'
+import { createUpstreamProxy } from '../../src/upstream/proxy'
 
 describe('UpstreamProxy', () => {
   describe('createUpstreamProxy', () => {
@@ -229,7 +229,7 @@ describe('UpstreamProxy', () => {
         const response = await proxy.proxyRequest(request)
 
         expect(response.status).toBe(429)
-        const body = await response.json()
+        const body = await response.json() as { error: string }
         expect(body.error).toBe('Rate limit exceeded')
       } finally {
         mockServer.stop()
@@ -250,7 +250,7 @@ describe('UpstreamProxy', () => {
       const response = await proxy.proxyRequest(request)
 
       expect(response.status).toBe(502)
-      const body = await response.json()
+      const body = await response.json() as { error: string }
       expect(body.error).toBeDefined()
     })
   })
@@ -285,8 +285,7 @@ describe('UpstreamProxy', () => {
         const response = await proxy.proxyRequest(request)
 
         expect(response.status).toBe(200)
-        // Bun's fetch automatically decompresses gzip
-        const body = await response.json()
+        const body = await response.json() as { message: string }
         expect(body.message).toBe('Hello, compressed world!')
       } finally {
         mockServer.stop()

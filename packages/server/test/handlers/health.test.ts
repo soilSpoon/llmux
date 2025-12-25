@@ -7,7 +7,7 @@ describe('handleHealth', () => {
     const response = await handleHealth(request)
 
     expect(response.status).toBe(200)
-    const data = await response.json()
+    const data = await response.json() as { status: string }
     expect(data.status).toBe('ok')
   })
 
@@ -15,7 +15,7 @@ describe('handleHealth', () => {
     const request = new Request('http://localhost/health')
     const response = await handleHealth(request)
 
-    const data = await response.json()
+    const data = await response.json() as { version: string }
     expect(data.version).toBe('0.1.0')
   })
 
