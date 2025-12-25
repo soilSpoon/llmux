@@ -141,7 +141,9 @@ function transformMessage(response: UnifiedResponse): OpenAIResponseMessage {
     .map((p) => p.text)
     .join('')
 
-  const toolCalls = response.content.filter((p) => p.type === 'tool_call').map((p) => p.toolCall!)
+  const toolCalls = response.content
+    .filter((p) => p.type === 'tool_call' && p.toolCall)
+    .map((p) => p.toolCall)
 
   const message: OpenAIResponseMessage = {
     role: 'assistant',

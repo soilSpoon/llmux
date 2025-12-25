@@ -8,6 +8,7 @@ import {
 import yargs from 'yargs'
 import { hideBin } from 'yargs/helpers'
 import { authCommand } from './commands/auth'
+import { configCommand } from './commands/config'
 import { proxyCommand } from './commands/proxy'
 import { serveCommand } from './commands/serve'
 import { streamCommand } from './commands/stream'
@@ -22,6 +23,7 @@ const cli = yargs(hideBin(process.argv))
   .scriptName('llmux')
   .usage('$0 <command> [options]')
   .command(authCommand)
+  .command(configCommand)
   .command(serveCommand)
   .command(proxyCommand)
   .command(streamCommand)

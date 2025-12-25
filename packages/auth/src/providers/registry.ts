@@ -8,6 +8,10 @@ export namespace AuthProviderRegistry {
     providers.set(provider.id, provider)
   }
 
+  export function unregister(id: ProviderID): void {
+    providers.delete(id)
+  }
+
   export function get(id: ProviderID): AuthProvider | undefined {
     return providers.get(id)
   }

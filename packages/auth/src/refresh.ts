@@ -45,7 +45,7 @@ export namespace TokenRefresh {
             const refreshed = await provider.refresh(credential)
             updatedCredentials.push(refreshed)
             hasUpdates = true
-          } catch (e) {
+          } catch (_e) {
             // If refresh fails, keep old one? Or remove?
             // Keeping old allows retry or manual intervention.
             updatedCredentials.push(credential)

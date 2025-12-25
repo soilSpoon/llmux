@@ -5,7 +5,7 @@
  * Antigravity uses SSE format: `data: {"response": {...}}`
  */
 
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import type { StopReason, StreamChunk, UsageInfo } from '../../types/unified'
 import type { GeminiFinishReason, GeminiUsageMetadata } from '../gemini/types'
 
@@ -68,7 +68,10 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     return null
   }
 
-  const candidate = candidates[0]!
+  const candidate = candidates[0]
+  if (!candidate) {
+    return null
+  }
   const content = candidate.content as Record<string, unknown> | undefined
   const finishReason = candidate.finishReason as GeminiFinishReason | undefined
   const usageMetadata = response.usageMetadata as GeminiUsageMetadata | undefined
@@ -95,7 +98,10 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     return null
   }
 
-  const part = parts[0]!
+  const part = parts[0]
+  if (!part) {
+    return null
+  }
 
   // Thinking chunk
   if (part.thought === true && typeof part.text === 'string') {
@@ -145,21 +151,31 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
  * Transform a unified StreamChunk into Antigravity SSE format.
  */
 export function transformStreamChunk(chunk: StreamChunk): string {
-  const response: Record<string, unknown> = {
-    candidates: [
-      {
-        content: {
-          role: 'model',
-          parts: [] as Array<Record<string, unknown>>,
-        },
-      },
-    ],
+  interface AntigravityCandidate {
+    content: {
+      role: string
+      parts: Array<Record<string, unknown>>
+    }
+    finishReason?: GeminiFinishReason
   }
 
-  const candidates = response.candidates as Array<Record<string, unknown>>
-  const candidate = candidates[0]!
-  const contentObj = candidate.content as Record<string, unknown>
-  const partsArray = contentObj.parts as Array<Record<string, unknown>>
+  interface AntigravityStreamResponse {
+    candidates: AntigravityCandidate[]
+    usageMetadata?: GeminiUsageMetadata
+  }
+
+  const candidate: AntigravityCandidate = {
+    content: {
+      role: 'model',
+      parts: [],
+    },
+  }
+
+  const response: AntigravityStreamResponse = {
+    candidates: [candidate],
+  }
+
+  const partsArray = candidate.content.parts
 
   switch (chunk.type) {
     case 'content':

@@ -164,13 +164,16 @@ export function transformStreamChunk(chunk: StreamChunk): string {
       })
 
     case 'usage':
+      if (!chunk.usage) {
+        return ''
+      }
       return formatSSE({
         id,
         object: 'chat.completion.chunk',
         created,
         model: 'gpt-4',
         choices: [],
-        usage: transformUsage(chunk.usage!),
+        usage: transformUsage(chunk.usage),
       })
 
     case 'thinking':

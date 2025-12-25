@@ -5,7 +5,7 @@
  * Antigravity wraps Gemini-style requests with additional metadata.
  */
 
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import type {
   ContentPart,
   JSONSchema,
@@ -408,9 +408,9 @@ function transformPart(part: ContentPart): GeminiPart {
     case 'tool_call':
       return {
         functionCall: {
-          name: part.toolCall!.name,
-          args: part.toolCall!.arguments,
-          id: part.toolCall!.id,
+          name: part.toolCall?.name,
+          args: part.toolCall?.arguments,
+          id: part.toolCall?.id,
         },
       }
 
@@ -419,18 +419,18 @@ function transformPart(part: ContentPart): GeminiPart {
       let response: Record<string, unknown>
       try {
         response =
-          typeof part.toolResult!.content === 'string'
-            ? JSON.parse(part.toolResult!.content)
-            : { result: part.toolResult!.content }
+          typeof part.toolResult?.content === 'string'
+            ? JSON.parse(part.toolResult?.content)
+            : { result: part.toolResult?.content }
       } catch {
-        response = { result: part.toolResult!.content }
+        response = { result: part.toolResult?.content }
       }
 
       return {
         functionResponse: {
           name: 'tool', // Will be matched by ID
           response,
-          id: part.toolResult!.toolCallId,
+          id: part.toolResult?.toolCallId,
         },
       }
     }
@@ -453,8 +453,6 @@ function transformPart(part: ContentPart): GeminiPart {
         }
       }
       return { text: '' }
-
-    case 'text':
     default:
       return { text: part.text || '' }
   }

@@ -38,19 +38,20 @@ describe('OpencodeZenProvider', () => {
   })
 
   test('getCredential returns stored credential', async () => {
-    await CredentialStorage.set('opencode-zen', { type: 'api', key: 'test-key' })
+    await CredentialStorage.add('opencode-zen', { type: 'api', key: 'test-key' })
     const credential = await OpencodeZenProvider.getCredential()
     expect(credential).toEqual({ type: 'api', key: 'test-key' })
   })
 
   test('getHeaders returns Authorization header', async () => {
-    await CredentialStorage.set('opencode-zen', { type: 'api', key: 'sk-test-123' })
-    const headers = await OpencodeZenProvider.getHeaders()
+    const credential = { type: 'api' as const, key: 'sk-test-123' }
+    const headers = await OpencodeZenProvider.getHeaders(credential)
     expect(headers['Authorization']).toBe('Bearer sk-test-123')
   })
 
-  test('getHeaders returns empty when no credential', async () => {
-    const headers = await OpencodeZenProvider.getHeaders()
+  test('getHeaders returns empty for non-api credential', async () => {
+    const credential = { type: 'oauth' as const, accessToken: 'token', refreshToken: 'refresh', expiresAt: Date.now() + 3600000 }
+    const headers = await OpencodeZenProvider.getHeaders(credential)
     expect(headers).toEqual({})
   })
 
@@ -66,7 +67,7 @@ describe('OpencodeZenProvider', () => {
     expect(result.credential).toEqual({ type: 'api', key: 'sk-new-key' })
 
     const stored = await CredentialStorage.get('opencode-zen')
-    expect(stored).toEqual({ type: 'api', key: 'sk-new-key' })
+    expect(stored).toEqual([{ type: 'api', key: 'sk-new-key' }])
   })
 
   test('authorize fails when no key provided', async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, test, mock, beforeEach, afterEach } from 'bun:test'
+import '../setup'
 import {
   handleStreamingProxy,
   type ProxyOptions,

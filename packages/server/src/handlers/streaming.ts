@@ -1,3 +1,4 @@
+import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
 import { type ProviderName, transformRequest } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 
@@ -33,17 +34,128 @@ function buildHeaders(targetProvider: string, apiKey?: string): Record<string, s
       headers['anthropic-version'] = '2023-06-01'
       break
     case 'openai':
-      headers['Authorization'] = `Bearer ${apiKey}`
+      headers.Authorization = `Bearer ${apiKey}`
       break
     case 'gemini':
       headers['x-goog-api-key'] = apiKey
       break
     case 'antigravity':
-      headers['Authorization'] = `Bearer ${apiKey}`
+      headers.Authorization = `Bearer ${apiKey}`
       break
   }
 
   return headers
+}
+
+interface StreamChunkData {
+  text?: string
+  delta?: { content?: string; role?: string }
+  finish_reason?: string
+  usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number }
+}
+
+export function transformStreamChunk(
+  chunk: string,
+  fromProvider: ProviderName,
+  toFormat: RequestFormat
+): string {
+  if (fromProvider === toFormat) return chunk
+
+  try {
+    const lines = chunk.split('\n').filter((line) => line.startsWith('data: '))
+    const transformedLines: string[] = []
+
+    for (const line of lines) {
+      const jsonStr = line.slice(6).trim()
+      if (jsonStr === '[DONE]') {
+        transformedLines.push('data: [DONE]')
+        continue
+      }
+
+      if (!jsonStr) continue
+
+      const data = JSON.parse(jsonStr) as StreamChunkData
+      const transformed = transformChunkData(data, fromProvider, toFormat)
+      transformedLines.push(`data: ${JSON.stringify(transformed)}`)
+    }
+
+    return `${transformedLines.join('\n')}\n`
+  } catch {
+    return chunk
+  }
+}
+
+function transformChunkData(
+  data: StreamChunkData,
+  fromProvider: ProviderName,
+  toFormat: RequestFormat
+): Record<string, unknown> {
+  let text = ''
+  const finishReason = data.finish_reason
+
+  if (fromProvider === 'anthropic') {
+    if (data.delta?.content) text = data.delta.content
+    if (data.delta?.role === 'assistant' && !text) text = ''
+  } else if (fromProvider === 'openai') {
+    const choice = (data as { choices?: Array<{ delta?: { content?: string } }> }).choices?.[0]
+    if (choice?.delta?.content) text = choice.delta.content
+  } else if (fromProvider === 'gemini') {
+    const candidates = (
+      data as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+    ).candidates
+    if (candidates?.[0]?.content?.parts?.[0]?.text) {
+      text = candidates[0].content.parts[0].text
+    }
+  }
+
+  if (toFormat === 'openai') {
+    return {
+      id: 'chatcmpl-streaming',
+      object: 'chat.completion.chunk',
+      created: Date.now(),
+      model: 'proxy',
+      choices: [
+        {
+          index: 0,
+          delta: text ? { content: text } : {},
+          finish_reason: finishReason ?? null,
+        },
+      ],
+    }
+  }
+
+  if (toFormat === 'anthropic') {
+    if (text) {
+      return {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text },
+      }
+    }
+    if (finishReason) {
+      return {
+        type: 'message_delta',
+        delta: { stop_reason: finishReason === 'stop' ? 'end_turn' : finishReason },
+      }
+    }
+    return { type: 'ping' }
+  }
+
+  if (toFormat === 'gemini') {
+    return {
+      candidates: [
+        {
+          content: {
+            parts: [{ text }],
+            role: 'model',
+          },
+          finishReason: finishReason?.toUpperCase() ?? undefined,
+        },
+      ],
+    }
+  }
+
+  return data as Record<string, unknown>
 }
 
 export async function handleStreamingProxy(
@@ -63,14 +175,43 @@ export async function handleStreamingProxy(
     }
     ;(transformedRequest as { stream?: boolean }).stream = true
 
-    const endpoint = PROVIDER_ENDPOINTS[options.targetProvider]
-    if (!endpoint) {
-      return new Response(
-        JSON.stringify({ error: `Unknown provider: ${options.targetProvider}` }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
+    const authProvider = AuthProviderRegistry.get(options.targetProvider)
+
+    let endpoint: string
+    let headers: Record<string, string>
+
+    if (authProvider && !options.apiKey) {
+      endpoint = authProvider.getEndpoint(options.targetModel || 'gemini-pro')
+
+      let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
+      try {
+        credentials = await TokenRefresh.ensureFresh(options.targetProvider)
+      } catch {
+        return new Response(
+          JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+
+      const credential = credentials[0]
+      if (!credential) {
+        return new Response(
+          JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),
+          { status: 401, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+      headers = await authProvider.getHeaders(credential)
+    } else {
+      const url = PROVIDER_ENDPOINTS[options.targetProvider]
+      if (!url) {
+        return new Response(
+          JSON.stringify({ error: `Unknown provider: ${options.targetProvider}` }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } }
+        )
+      }
+      endpoint = url
+      headers = buildHeaders(options.targetProvider, options.apiKey)
     }
-    const headers = buildHeaders(options.targetProvider, options.apiKey)
 
     let upstreamResponse: Response
     try {
@@ -101,9 +242,20 @@ export async function handleStreamingProxy(
       })
     }
 
-    const transformStream = new TransformStream({
+    const targetProvider = options.targetProvider as ProviderName
+    const sourceFormat = options.sourceFormat
+    const decoder = new TextDecoder()
+    const encoder = new TextEncoder()
+
+    const transformStream = new TransformStream<Uint8Array, Uint8Array>({
       transform(chunk, controller) {
-        controller.enqueue(chunk)
+        const text = decoder.decode(chunk, { stream: true })
+        if (targetProvider !== sourceFormat) {
+          const transformed = transformStreamChunk(text, targetProvider, sourceFormat)
+          controller.enqueue(encoder.encode(transformed))
+        } else {
+          controller.enqueue(chunk)
+        }
       },
     })
 

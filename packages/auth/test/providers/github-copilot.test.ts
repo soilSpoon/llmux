@@ -43,7 +43,7 @@ describe('GithubCopilotProvider', () => {
       refreshToken: 'ghr_test',
       expiresAt: Date.now() + 3600000,
     }
-    await CredentialStorage.set('github-copilot', oauth)
+    await CredentialStorage.add('github-copilot', oauth)
     const credential = await GithubCopilotProvider.getCredential()
     expect(credential).toEqual(oauth)
   })
@@ -55,14 +55,14 @@ describe('GithubCopilotProvider', () => {
       refreshToken: 'ghr_test',
       expiresAt: Date.now() + 3600000,
     }
-    await CredentialStorage.set('github-copilot', oauth)
-    const headers = await GithubCopilotProvider.getHeaders()
+    const headers = await GithubCopilotProvider.getHeaders(oauth)
     expect(headers['Authorization']).toBe('Bearer ghu_test_token')
     expect(headers['Editor-Version']).toBe('llmux/1.0')
   })
 
-  test('getHeaders returns empty when no credential', async () => {
-    const headers = await GithubCopilotProvider.getHeaders()
+  test('getHeaders returns empty for api key credential', async () => {
+    const credential = { type: 'api' as const, key: 'test-key' }
+    const headers = await GithubCopilotProvider.getHeaders(credential)
     expect(headers).toEqual({})
   })
 

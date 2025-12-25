@@ -124,9 +124,9 @@ function parseFunctionCallChunk(
     delta: {
       type: 'tool_call',
       toolCall: {
-        id: part.functionCall!.id || generateId(),
-        name: part.functionCall!.name,
-        arguments: part.functionCall!.args,
+        id: part.functionCall?.id || generateId(),
+        name: part.functionCall?.name,
+        arguments: part.functionCall?.args,
       },
     },
   }

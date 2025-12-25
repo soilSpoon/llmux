@@ -138,8 +138,12 @@ function parseMessage(msg: OpenAIMessage): UnifiedMessage {
       return parseAssistantMessage(msg)
     case 'tool':
       return parseToolMessage(msg)
-    default:
-      throw new Error(`Unknown message role: ${(msg as any).role}`)
+    case 'system':
+      throw new Error('System messages should be handled separately')
+    default: {
+      const _exhaustiveCheck: never = msg
+      throw new Error(`Unknown message role: ${(_exhaustiveCheck as OpenAIMessage).role}`)
+    }
   }
 }
 
@@ -208,8 +212,10 @@ function parseContentPart(part: OpenAIContentPart): ContentPart {
       return { type: 'text', text: part.text }
     case 'image_url':
       return parseImageContent(part)
-    default:
-      throw new Error(`Unknown content part type: ${(part as any).type}`)
+    default: {
+      const _exhaustiveCheck: never = part
+      throw new Error(`Unknown content part type: ${(_exhaustiveCheck as OpenAIContentPart).type}`)
+    }
   }
 }
 
@@ -222,7 +228,7 @@ function parseImageContent(part: {
   // Check if it's a data URL
   if (url.startsWith('data:')) {
     const match = url.match(/^data:([^;]+);base64,(.+)$/)
-    if (match && match[1] && match[2]) {
+    if (match?.[1] && match[2]) {
       return {
         type: 'image',
         image: {
@@ -256,8 +262,10 @@ function transformMessage(msg: UnifiedMessage): OpenAIMessage {
       return transformAssistantMessage(msg)
     case 'tool':
       return transformToolMessage(msg)
-    default:
-      throw new Error(`Unknown message role: ${(msg as any).role}`)
+    default: {
+      const _exhaustiveCheck: never = msg.role
+      throw new Error(`Unknown message role: ${_exhaustiveCheck}`)
+    }
   }
 }
 
@@ -287,11 +295,11 @@ function transformAssistantMessage(msg: UnifiedMessage): OpenAIAssistantMessage 
   if (toolCallParts.length > 0) {
     result.tool_calls = toolCallParts.map(
       (part): OpenAIToolCall => ({
-        id: part.toolCall!.id,
+        id: part.toolCall?.id,
         type: 'function',
         function: {
-          name: part.toolCall!.name,
-          arguments: JSON.stringify(part.toolCall!.arguments),
+          name: part.toolCall?.name,
+          arguments: JSON.stringify(part.toolCall?.arguments),
         },
       })
     )
@@ -323,7 +331,10 @@ function transformContent(parts: ContentPart[]): OpenAIContentPart[] {
 function transformContentPart(part: ContentPart): OpenAIContentPart {
   switch (part.type) {
     case 'text':
-      return { type: 'text', text: part.text! }
+      if (part.text === undefined) {
+        throw new Error('Text content part must have text')
+      }
+      return { type: 'text', text: part.text }
     case 'image':
       return transformImageContent(part)
     default:
@@ -332,7 +343,10 @@ function transformContentPart(part: ContentPart): OpenAIContentPart {
 }
 
 function transformImageContent(part: ContentPart): OpenAIContentPart {
-  const image = part.image!
+  if (!part.image) {
+    throw new Error('Image content part must have image data')
+  }
+  const image = part.image
   let url: string
 
   if (image.data) {

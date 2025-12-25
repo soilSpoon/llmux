@@ -1,4 +1,4 @@
-import { AuthProviderRegistry } from '@llmux/auth'
+import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
 import { type ProviderName, transformRequest, transformResponse } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 
@@ -32,7 +32,7 @@ function buildHeaders(targetProvider: string, apiKey?: string): Record<string, s
       headers['anthropic-version'] = '2023-06-01'
       break
     case 'openai':
-      headers['Authorization'] = `Bearer ${apiKey}`
+      headers.Authorization = `Bearer ${apiKey}`
       break
     case 'gemini':
       headers['x-goog-api-key'] = apiKey
@@ -70,7 +70,18 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
       if (authProvider && !options.apiKey) {
         endpoint = authProvider.getEndpoint(options.targetModel || 'gemini-pro')
-        const credential = await authProvider.getCredential()
+
+        let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
+        try {
+          credentials = await TokenRefresh.ensureFresh(options.targetProvider)
+        } catch {
+          return new Response(
+            JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),
+            { status: 401, headers: { 'Content-Type': 'application/json' } }
+          )
+        }
+
+        const credential = credentials[0]
         if (!credential) {
           return new Response(
             JSON.stringify({ error: `No credentials found for ${options.targetProvider}` }),

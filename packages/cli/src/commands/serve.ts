@@ -1,4 +1,4 @@
-import { startServer } from '@llmux/server'
+import { ConfigLoader, startServer } from '@llmux/server'
 import { cmd } from '../cmd'
 
 export const serveCommand = cmd({
@@ -10,28 +10,47 @@ export const serveCommand = cmd({
         alias: 'p',
         describe: 'Port to listen on',
         type: 'number',
-        default: 8080,
       })
       .option('hostname', {
         alias: 'H',
         describe: 'Hostname to bind to',
         type: 'string',
-        default: 'localhost',
       })
       .option('cors', {
         describe: 'Allowed CORS origins (comma-separated)',
         type: 'string',
+      })
+      .option('no-config', {
+        describe: 'Do not load config file',
+        type: 'boolean',
+        default: false,
       }),
   async handler(args) {
-    const port = args.port
-    const hostname = args.hostname
-    const corsOrigins = args.cors?.split(',').map((s) => s.trim())
+    const loadConfig = !args['no-config']
+
+    let config = ConfigLoader.getDefault()
+    if (loadConfig) {
+      try {
+        config = await ConfigLoader.load()
+      } catch {
+        // ignore
+      }
+    }
+
+    const port = args.port ?? config.server.port
+    const hostname = args.hostname ?? config.server.hostname
+    const corsOrigins =
+      args.cors?.split(',').map((s) => s.trim()) ??
+      (Array.isArray(config.server.cors) ? config.server.cors : undefined)
 
     console.log(`\nStarting llmux server...`)
     console.log(`  Hostname: ${hostname}`)
     console.log(`  Port: ${port}`)
     if (corsOrigins) {
       console.log(`  CORS: ${corsOrigins.join(', ')}`)
+    }
+    if (config.routing.defaultProvider) {
+      console.log(`  Default provider: ${config.routing.defaultProvider}`)
     }
     console.log()
 

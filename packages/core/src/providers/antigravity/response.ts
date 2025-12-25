@@ -5,7 +5,7 @@
  * Antigravity wraps Gemini-style responses with additional metadata.
  */
 
-import { randomUUID } from 'crypto'
+import { randomUUID } from 'node:crypto'
 import type {
   ContentPart,
   StopReason,
@@ -38,7 +38,14 @@ export function parseResponse(response: unknown): UnifiedResponse {
     }
   }
 
-  const candidate = candidates[0]!
+  const candidate = candidates[0]
+  if (!candidate) {
+    return {
+      id: responseId || `resp-${randomUUID()}`,
+      content: [],
+      stopReason: null,
+    }
+  }
   const { content, finishReason } = candidate
 
   // Separate thinking blocks from content
@@ -124,9 +131,9 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
       case 'tool_call':
         parts.push({
           functionCall: {
-            name: part.toolCall!.name,
-            args: part.toolCall!.arguments,
-            id: part.toolCall!.id,
+            name: part.toolCall?.name,
+            args: part.toolCall?.arguments,
+            id: part.toolCall?.id,
           },
           // Add thoughtSignature for Claude compatibility
           thoughtSignature: 'skip_thought_signature_validator',

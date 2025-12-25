@@ -1,5 +1,4 @@
 import { generatePKCE } from '@openauthjs/openauth/pkce'
-import type { AuthIntermediate, AuthResult, AuthStep } from '../base'
 import type { OAuthCredential } from '../types'
 import {
   ANTIGRAVITY_CLIENT_ID,
@@ -11,6 +10,7 @@ import {
   ANTIGRAVITY_SCOPES,
 } from './antigravity-constants'
 import { startOAuthListener } from './antigravity-server'
+import type { AuthResult, AuthStep } from './base'
 
 interface PkcePair {
   challenge: string
@@ -53,6 +53,10 @@ function decodeState(state: string): AntigravityAuthState {
 }
 */
 
+interface LoadCodeAssistResponse {
+  cloudaicompanionProject?: string | { id: string }
+}
+
 async function fetchProjectID(accessToken: string): Promise<string> {
   const loadHeaders: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
@@ -85,18 +89,19 @@ async function fetchProjectID(accessToken: string): Promise<string> {
         continue
       }
 
-      const data = (await response.json()) as any
+      const data = (await response.json()) as LoadCodeAssistResponse
       if (typeof data.cloudaicompanionProject === 'string' && data.cloudaicompanionProject) {
         return data.cloudaicompanionProject
       }
       if (
         data.cloudaicompanionProject &&
+        typeof data.cloudaicompanionProject === 'object' &&
         typeof data.cloudaicompanionProject.id === 'string' &&
         data.cloudaicompanionProject.id
       ) {
         return data.cloudaicompanionProject.id
       }
-    } catch (e) {
+    } catch {
       // ignore
     }
   }
