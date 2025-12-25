@@ -31,6 +31,35 @@ export {
   getModelFamily,
   SignatureCache,
 } from './cache/signature'
+// AI SDK Provider
+export { AiSdkProvider } from './providers/ai-sdk'
+export {
+  parse as parseAiSdkRequest,
+  transform as transformToAiSdk,
+} from './providers/ai-sdk/request'
+export {
+  parseResponse as parseAiSdkResponse,
+  transformResponse as transformAiSdkResponse,
+} from './providers/ai-sdk/response'
+export {
+  parseStreamPart as parseAiSdkStreamPart,
+  transformStreamPart as transformAiSdkStreamPart,
+} from './providers/ai-sdk/streaming'
+export type {
+  LanguageModelV3,
+  LanguageModelV3CallOptions,
+  LanguageModelV3Content,
+  LanguageModelV3FinishReason,
+  LanguageModelV3FunctionTool,
+  LanguageModelV3GenerateResult,
+  LanguageModelV3Message,
+  LanguageModelV3Prompt,
+  LanguageModelV3StreamPart,
+  LanguageModelV3StreamResult,
+  LanguageModelV3Text,
+  LanguageModelV3ToolCall,
+  LanguageModelV3Usage,
+} from './providers/ai-sdk/types'
 export { AnthropicProvider } from './providers/anthropic'
 export type {
   AnthropicMessage,

@@ -74,31 +74,31 @@ const response = await llmux.proxy(geminiRequest, {
 | 12 | Auth 모듈 | ✅ Complete | 100% | ~1.5h |
 | 13 | Server 모듈 | ✅ Complete | 100% | ~1.5h |
 | 14 | CLI 통합 패키지 | ✅ Complete | 100% | ~2h |
-| 15 | AI SDK 호환 레이어 | ⏳ Pending | 0% | 4h |
+| 15 | AI SDK 호환 레이어 | ✅ Complete | 100% | ~3h |
 | 16 | LiteLLM 호환 레이어 | ⏳ Pending | 0% | 3h |
 
 ---
 
-## 진행 상황 요약 (2025-12-25)
+## 진행 상황 요약 (2025-12-26)
 
 ### 완료된 작업
 - ✅ Phase 1-11: Core 라이브러리 100% 완료 (~90-95% 테스트 커버리지)
 - ✅ Phase 12: Auth 모듈 완료 (CredentialStorage, TokenRefresh, Provider Registry, 60+ tests)
 - ✅ Phase 13: Server 모듈 완료 (Bun.serve, Router, Routing, ConfigLoader, transformStreamChunk, 60+ tests)
 - ✅ Phase 14: CLI 통합 완료 (auth, serve, proxy, stream, config 명령어)
+- ✅ Phase 15: AI SDK 호환 레이어 완료 (LanguageModelV3 양방향 변환, 86 tests)
 
 ### 현재 진행 중
-- ⏳ Phase 15-16: AI SDK / LiteLLM 호환 레이어 (선택적)
+- ⏳ Phase 16: LiteLLM 호환 레이어 (선택적)
 
 ### 통계
-- **소스 파일**: 85+개 TypeScript 파일
-- **테스트 파일**: 55+개 테스트 파일  
-- **테스트 통과**: 1,150+개 단위/통합 테스트 (core 915 + auth 60 + server 60 + cli 기타)
-- **빌드 크기**: @llmux/core 84KB, @llmux/auth 8.5KB, @llmux/server 13KB, @llmux/cli ~15KB
+- **소스 파일**: 90+개 TypeScript 파일
+- **테스트 파일**: 60+개 테스트 파일  
+- **테스트 통과**: 1,001개 단위/통합 테스트 (core 1001 테스트 + auth/server/cli 추가)
+- **빌드 크기**: @llmux/core 105KB (AI SDK 포함), @llmux/auth 8.5KB, @llmux/server 13KB, @llmux/cli ~15KB
 - **타입 체크**: ✅ 통과
 
 ### 미완료 작업
-- ⏳ **Phase 15**: AI SDK 호환 레이어 (`@ai-sdk/*` 스키마 호환)
 - ⏳ **Phase 16**: LiteLLM 호환 레이어 (Python SDK 호환)
 
 ---
