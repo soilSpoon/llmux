@@ -20,6 +20,7 @@
     "serve": "bun run ./src/index.ts serve",
     "serve:dev": "bun --watch run ./src/index.ts serve",
     "typecheck": "tsc --noEmit",
+    "typecheck:only": "tsc --noEmit",
     "test": "bun test"
   },
   "dependencies": {

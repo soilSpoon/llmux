@@ -1,5 +1,6 @@
 import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
 import {
+  createLogger,
   isValidProviderName,
   type ProviderName,
   transformRequest,
@@ -8,6 +9,8 @@ import {
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
 import { applyModelMapping } from './model-mapping'
+
+const logger = createLogger({ service: 'proxy-handler' })
 
 export interface ProxyOptions {
   sourceFormat: RequestFormat
@@ -65,7 +68,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
   const targetProvider: ProviderName = targetProviderInput
 
   try {
-    const body = (await request.json()) as { model?: string }
+    const body = (await request.json()) as { model?: string; stream?: boolean }
     const originalModel = body.model
 
     const transformedRequest = transformRequest(body, {
@@ -73,13 +76,46 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       to: targetProvider,
     }) as { model?: string }
 
+    let mappedModel: string | undefined = originalModel
+
     if (originalModel) {
-      transformedRequest.model = applyModelMapping(originalModel, options.modelMappings)
+      const appliedMapping = applyModelMapping(originalModel, options.modelMappings)
+      if (appliedMapping !== originalModel) {
+        logger.info(
+          {
+            originalModel,
+            mappedModel: appliedMapping,
+            mappings:
+              options.modelMappings?.map(
+                (m) => `${m.from}->${Array.isArray(m.to) ? m.to.join(',') : m.to}`
+              ) || [],
+          },
+          'Model mapping applied'
+        )
+      }
+      transformedRequest.model = appliedMapping
+      mappedModel = appliedMapping
     }
 
     if (options.targetModel) {
+      logger.info(
+        { originalModel, targetModel: options.targetModel },
+        'Target model override applied'
+      )
       transformedRequest.model = options.targetModel
+      mappedModel = options.targetModel
     }
+
+    logger.info(
+      {
+        sourceFormat: options.sourceFormat,
+        targetProvider,
+        originalModel,
+        finalModel: mappedModel,
+        stream: body.stream ?? false,
+      },
+      'Proxy request'
+    )
 
     const authProvider = AuthProviderRegistry.get(targetProvider)
 
@@ -102,7 +138,9 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           credentials = await TokenRefresh.ensureFresh(targetProvider)
         } catch {
           return new Response(
-            JSON.stringify({ error: `No credentials found for ${targetProvider}` }),
+            JSON.stringify({
+              error: `No credentials found for ${targetProvider}`,
+            }),
             { status: 401, headers: { 'Content-Type': 'application/json' } }
           )
         }
@@ -110,7 +148,9 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         const credential = credentials[0]
         if (!credential) {
           return new Response(
-            JSON.stringify({ error: `No credentials found for ${targetProvider}` }),
+            JSON.stringify({
+              error: `No credentials found for ${targetProvider}`,
+            }),
             { status: 401, headers: { 'Content-Type': 'application/json' } }
           )
         }
@@ -157,7 +197,9 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     }
 
     if (!lastResponse) {
-      return new Response(JSON.stringify({ error: 'Request failed' }), { status: 500 })
+      return new Response(JSON.stringify({ error: 'Request failed' }), {
+        status: 500,
+      })
     }
 
     if (!lastResponse.ok) {

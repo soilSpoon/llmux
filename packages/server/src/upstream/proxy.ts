@@ -1,3 +1,7 @@
+import { createLogger } from '@llmux/core'
+
+const logger = createLogger({ service: 'upstream-proxy' })
+
 export interface UpstreamProxyConfig {
   targetUrl: string
   apiKey?: string
@@ -19,7 +23,7 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
       const url = new URL(request.url)
       const proxyUrl = `${targetUrl}${url.pathname}${url.search}`
 
-      console.log(`[upstream] ${request.method} ${url.pathname} -> ${proxyUrl}`)
+      logger.debug({ method: request.method, path: url.pathname, proxyUrl }, 'Proxying request')
 
       try {
         const headers = new Headers()
@@ -39,22 +43,18 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
           body = await request.arrayBuffer()
         }
 
-        console.log(`[upstream] headers: ${JSON.stringify(Object.fromEntries(headers.entries()))}`)
-
-        const decoder = new TextDecoder('utf-8')
-
-        if (body) {
-          console.log(`[upstream] body: ${JSON.stringify(decoder.decode(body))}`)
-        }
-
         const upstreamResponse = await fetch(proxyUrl, {
           method: request.method,
           headers,
           body,
         })
 
-        console.log(
-          `[upstream] response: ${upstreamResponse.status} ${upstreamResponse.statusText}`
+        logger.debug(
+          {
+            status: upstreamResponse.status,
+            statusText: upstreamResponse.statusText,
+          },
+          'Upstream response'
         )
 
         const responseHeaders = new Headers()
@@ -69,7 +69,7 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Network error'
-        console.error(`[upstream] error: ${message}`, error)
+        logger.error({ error: message }, 'Upstream proxy error')
         return new Response(JSON.stringify({ error: message }), {
           status: 502,
           headers: { 'Content-Type': 'application/json' },

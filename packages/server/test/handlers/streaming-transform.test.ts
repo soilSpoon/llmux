@@ -74,11 +74,12 @@ describe("transformStreamChunk", () => {
   });
 
   describe("Error handling", () => {
-    test("returns original chunk on parse error", () => {
+    test("returns original chunk when parsing returns null", () => {
       const invalidChunk = "data: {invalid json}\n";
 
       const result = transformStreamChunk(invalidChunk, "openai", "anthropic");
 
+      // When parseStreamChunk returns null, original chunk is returned for safety
       expect(result).toBe(invalidChunk);
     });
 

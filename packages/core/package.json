@@ -27,6 +27,7 @@
   "scripts": {
     "build": "bunup src/index.ts --dts",
     "typecheck": "tsc --noEmit",
+    "typecheck:only": "tsc --noEmit",
     "test": "bun test",
     "lint": "biome lint src",
     "clean": "rm -rf dist"

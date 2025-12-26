@@ -1,22 +1,22 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./",
     "outDir": "./dist",
-    "composite": true,
-    "noEmit": false
+    "paths": {
+      "@llmux/core": [
+        "../core/src"
+      ],
+      "@llmux/core/*": [
+        "../core/src/*"
+      ]
+    }
   },
   "include": [
-    "src/**/*",
-    "test/**/*"
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist"
-  ],
-  "references": [
-    {
-      "path": "../core"
-    }
+    "dist",
+    "test"
   ]
 }

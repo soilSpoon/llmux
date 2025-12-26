@@ -1,25 +1,29 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./",
     "outDir": "./dist",
-    "composite": true,
-    "noEmit": false
+    "paths": {
+      "@llmux/core": [
+        "../core/src"
+      ],
+      "@llmux/core/*": [
+        "../core/src/*"
+      ],
+      "@llmux/auth": [
+        "../auth/src"
+      ],
+      "@llmux/auth/*": [
+        "../auth/src/*"
+      ]
+    }
   },
   "include": [
-    "src/**/*",
-    "test/**/*"
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist"
-  ],
-  "references": [
-    {
-      "path": "../core"
-    },
-    {
-      "path": "../auth"
-    }
+    "dist",
+    "test",
+    "src/**/__tests__"
   ]
 }

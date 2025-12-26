@@ -12,7 +12,7 @@ export function applyModelMapping(model: string, mappings: AmpModelMapping[] | u
 
   const to = mapping.to
   if (Array.isArray(to)) {
-    return to.length > 0 ? to[0]! : model
+    return to.length > 0 ? (to[0] ?? model) : model
   }
 
   return to

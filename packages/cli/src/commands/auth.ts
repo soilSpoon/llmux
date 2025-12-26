@@ -4,6 +4,7 @@ import {
   type AuthMethod,
   AuthProviderRegistry,
   type AuthStep,
+  type Credential,
   CredentialStorage,
 } from '@llmux/auth'
 import { cmd } from '../cmd'
@@ -105,7 +106,7 @@ const authListCommand = cmd({
       return
     }
 
-    for (const [providerId, creds] of entries) {
+    for (const [providerId, creds] of entries as [string, Credential[]][]) {
       const provider = AuthProviderRegistry.get(providerId)
       const name = provider?.name ?? providerId
       // Display count
@@ -168,9 +169,9 @@ const authLoginCommand = cmd({
           validate: (v) => (v && v.length > 0 ? undefined : 'Required'),
         })
         if (prompts.isCancel(input)) throw new CancelledError()
-        providerId = input
+        providerId = input as string
       } else {
-        providerId = selected
+        providerId = selected as string
       }
     }
 
@@ -213,7 +214,7 @@ const authLoginCommand = cmd({
     }
 
     if (provider.methods.length === 0) {
-      const helpMessage = providerHelpMessages[providerId]
+      const helpMessage = providerId ? providerHelpMessages[providerId] : undefined
       if (helpMessage) {
         prompts.log.info(helpMessage)
       }
@@ -239,7 +240,7 @@ const authLoginCommand = cmd({
         return
       }
 
-      const helpMessage = providerHelpMessages[providerId]
+      const helpMessage = providerId ? providerHelpMessages[providerId] : undefined
       if (helpMessage && method.type === 'api') {
         prompts.log.info(helpMessage)
       }
@@ -253,13 +254,13 @@ const authLoginCommand = cmd({
     if (provider.methods.length > 1) {
       const selected = await prompts.select({
         message: 'Select login method',
-        options: provider.methods.map((m, i) => ({
+        options: provider.methods.map((m: { label: string }, i: number) => ({
           label: m.label,
           value: i.toString(),
         })),
       })
       if (prompts.isCancel(selected)) throw new CancelledError()
-      methodIndex = parseInt(selected, 10)
+      methodIndex = parseInt(selected as string, 10)
     }
 
     const method = provider.methods[methodIndex]
@@ -269,7 +270,7 @@ const authLoginCommand = cmd({
       process.exit(1)
     }
 
-    const helpMessage = providerHelpMessages[providerId]
+    const helpMessage = providerId ? providerHelpMessages[providerId] : undefined
     if (helpMessage && method.type === 'api') {
       prompts.log.info(helpMessage)
     }
@@ -305,7 +306,7 @@ const authLogoutCommand = cmd({
     if (!providerId) {
       const selected = await prompts.select({
         message: 'Select provider to log out',
-        options: entries.map(([id, creds]) => {
+        options: (entries as [string, Credential[]][]).map(([id, creds]) => {
           const provider = AuthProviderRegistry.get(id)
           const name = provider?.name ?? id
           return {
@@ -315,7 +316,7 @@ const authLogoutCommand = cmd({
         }),
       })
       if (prompts.isCancel(selected)) throw new CancelledError()
-      providerId = selected
+      providerId = selected as string
     }
 
     const current = await CredentialStorage.get(providerId)

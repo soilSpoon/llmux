@@ -1,4 +1,7 @@
+import { createLogger } from '@llmux/core'
 import type { Model, ModelFetcher, ModelProvider } from './types'
+
+const logger = createLogger({ service: 'model-registry' })
 
 export interface ModelRegistry {
   registerFetcher(provider: ModelProvider, fetcher: ModelFetcher): void
@@ -29,7 +32,10 @@ export function createModelRegistry(): ModelRegistry {
           const token = tokens?.[provider]
           return await fetcher.fetchModels(token)
         } catch (error) {
-          console.error(`Failed to fetch models for ${provider}:`, error)
+          logger.error(
+            { provider, error: error instanceof Error ? error.message : String(error) },
+            'Failed to fetch models'
+          )
           return []
         }
       })

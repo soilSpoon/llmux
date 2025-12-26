@@ -1,3 +1,4 @@
+import { logger } from '../util/logger'
 import type { Provider, ProviderName } from './base'
 
 /**
@@ -5,8 +6,7 @@ import type { Provider, ProviderName } from './base'
  */
 const providers = new Map<ProviderName, Provider>()
 
-console.log('[core registry.ts] Module loaded, providers Map created')
-console.log('[core registry.ts] import.meta.url:', import.meta.url)
+logger.debug({ url: import.meta.url }, 'Provider registry module loaded')
 
 /**
  * Get a registered provider by name

@@ -261,12 +261,12 @@ describe('Anthropic Types', () => {
         expect(isAnthropicRequest(request)).toBe(true)
       })
 
-      it('should return false for missing max_tokens', () => {
+      it('should return true even without max_tokens (optional field)', () => {
         const request = {
           model: 'claude-sonnet-4-20250514',
           messages: [{ role: 'user', content: 'Hello' }],
         }
-        expect(isAnthropicRequest(request)).toBe(false)
+        expect(isAnthropicRequest(request)).toBe(true)
       })
 
       it('should return false for non-object', () => {

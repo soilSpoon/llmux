@@ -325,9 +325,8 @@ export function isAnthropicRequest(value: unknown): value is AnthropicRequest {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
   return (
-    typeof obj.model === 'string' &&
-    Array.isArray(obj.messages) &&
-    typeof obj.max_tokens === 'number'
+    typeof obj.model === 'string' && Array.isArray(obj.messages)
+    // max_tokens is optional - will be set to default if missing
   )
 }
 

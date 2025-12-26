@@ -53,7 +53,7 @@ export class AntigravityProvider extends BaseProvider {
   /**
    * Parse an Antigravity SSE stream chunk into unified format.
    */
-  parseStreamChunk(chunk: string): StreamChunk | null {
+  parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
     return parseStreamChunk(chunk)
   }
 

@@ -1,6 +1,6 @@
-export const ANTIGRAVITY_CLIENT_ID =
+export const ANTIGRAVITY_CLIENT_ID: string =
   '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com'
-export const ANTIGRAVITY_CLIENT_SECRET = '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'
+export const ANTIGRAVITY_CLIENT_SECRET: string = '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'
 export const ANTIGRAVITY_SCOPES: readonly string[] = [
   'https://www.googleapis.com/auth/cloud-platform',
   'https://www.googleapis.com/auth/userinfo.email',
@@ -8,19 +8,21 @@ export const ANTIGRAVITY_SCOPES: readonly string[] = [
   'https://www.googleapis.com/auth/cclog',
   'https://www.googleapis.com/auth/experimentsandconfigs',
 ]
-export const ANTIGRAVITY_REDIRECT_URI = 'http://localhost:51121/oauth-callback'
-export const ANTIGRAVITY_ENDPOINT_DAILY = 'https://daily-cloudcode-pa.sandbox.googleapis.com'
-export const ANTIGRAVITY_ENDPOINT_AUTOPUSH = 'https://autopush-cloudcode-pa.sandbox.googleapis.com'
-export const ANTIGRAVITY_ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com'
-export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc'
-export const ANTIGRAVITY_API_PATH_GENERATE = '/v1internal:generateContent'
-export const ANTIGRAVITY_API_PATH_STREAM = '/v1internal:streamGenerateContent?alt=sse'
-export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
+export const ANTIGRAVITY_REDIRECT_URI: string = 'http://localhost:51121/oauth-callback'
+export const ANTIGRAVITY_ENDPOINT_DAILY: string =
+  'https://daily-cloudcode-pa.sandbox.googleapis.com'
+export const ANTIGRAVITY_ENDPOINT_AUTOPUSH: string =
+  'https://autopush-cloudcode-pa.sandbox.googleapis.com'
+export const ANTIGRAVITY_ENDPOINT_PROD: string = 'https://cloudcode-pa.googleapis.com'
+export const ANTIGRAVITY_DEFAULT_PROJECT_ID: string = 'rising-fact-p41fc'
+export const ANTIGRAVITY_API_PATH_GENERATE: string = '/v1internal:generateContent'
+export const ANTIGRAVITY_API_PATH_STREAM: string = '/v1internal:streamGenerateContent?alt=sse'
+export const ANTIGRAVITY_ENDPOINT_FALLBACKS: readonly [string, string, string] = [
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_AUTOPUSH,
   ANTIGRAVITY_ENDPOINT_PROD,
 ] as const
-export const ANTIGRAVITY_LOAD_ENDPOINTS = [
+export const ANTIGRAVITY_LOAD_ENDPOINTS: readonly [string, string, string] = [
   ANTIGRAVITY_ENDPOINT_PROD,
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_AUTOPUSH,

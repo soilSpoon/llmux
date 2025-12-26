@@ -53,19 +53,5 @@
       ]
     }
   },
-  "include": [],
-  "references": [
-    {
-      "path": "./packages/core"
-    },
-    {
-      "path": "./packages/auth"
-    },
-    {
-      "path": "./packages/server"
-    },
-    {
-      "path": "./packages/cli"
-    }
-  ]
+  "include": []
 }

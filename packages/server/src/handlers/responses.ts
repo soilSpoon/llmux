@@ -1,6 +1,5 @@
 import { ANTIGRAVITY_API_PATH_STREAM, AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
 import {
-  type ChatCompletionChunk,
   type ChatCompletionsResponse,
   type ProviderName,
   parseSSELine,
@@ -92,10 +91,10 @@ async function detectProviderFromModel(
 
     const registry = createModelRegistry()
     for (const provider of providers) {
-      registry.registerFetcher(provider, createFetcher(provider, { cache: null as any }))
+      registry.registerFetcher(provider, createFetcher(provider, { cache: undefined }))
     }
 
-    const models = await registry.getModels(providers as any, tokens)
+    const models = await registry.getModels(providers as string[], tokens)
     const foundModel = models.find((m) => m.id === model || m.name === model)
 
     if (foundModel) {
@@ -322,31 +321,38 @@ export async function handleResponses(
 
             // Transform from actual upstream provider to OpenAI SSE format
             const openaiSSE = transformStreamChunk(trimmed, actualUpstreamProvider, 'openai')
-            console.error('[handleResponses STREAM] After transform:', openaiSSE.slice(0, 100))
-
-            // Parse OpenAI SSE line to ChatCompletionChunk
-            const parsed = parseSSELine(openaiSSE)
             console.error(
-              '[handleResponses STREAM] Parsed:',
-              parsed === 'DONE' ? '[DONE]' : parsed === null ? 'null' : 'ChatCompletionChunk'
+              '[handleResponses STREAM] After transform:',
+              typeof openaiSSE === 'string' ? openaiSSE.slice(0, 100) : 'array'
             )
 
-            if (parsed === 'DONE') {
-              console.error('[handleResponses STREAM] Received [DONE]')
-              const finalEvents = transformer.finish()
-              for (const event of finalEvents) {
-                controller.enqueue(encoder.encode(formatSSEEvent(event)))
-              }
-              continue
-            }
+            // Handle both string and array results from transformStreamChunk
+            const sseLines = Array.isArray(openaiSSE) ? openaiSSE : [openaiSSE]
+            for (const sseLine of sseLines) {
+              // Parse OpenAI SSE line to ChatCompletionChunk
+              const parsed = parseSSELine(sseLine)
+              console.error(
+                '[handleResponses STREAM] Parsed:',
+                parsed === 'DONE' ? '[DONE]' : parsed === null ? 'null' : 'ChatCompletionChunk'
+              )
 
-            if (parsed !== null && typeof parsed === 'object') {
-              const events = transformer.transformChunk(parsed)
-              console.error('[handleResponses STREAM] Generated', events.length, 'events')
-              for (const event of events) {
-                const formatted = formatSSEEvent(event)
-                console.error('[handleResponses STREAM] Event:', event.type)
-                controller.enqueue(encoder.encode(formatted))
+              if (parsed === 'DONE') {
+                console.error('[handleResponses STREAM] Received [DONE]')
+                const finalEvents = transformer.finish()
+                for (const event of finalEvents) {
+                  controller.enqueue(encoder.encode(formatSSEEvent(event)))
+                }
+                continue
+              }
+
+              if (parsed !== null && typeof parsed === 'object') {
+                const events = transformer.transformChunk(parsed)
+                console.error('[handleResponses STREAM] Generated', events.length, 'events')
+                for (const event of events) {
+                  const formatted = formatSSEEvent(event)
+                  console.error('[handleResponses STREAM] Event:', event.type)
+                  controller.enqueue(encoder.encode(formatted))
+                }
               }
             }
           }
@@ -356,12 +362,15 @@ export async function handleResponses(
             console.error('[handleResponses STREAM] Flush buffer:', buffer.trim().slice(0, 100))
 
             const openaiSSE = transformStreamChunk(buffer.trim(), actualUpstreamProvider, 'openai')
-            const parsed = parseSSELine(openaiSSE)
+            const sseLines = Array.isArray(openaiSSE) ? openaiSSE : [openaiSSE]
+            for (const sseLine of sseLines) {
+              const parsed = parseSSELine(sseLine)
 
-            if (parsed !== null && parsed !== 'DONE' && typeof parsed === 'object') {
-              const events = transformer.transformChunk(parsed)
-              for (const event of events) {
-                controller.enqueue(encoder.encode(formatSSEEvent(event)))
+              if (parsed !== null && parsed !== 'DONE' && typeof parsed === 'object') {
+                const events = transformer.transformChunk(parsed)
+                for (const event of events) {
+                  controller.enqueue(encoder.encode(formatSSEEvent(event)))
+                }
               }
             }
           }
