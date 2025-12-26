@@ -34,13 +34,18 @@ interface ModelsDevProvider {
 
 type ModelsDevResponse = Record<string, ModelsDevProvider>
 
-export function createModelsDevFetcher(provider: ModelProvider, cache?: ModelCache): ModelFetcher {
+export function createModelsDevFetcher(
+  provider: ModelProvider,
+  cache?: ModelCache,
+  outputProvider?: ModelProvider
+): ModelFetcher {
+  const actualProvider = outputProvider ?? provider
   return {
     async fetchModels(_accessToken?: string): Promise<Model[]> {
       if (cache) {
-        const isExpired = await cache.isExpired(provider)
+        const isExpired = await cache.isExpired(actualProvider)
         if (!isExpired) {
-          const cached = await cache.get(provider)
+          const cached = await cache.get(actualProvider)
           if (cached) {
             return cached
           }
@@ -68,7 +73,7 @@ export function createModelsDevFetcher(provider: ModelProvider, cache?: ModelCac
 
         const models: Model[] = Object.values(providerData.models).map((m) => ({
           id: m.id,
-          provider,
+          provider: actualProvider,
           name: m.name,
           object: 'model' as const,
           context_length: m.limit.context,
@@ -77,7 +82,7 @@ export function createModelsDevFetcher(provider: ModelProvider, cache?: ModelCac
         }))
 
         if (cache) {
-          await cache.set(provider, models)
+          await cache.set(actualProvider, models)
         }
 
         return models

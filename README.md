@@ -27,6 +27,7 @@ const geminiResponse = transformResponse(anthropicResponse, {
 
 - **Bidirectional transformation**: 12 provider combinations supported
 - **SSE streaming**: Real-time streaming transformation
+- **Responses API**: OpenAI Responses API (`/v1/responses`) support
 - **Thinking support**: Claude thinking blocks, Gemini thoughtSignature
 - **Tool calling**: Full function/tool calling support across providers
 - **Type-safe**: Full TypeScript support with strict types
@@ -122,6 +123,7 @@ When `amp` config is provided, the following routes are registered:
 | `/api/provider/:provider/v1/chat/completions` | POST | OpenAI chat completions |
 | `/api/provider/:provider/v1/messages` | POST | Anthropic messages |
 | `/api/provider/:provider/v1/models` | GET | List models |
+| `/v1/responses` | POST | OpenAI Responses API |
 | `/v1beta/models/*action` | POST | Gemini generateContent |
 
 ### Fallback Behavior

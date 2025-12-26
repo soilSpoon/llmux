@@ -99,6 +99,32 @@ export {
   hasProvider,
   registerProvider,
 } from './providers/registry'
+// Responses API (OpenAI Responses API support)
+export type {
+  ChatCompletionChunk,
+  ChatCompletionsRequest,
+  ChatCompletionsResponse,
+  ChatMessage,
+  ResponsesAnnotation,
+  ResponsesContentPart,
+  ResponsesError,
+  ResponsesInputMessage,
+  ResponsesOutputContent,
+  ResponsesOutputItem,
+  ResponsesReasoningConfig,
+  ResponsesRequest,
+  ResponsesResponse,
+  ResponsesStreamEvent,
+  ResponsesToolChoice,
+  ResponsesToolDefinition,
+  ResponsesUsage,
+} from './responses'
+export {
+  parseSSELine,
+  ResponsesStreamTransformer,
+  transformResponsesRequest,
+  transformToResponsesResponse,
+} from './responses'
 export type { TransformOptions, TransformResponseOptions } from './transform'
 export { transformRequest, transformResponse } from './transform'
 export type {

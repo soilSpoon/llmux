@@ -23,7 +23,7 @@ export class Router {
       }
     }
 
-    const provider = this.config.defaultProvider || 'openai'
+    const provider = this.config.fallbackOrder?.[0] || 'openai'
     return {
       provider,
       model: requestedModel,

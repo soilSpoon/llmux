@@ -1,4 +1,17 @@
-import { getRegisteredProviders } from '@llmux/core'
+import {
+  AntigravityProvider as AntigravityAuthProvider,
+  AuthProviderRegistry,
+  GithubCopilotProvider,
+  OpencodeZenProvider,
+} from '@llmux/auth'
+import {
+  AnthropicProvider,
+  AntigravityProvider,
+  GeminiProvider,
+  getRegisteredProviders,
+  OpenAIProvider,
+  registerProvider,
+} from '@llmux/core'
 import { createManagementRoutes } from './amp/management'
 import { createAmpRoutes, type ProviderHandlers } from './amp/routes'
 import type { CredentialProvider } from './auth'
@@ -6,11 +19,23 @@ import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
 import { handleModels } from './handlers/models'
 import { handleProxy, type ProxyOptions } from './handlers/proxy'
+import { handleResponses, type ResponsesOptions } from './handlers/responses'
 import { handleStreamingProxy } from './handlers/streaming'
 import { corsMiddleware } from './middleware/cors'
 import { detectFormat } from './middleware/format'
 import { createRouter, type Route } from './router'
 import { createUpstreamProxy, type UpstreamProxy } from './upstream/proxy'
+
+// Register core transformation providers on module load
+registerProvider(new OpenAIProvider())
+registerProvider(new AnthropicProvider())
+registerProvider(new GeminiProvider())
+registerProvider(new AntigravityProvider())
+
+// Register auth providers on module load
+AuthProviderRegistry.register(OpencodeZenProvider)
+AuthProviderRegistry.register(GithubCopilotProvider)
+AuthProviderRegistry.register(AntigravityAuthProvider)
 
 export interface AmpConfig {
   handlers: ProviderHandlers
@@ -70,6 +95,7 @@ interface BuildProxyOptionsParams {
   body: RequestBody
   defaultTargetProvider?: string
   overrideSourceFormat?: RequestFormat
+  modelMappings?: AmpConfig['modelMappings']
 }
 
 function buildProxyOptions({
@@ -77,6 +103,7 @@ function buildProxyOptions({
   body,
   defaultTargetProvider = 'anthropic',
   overrideSourceFormat,
+  modelMappings,
 }: BuildProxyOptionsParams): ProxyOptions {
   const sourceFormat = overrideSourceFormat ?? detectFormat(body)
   const targetProvider = request.headers.get('X-Target-Provider') ?? defaultTargetProvider
@@ -88,64 +115,92 @@ function buildProxyOptions({
     targetProvider,
     targetModel,
     apiKey,
+    modelMappings,
   }
 }
 
-async function handleChatCompletions(request: Request): Promise<Response> {
-  const body = (await request.clone().json()) as RequestBody
-  const options = buildProxyOptions({ request, body })
+function createChatCompletionsHandler(modelMappings?: AmpConfig['modelMappings']) {
+  return async (request: Request): Promise<Response> => {
+    const body = (await request.clone().json()) as RequestBody
+    const options = buildProxyOptions({ request, body, modelMappings })
 
-  if (body.stream) {
-    return handleStreamingProxy(request, options)
+    if (body.stream) {
+      return handleStreamingProxy(request, options)
+    }
+    return handleProxy(request, options)
   }
-  return handleProxy(request, options)
 }
 
-async function handleMessages(request: Request): Promise<Response> {
-  const body = (await request.clone().json()) as RequestBody
-  const options = buildProxyOptions({
-    request,
-    body,
-    defaultTargetProvider: 'openai',
-    overrideSourceFormat: 'anthropic',
-  })
-
-  if (body.stream) {
-    return handleStreamingProxy(request, options)
-  }
-  return handleProxy(request, options)
-}
-
-async function handleGenerateContent(request: Request): Promise<Response> {
-  const body = (await request.clone().json()) as RequestBody
-  const options = buildProxyOptions({ request, body })
-
-  if (body.stream) {
-    return handleStreamingProxy(request, options)
-  }
-  return handleProxy(request, options)
-}
-
-async function handleExplicitProxy(request: Request): Promise<Response> {
-  const targetProvider = request.headers.get('X-Target-Provider')
-  if (!targetProvider) {
-    return new Response(JSON.stringify({ error: 'X-Target-Provider header required' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
+function createMessagesHandler(modelMappings?: AmpConfig['modelMappings']) {
+  return async (request: Request): Promise<Response> => {
+    const body = (await request.clone().json()) as RequestBody
+    const options = buildProxyOptions({
+      request,
+      body,
+      defaultTargetProvider: 'openai',
+      overrideSourceFormat: 'anthropic',
+      modelMappings,
     })
-  }
 
-  const body = (await request.clone().json()) as RequestBody
-  const options = buildProxyOptions({
-    request,
-    body,
-    defaultTargetProvider: targetProvider,
-  })
-
-  if (body.stream) {
-    return handleStreamingProxy(request, options)
+    if (body.stream) {
+      return handleStreamingProxy(request, options)
+    }
+    return handleProxy(request, options)
   }
-  return handleProxy(request, options)
+}
+
+function createGenerateContentHandler(modelMappings?: AmpConfig['modelMappings']) {
+  return async (request: Request): Promise<Response> => {
+    const body = (await request.clone().json()) as RequestBody
+    const options = buildProxyOptions({ request, body, modelMappings })
+
+    if (body.stream) {
+      return handleStreamingProxy(request, options)
+    }
+    return handleProxy(request, options)
+  }
+}
+
+function createExplicitProxyHandler(modelMappings?: AmpConfig['modelMappings']) {
+  return async (request: Request): Promise<Response> => {
+    const targetProvider = request.headers.get('X-Target-Provider')
+    if (!targetProvider) {
+      return new Response(JSON.stringify({ error: 'X-Target-Provider header required' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
+    const body = (await request.clone().json()) as RequestBody
+    const options = buildProxyOptions({
+      request,
+      body,
+      defaultTargetProvider: targetProvider,
+      modelMappings,
+    })
+
+    if (body.stream) {
+      return handleStreamingProxy(request, options)
+    }
+    return handleProxy(request, options)
+  }
+}
+
+function createResponsesHandler(modelMappings?: AmpConfig['modelMappings']) {
+  return async (request: Request): Promise<Response> => {
+    const targetProvider = request.headers.get('X-Target-Provider') ?? 'openai'
+    const targetModel = request.headers.get('X-Target-Model') ?? undefined
+    const apiKey = request.headers.get('X-API-Key') ?? undefined
+
+    const options: ResponsesOptions = {
+      targetProvider,
+      targetModel,
+      apiKey,
+      modelMappings,
+    }
+
+    return handleResponses(request, options)
+  }
 }
 
 interface RouteOptions {
@@ -160,6 +215,12 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
       modelMappings: options.modelMappings,
     })
 
+  const chatCompletionsHandler = createChatCompletionsHandler(options.modelMappings)
+  const messagesHandler = createMessagesHandler(options.modelMappings)
+  const generateContentHandler = createGenerateContentHandler(options.modelMappings)
+  const explicitProxyHandler = createExplicitProxyHandler(options.modelMappings)
+  const responsesHandler = createResponsesHandler(options.modelMappings)
+
   return [
     { method: 'GET', path: '/health', handler: handleHealth },
     { method: 'GET', path: '/providers', handler: handleProviders },
@@ -167,15 +228,16 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
     {
       method: 'POST',
       path: '/v1/chat/completions',
-      handler: handleChatCompletions,
+      handler: chatCompletionsHandler,
     },
-    { method: 'POST', path: '/v1/messages', handler: handleMessages },
+    { method: 'POST', path: '/v1/messages', handler: messagesHandler },
     {
       method: 'POST',
       path: '/v1/generateContent',
-      handler: handleGenerateContent,
+      handler: generateContentHandler,
     },
-    { method: 'POST', path: '/v1/proxy', handler: handleExplicitProxy },
+    { method: 'POST', path: '/v1/proxy', handler: explicitProxyHandler },
+    { method: 'POST', path: '/v1/responses', handler: responsesHandler },
   ]
 }
 

@@ -14,6 +14,7 @@ export interface AmpRoutesConfig {
   handlers: ProviderHandlers
   fallbackHandler?: FallbackHandler
   modelsHandler?: RouteHandler
+  responsesHandler?: RouteHandler
 }
 
 function createProviderDispatcher(
@@ -22,25 +23,17 @@ function createProviderDispatcher(
 ): RouteHandler {
   const dispatcher: RouteHandler = async (request: Request, params?: RouteParams) => {
     const provider = params?.provider
-    if (!provider || !(provider in handlers)) {
-      return new Response(JSON.stringify({ error: `Unknown provider: ${provider}` }), {
-        status: 404,
-        headers: { 'Content-Type': 'application/json' },
-      })
+    const handler = provider ? handlers[provider] : undefined
+
+    if (handler) {
+      return handler(request, params)
     }
 
-    const handler = handlers[provider]
-    if (!handler) {
-      return new Response(
-        JSON.stringify({ error: `Handler not found for provider: ${provider}` }),
-        {
-          status: 404,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
-    }
-
-    return handler(request, params)
+    // No local handler - return error that fallback wrapper will intercept
+    return new Response(JSON.stringify({ error: `No handler for provider: ${provider}` }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   if (fallbackHandler) {
@@ -78,6 +71,8 @@ export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
   const geminiHandler = createProviderDispatcher(handlers, fallbackHandler)
   const modelsDispatcher = createModelsDispatcher(modelsHandler)
 
+  const responsesHandler = createProviderDispatcher(handlers, fallbackHandler)
+
   const routes: Route[] = [
     {
       method: 'POST',
@@ -88,6 +83,11 @@ export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
       method: 'POST',
       path: '/api/provider/:provider/v1/messages',
       handler: messagesHandler,
+    },
+    {
+      method: 'POST',
+      path: '/api/provider/:provider/v1/responses',
+      handler: responsesHandler,
     },
     {
       method: 'GET',

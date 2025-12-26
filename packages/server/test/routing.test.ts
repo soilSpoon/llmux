@@ -16,9 +16,9 @@ describe('Router (Routing)', () => {
       expect(result.model).toBe('gpt-4-turbo')
     })
 
-    test('returns default provider when no mapping exists', () => {
+    test('returns first fallback provider when no mapping exists', () => {
       const router = createRouter({
-        defaultProvider: 'anthropic',
+        fallbackOrder: ['anthropic', 'openai'],
       })
 
       const result = router.resolveModel('unknown-model')
@@ -26,7 +26,7 @@ describe('Router (Routing)', () => {
       expect(result.model).toBe('unknown-model')
     })
 
-    test('defaults to openai when no defaultProvider set', () => {
+    test('defaults to openai when no fallbackOrder set', () => {
       const router = createRouter({})
 
       const result = router.resolveModel('some-model')
@@ -103,7 +103,7 @@ describe('Router (Routing)', () => {
   describe('Router class', () => {
     test('can be instantiated directly', () => {
       const router = new Router({
-        defaultProvider: 'gemini',
+        fallbackOrder: ['gemini'],
       })
 
       const result = router.resolveModel('test')

@@ -5,13 +5,16 @@ import {
   transformRequest,
   transformResponse,
 } from '@llmux/core'
+import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
+import { applyModelMapping } from './model-mapping'
 
 export interface ProxyOptions {
   sourceFormat: RequestFormat
   targetProvider: string
   targetModel?: string
   apiKey?: string
+  modelMappings?: AmpModelMapping[]
 }
 
 const PROVIDER_ENDPOINTS: Record<string, string> = {
@@ -62,15 +65,20 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
   const targetProvider: ProviderName = targetProviderInput
 
   try {
-    const body = await request.json()
+    const body = (await request.json()) as { model?: string }
+    const originalModel = body.model
 
     const transformedRequest = transformRequest(body, {
       from: formatToProvider(options.sourceFormat),
       to: targetProvider,
-    })
+    }) as { model?: string }
+
+    if (originalModel) {
+      transformedRequest.model = applyModelMapping(originalModel, options.modelMappings)
+    }
 
     if (options.targetModel) {
-      ;(transformedRequest as { model?: string }).model = options.targetModel
+      transformedRequest.model = options.targetModel
     }
 
     const authProvider = AuthProviderRegistry.get(targetProvider)

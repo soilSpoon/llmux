@@ -136,7 +136,7 @@ function parseToolCall(toolCall: OpenAIToolCall): ContentPart {
 // =============================================================================
 
 function transformMessage(response: UnifiedResponse): OpenAIResponseMessage {
-  const textContent = response.content
+  let textContent = response.content
     .filter((p) => p.type === 'text')
     .map((p) => p.text)
     .join('')
@@ -150,6 +150,11 @@ function transformMessage(response: UnifiedResponse): OpenAIResponseMessage {
       } => p.type === 'tool_call' && p.toolCall !== undefined
     )
     .map((p) => p.toolCall)
+
+  // If content and tool calls are empty, but we have thinking, use thinking as content
+  if (!textContent && toolCalls.length === 0 && response.thinking && response.thinking.length > 0) {
+    textContent = response.thinking.map((t) => t.text).join('\n\n')
+  }
 
   const message: OpenAIResponseMessage = {
     role: 'assistant',

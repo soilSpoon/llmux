@@ -120,9 +120,31 @@ describe('handleModels', () => {
       const body = await parseResponse(response)
 
       expect(response.status).toBe(200)
-      // 매핑 정보가 응답에 포함되어야 함
       expect(body.mappings).toBeDefined()
-      expect(body.mappings?.['gpt-4']).toBe('antigravity/gpt-4')
+      expect(body.mappings).toEqual([{ from: 'gpt-4', to: 'antigravity/gpt-4' }])
+    })
+
+    it('modelMappings with fallback chain', async () => {
+      const credentialProvider = createMockCredentialProvider({
+        antigravity: [
+          {
+            type: 'oauth',
+            accessToken: 'test-token',
+            refreshToken: '',
+            expiresAt: Date.now() + 3600000,
+          },
+        ],
+      })
+      const request = createRequest()
+
+      const response = await handleModels(request, {
+        credentialProvider,
+        modelMappings: [{ from: 'claude-opus', to: ['model-a', 'model-b'] }],
+      })
+      const body = await parseResponse(response)
+
+      expect(response.status).toBe(200)
+      expect(body.mappings).toEqual([{ from: 'claude-opus', to: ['model-a', 'model-b'] }])
     })
   })
 

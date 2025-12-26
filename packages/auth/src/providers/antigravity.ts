@@ -1,6 +1,7 @@
 import { CredentialStorage } from '../storage'
 import type { Credential } from '../types'
 import { isApiKeyCredential, isOAuthCredential } from '../types'
+import { ANTIGRAVITY_ENDPOINT_PROD, ANTIGRAVITY_HEADERS } from './antigravity-constants'
 import { authorizeAntigravity, refreshAntigravityToken } from './antigravity-oauth'
 import type { AuthMethod, AuthProvider } from './base'
 

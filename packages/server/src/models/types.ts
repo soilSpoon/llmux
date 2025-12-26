@@ -24,7 +24,7 @@ export interface ModelsResponse {
   object: 'list'
   data: Model[]
   providers: ModelProvider[]
-  mappings?: Record<string, string>
+  mappings?: Array<{ from: string; to: string | string[] }>
 }
 
 export interface ModelFetcher {

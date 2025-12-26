@@ -18,14 +18,14 @@ describe('AntigravityFetcher', () => {
       }
     })
 
-    it('should include Claude models', () => {
-      const claudeModels = ANTIGRAVITY_MODELS.filter((m) => m.id.includes('claude'))
-      expect(claudeModels.length).toBeGreaterThan(0)
-    })
-
     it('should include Gemini models', () => {
       const geminiModels = ANTIGRAVITY_MODELS.filter((m) => m.id.includes('gemini'))
       expect(geminiModels.length).toBeGreaterThan(0)
+    })
+
+    it('should include gemini-claude thinking models', () => {
+      const thinkingModels = ANTIGRAVITY_MODELS.filter((m) => m.id.includes('gemini-claude'))
+      expect(thinkingModels.length).toBeGreaterThan(0)
     })
   })
 

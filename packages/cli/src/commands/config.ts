@@ -41,7 +41,6 @@ const configListCommand = cmd({
     )
 
     prompts.log.info('Routing:')
-    console.log(`  defaultProvider: ${config.routing.defaultProvider ?? 'none'}`)
     console.log(`  fallbackOrder: ${config.routing.fallbackOrder?.join(', ') ?? 'none'}`)
     console.log(`  rotateOn429: ${config.routing.rotateOn429 ?? false}`)
 
@@ -96,7 +95,7 @@ const configSetCommand = cmd({
   builder: (yargs) =>
     yargs
       .positional('key', {
-        describe: 'Configuration key (e.g., server.port, routing.defaultProvider)',
+        describe: 'Configuration key (e.g., server.port, routing.fallbackOrder)',
         type: 'string',
         demandOption: true,
       })

@@ -49,12 +49,32 @@ export function parseResponse(response: unknown): UnifiedResponse {
  * Transform UnifiedResponse into AnthropicResponse
  */
 export function transformResponse(response: UnifiedResponse): AnthropicResponse {
+  const content: AnthropicContentBlock[] = transformContentParts(response.content)
+
+  // Add thinking blocks if they exist and are not already in content
+  if (response.thinking && response.thinking.length > 0) {
+    const hasThinkingInContent = response.content.some((p) => p.type === 'thinking')
+    if (!hasThinkingInContent) {
+      for (const block of response.thinking) {
+        content.unshift({
+          type: 'thinking',
+          thinking: block.text,
+          signature: block.signature || '',
+        })
+      }
+    }
+  }
+
+  // If content is still empty but we have thinking, it should have been added above.
+  // If content is empty and no thinking, we might need a fallback, but usually
+  // LLMs return at least something.
+
   return {
     id: response.id || generateMessageId(),
     type: 'message',
     role: 'assistant',
     model: response.model || 'claude-sonnet-4-20250514',
-    content: transformContentParts(response.content),
+    content,
     stop_reason: transformStopReason(response.stopReason),
     stop_sequence: null,
     usage: transformUsage(response.usage),

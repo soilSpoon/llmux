@@ -37,5 +37,11 @@ describe('FetcherFactory', () => {
       expect(fetcher).toBeDefined()
       expect(fetcher.fetchModels).toBeFunction()
     })
+
+    it('should create fetcher for opencode-zen mapped to opencode', () => {
+      const fetcher = createFetcher('opencode-zen')
+      expect(fetcher).toBeDefined()
+      expect(fetcher.fetchModels).toBeFunction()
+    })
   })
 })

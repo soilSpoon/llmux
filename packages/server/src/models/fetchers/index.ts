@@ -11,6 +11,11 @@ export interface FetcherFactoryOptions {
 
 export type FetcherStrategy = 'hardcoded' | 'api' | 'models-dev'
 
+// Maps internal provider names to models.dev provider IDs
+const MODELS_DEV_PROVIDER_MAP: Partial<Record<ModelProvider, string>> = {
+  'opencode-zen': 'opencode',
+}
+
 export function getFetcherStrategy(provider: ModelProvider): FetcherStrategy {
   switch (provider) {
     case 'antigravity':
@@ -33,8 +38,11 @@ export function createFetcher(
       return createAntigravityFetcher()
     case 'api':
       return createGithubCopilotFetcher()
-    case 'models-dev':
-      return createModelsDevFetcher(provider, options.cache)
+    case 'models-dev': {
+      // Map internal provider to models.dev provider ID
+      const modelsDevProvider = MODELS_DEV_PROVIDER_MAP[provider] ?? provider
+      return createModelsDevFetcher(modelsDevProvider as ModelProvider, options.cache, provider)
+    }
   }
 }
 

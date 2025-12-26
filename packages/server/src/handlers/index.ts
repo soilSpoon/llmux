@@ -6,3 +6,4 @@ export {
   type RouteHandler,
 } from './fallback'
 export { handleHealth } from './health'
+export { handleResponses, type ResponsesOptions } from './responses'

@@ -14,7 +14,6 @@ export interface ModelMapping {
 }
 
 export interface RoutingConfig {
-  defaultProvider?: ProviderName
   modelMapping?: Record<string, ModelMapping>
   fallbackOrder?: ProviderName[]
   rotateOn429?: boolean
@@ -22,7 +21,7 @@ export interface RoutingConfig {
 
 export interface AmpModelMapping {
   from: string
-  to: string | string[] // 단일 또는 fallback chain
+  to: string | string[]
 }
 
 export interface AmpConfig {
@@ -46,7 +45,6 @@ const DEFAULT_CONFIG: LlmuxConfig = {
     cors: true,
   },
   routing: {
-    defaultProvider: 'anthropic',
     fallbackOrder: ['anthropic', 'openai', 'gemini'],
     rotateOn429: true,
   },
@@ -59,92 +57,12 @@ const DEFAULT_CONFIG: LlmuxConfig = {
 
 function getConfigPath(): string {
   const home = process.env.HOME || process.env.USERPROFILE || '~'
-  return join(home, '.llmux', 'config.yaml')
+  return join(home, '.llmux', 'config.json')
 }
 
 async function ensureDir(path: string): Promise<void> {
   const dir = path.substring(0, path.lastIndexOf('/'))
   await mkdir(dir, { recursive: true })
-}
-
-function parseYaml(content: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {}
-  let currentSection = ''
-  let currentSubSection = ''
-
-  const lines = content.split('\n')
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (!trimmed || trimmed.startsWith('#')) continue
-
-    const indentLevel = line.search(/\S/)
-
-    if (indentLevel === 0 && trimmed.endsWith(':')) {
-      currentSection = trimmed.slice(0, -1)
-      result[currentSection] = {}
-      currentSubSection = ''
-    } else if (indentLevel === 2 && trimmed.endsWith(':')) {
-      currentSubSection = trimmed.slice(0, -1)
-      ;(result[currentSection] as Record<string, unknown>)[currentSubSection] = {}
-    } else if (indentLevel >= 2) {
-      const [key, ...valueParts] = trimmed.split(':')
-      const value = valueParts.join(':').trim()
-
-      if (!key || !value) continue
-
-      const parsedValue = parseValue(value)
-
-      if (currentSubSection && indentLevel >= 4) {
-        const section = result[currentSection] as Record<string, unknown>
-        const subSection = section[currentSubSection] as Record<string, unknown>
-        subSection[key] = parsedValue
-      } else if (currentSection) {
-        ;(result[currentSection] as Record<string, unknown>)[key] = parsedValue
-      }
-    }
-  }
-
-  return result
-}
-
-function parseValue(value: string): unknown {
-  if (value === 'true') return true
-  if (value === 'false') return false
-  if (/^\d+$/.test(value)) return parseInt(value, 10)
-  if (/^\d+\.\d+$/.test(value)) return parseFloat(value)
-  if (value.startsWith('[') && value.endsWith(']')) {
-    const items = value
-      .slice(1, -1)
-      .split(',')
-      .map((s) => s.trim())
-    return items.filter(Boolean)
-  }
-  if (value.startsWith('"') && value.endsWith('"')) return value.slice(1, -1)
-  if (value.startsWith("'") && value.endsWith("'")) return value.slice(1, -1)
-  return value
-}
-
-function stringifyYaml(obj: Record<string, unknown>, indent = 0): string {
-  const lines: string[] = []
-  const prefix = '  '.repeat(indent)
-
-  for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) continue
-
-    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      lines.push(`${prefix}${key}:`)
-      lines.push(stringifyYaml(value as Record<string, unknown>, indent + 1))
-    } else if (Array.isArray(value)) {
-      lines.push(`${prefix}${key}: [${value.join(', ')}]`)
-    } else if (typeof value === 'string') {
-      lines.push(`${prefix}${key}: ${value}`)
-    } else {
-      lines.push(`${prefix}${key}: ${value}`)
-    }
-  }
-
-  return lines.join('\n')
 }
 
 export namespace ConfigLoader {
@@ -155,7 +73,7 @@ export namespace ConfigLoader {
   export async function load(): Promise<LlmuxConfig> {
     try {
       const content = await readFile(getConfigPath(), 'utf-8')
-      const parsed = parseYaml(content)
+      const parsed = JSON.parse(content)
       return merge(getDefault(), parsed as Partial<LlmuxConfig>)
     } catch {
       return getDefault()
@@ -165,8 +83,7 @@ export namespace ConfigLoader {
   export async function save(config: LlmuxConfig): Promise<void> {
     const path = getConfigPath()
     await ensureDir(path)
-    const yaml = stringifyYaml(config as unknown as Record<string, unknown>)
-    await writeFile(path, yaml)
+    await writeFile(path, JSON.stringify(config, null, 2))
   }
 
   export async function get<K extends keyof LlmuxConfig>(section: K): Promise<LlmuxConfig[K]> {

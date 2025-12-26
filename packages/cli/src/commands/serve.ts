@@ -1,5 +1,4 @@
-import { CredentialStorage } from '@llmux/auth'
-import { ConfigLoader, startServer } from '@llmux/server'
+import { ConfigLoader, createCredentialProvider, startServer } from '@llmux/server'
 import { cmd } from '../cmd'
 
 export const serveCommand = cmd({
@@ -50,29 +49,21 @@ export const serveCommand = cmd({
     if (corsOrigins) {
       console.log(`  CORS: ${corsOrigins.join(', ')}`)
     }
-    if (config.routing.defaultProvider) {
-      console.log(`  Default provider: ${config.routing.defaultProvider}`)
+    if (config.routing.fallbackOrder?.length) {
+      console.log(`  Fallback order: ${config.routing.fallbackOrder.join(' → ')}`)
     }
     if (config.amp?.enabled) {
       console.log(`  Amp upstream: ${config.amp.upstreamUrl}`)
     }
     console.log()
 
-    // Load credentials to determine enabled providers
-    let enabledProviders: string[] | undefined
     try {
-      const credentials = await CredentialStorage.all()
-      enabledProviders = Object.keys(credentials)
-    } catch {
-      // ignore
-    }
-
-    try {
+      const credentialProvider = createCredentialProvider()
       const server = await startServer({
         port,
         hostname,
         corsOrigins,
-        enabledProviders,
+        credentialProvider,
         amp: config.amp?.enabled
           ? {
               handlers: {},

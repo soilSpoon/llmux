@@ -5,6 +5,9 @@ import type { Provider, ProviderName } from './base'
  */
 const providers = new Map<ProviderName, Provider>()
 
+console.log('[core registry.ts] Module loaded, providers Map created')
+console.log('[core registry.ts] import.meta.url:', import.meta.url)
+
 /**
  * Get a registered provider by name
  */

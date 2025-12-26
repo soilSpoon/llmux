@@ -114,12 +114,12 @@ describe('CLI', () => {
     it('should get default config values', async () => {
       const defaultConfig = ConfigLoader.getDefault()
       expect(defaultConfig.server.hostname).toBe('localhost')
-      expect(defaultConfig.routing.defaultProvider).toBe('anthropic')
+      expect(defaultConfig.routing.fallbackOrder).toContain('anthropic')
     })
 
     it('should get routing config', async () => {
       const routing = await ConfigLoader.get('routing')
-      expect(routing.defaultProvider).toBe('anthropic')
+      expect(routing.fallbackOrder).toContain('anthropic')
       expect(routing.rotateOn429).toBe(true)
     })
   })

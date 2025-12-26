@@ -51,23 +51,11 @@ export async function handleModels(
 
   const models = await registry.getModels(validProviders, tokens)
 
-  // Apply modelMappings
-  let mappings: Record<string, string> | undefined
-  if (modelMappings && modelMappings.length > 0) {
-    mappings = {}
-    for (const mapping of modelMappings) {
-      const toValue = Array.isArray(mapping.to) ? mapping.to[0] : mapping.to
-      if (toValue) {
-        mappings[mapping.from] = toValue
-      }
-    }
-  }
-
   return createModelsResponse({
     object: 'list',
     data: models,
     providers: validProviders,
-    mappings,
+    mappings: modelMappings,
   })
 }
 
@@ -78,9 +66,7 @@ function createModelsResponse(body: ModelsResponse): Response {
     providers: body.providers,
   }
 
-  if (body.mappings) {
-    responseBody.mappings = body.mappings
-  }
+  responseBody.mappings = body.mappings ?? []
 
   return new Response(JSON.stringify(responseBody), {
     status: 200,
