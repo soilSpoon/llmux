@@ -1,12 +1,16 @@
 import type { Credential, ProviderID } from '../types'
 
+export interface EndpointOptions {
+  streaming?: boolean
+}
+
 export interface AuthProvider {
   id: ProviderID
   name: string
   methods: AuthMethod[]
   getCredential(): Promise<Credential | undefined>
   getHeaders(credential: Credential): Promise<Record<string, string>>
-  getEndpoint(model: string): string
+  getEndpoint(model: string, options?: EndpointOptions): string
   refresh?(credential: Credential): Promise<Credential>
   rotate?(): void
 }

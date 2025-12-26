@@ -12,6 +12,9 @@ export const ANTIGRAVITY_REDIRECT_URI = 'http://localhost:51121/oauth-callback'
 export const ANTIGRAVITY_ENDPOINT_DAILY = 'https://daily-cloudcode-pa.sandbox.googleapis.com'
 export const ANTIGRAVITY_ENDPOINT_AUTOPUSH = 'https://autopush-cloudcode-pa.sandbox.googleapis.com'
 export const ANTIGRAVITY_ENDPOINT_PROD = 'https://cloudcode-pa.googleapis.com'
+export const ANTIGRAVITY_DEFAULT_PROJECT_ID = 'rising-fact-p41fc'
+export const ANTIGRAVITY_API_PATH_GENERATE = '/v1internal:generateContent'
+export const ANTIGRAVITY_API_PATH_STREAM = '/v1internal:streamGenerateContent?alt=sse'
 export const ANTIGRAVITY_ENDPOINT_FALLBACKS = [
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_AUTOPUSH,

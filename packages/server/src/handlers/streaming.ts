@@ -1,4 +1,14 @@
-import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
+import {
+  ANTIGRAVITY_API_PATH_STREAM,
+  ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  ANTIGRAVITY_ENDPOINT_DAILY,
+  ANTIGRAVITY_HEADERS,
+  AuthProviderRegistry,
+  CredentialStorage,
+  fetchAntigravityProjectID,
+  isOAuthCredential,
+  TokenRefresh,
+} from '@llmux/auth'
 import { getProvider, type ProviderName, transformRequest } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
@@ -17,7 +27,8 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
   anthropic: 'https://api.anthropic.com/v1/messages',
   gemini:
     'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:streamGenerateContent',
-  antigravity: 'https://api.antigravity.ai/v1/streamGenerateContent',
+  // Antigravity endpoint is handled dynamically, but providing a default here for fallback
+  antigravity: `${ANTIGRAVITY_ENDPOINT_DAILY}${ANTIGRAVITY_API_PATH_STREAM}`,
 }
 
 function formatToProvider(format: RequestFormat): ProviderName {
@@ -44,6 +55,7 @@ function buildHeaders(targetProvider: string, apiKey?: string): Record<string, s
       break
     case 'antigravity':
       headers.Authorization = `Bearer ${apiKey}`
+      Object.assign(headers, ANTIGRAVITY_HEADERS)
       break
   }
 
@@ -73,17 +85,28 @@ export function transformStreamChunk(
     const targetProvider = getProvider(toFormat as ProviderName)
 
     if (!sourceProvider.parseStreamChunk || !targetProvider.transformStreamChunk) {
+      console.error(
+        `[transformStreamChunk] Missing methods: source=${!!sourceProvider.parseStreamChunk} target=${!!targetProvider.transformStreamChunk}`
+      )
       return chunk
     }
 
     const unified = sourceProvider.parseStreamChunk(chunk)
     if (!unified || unified.type === 'error') {
+      console.error(`[transformStreamChunk] parseStreamChunk failed or returned error type`)
       return chunk
     }
 
-    return targetProvider.transformStreamChunk(unified)
+    const result = targetProvider.transformStreamChunk(unified)
+    console.error(
+      `[transformStreamChunk] Success: ${fromProvider}→${toFormat}: ${result.slice(0, 80)}`
+    )
+    return result
   } catch (error) {
     // Return original chunk on error to avoid breaking the stream
+    console.error(
+      `[transformStreamChunk] Exception: ${error instanceof Error ? error.message : error}`
+    )
     return chunk
   }
 }
@@ -115,7 +138,7 @@ export async function handleStreamingProxy(
     let endpoint: string
     let headers: Record<string, string>
 
-    if (authProvider && !options.apiKey) {
+    if (authProvider && (!options.apiKey || options.apiKey === 'dummy')) {
       endpoint = authProvider.getEndpoint(options.targetModel || 'gemini-pro')
 
       let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
@@ -140,6 +163,35 @@ export async function handleStreamingProxy(
         )
       }
       headers = await authProvider.getHeaders(credential)
+
+      // Inject Project ID for Antigravity if available from OAuth credential
+      if (options.targetProvider === 'antigravity' && isOAuthCredential(credential)) {
+        if (credential.projectId) {
+          ;(transformedRequest as any).project = credential.projectId
+        } else {
+          // Self-healing: credentials from older versions might miss projectId.
+          // Fetch it now and update storage.
+          try {
+            const pid = await fetchAntigravityProjectID(credential.accessToken)
+            if (pid) {
+              credential.projectId = pid
+              await CredentialStorage.update(options.targetProvider, credential)
+              ;(transformedRequest as any).project = pid
+            } else {
+              // Fallback to default project ID if discovery fails (matches opencode behavior)
+              credential.projectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
+              await CredentialStorage.update(options.targetProvider, credential)
+              ;(transformedRequest as any).project = ANTIGRAVITY_DEFAULT_PROJECT_ID
+            }
+          } catch (e) {
+            console.warn(
+              'Failed to recover Antigravity Project ID for credential, using default',
+              e
+            )
+            ;(transformedRequest as any).project = ANTIGRAVITY_DEFAULT_PROJECT_ID
+          }
+        }
+      }
     } else {
       const url = PROVIDER_ENDPOINTS[options.targetProvider]
       if (!url) {

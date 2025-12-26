@@ -1,4 +1,6 @@
 export { AntigravityProvider } from './providers/antigravity'
+export * from './providers/antigravity-constants'
+export { fetchAntigravityProjectID } from './providers/antigravity-oauth'
 export type {
   AuthIntermediate,
   AuthMethod,
@@ -7,7 +9,11 @@ export type {
   AuthStep,
 } from './providers/base'
 export type { DeviceCodeResponse } from './providers/github-copilot'
-export { GithubCopilotProvider, pollForToken, requestDeviceCode } from './providers/github-copilot'
+export {
+  GithubCopilotProvider,
+  pollForToken,
+  requestDeviceCode,
+} from './providers/github-copilot'
 export { OpencodeZenProvider } from './providers/opencode-zen'
 export { AuthProviderRegistry } from './providers/registry'
 export { TokenRefresh } from './refresh'

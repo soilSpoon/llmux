@@ -1,7 +1,21 @@
-import { describe, expect, test, beforeEach, afterEach, mock } from 'bun:test'
+import { describe, expect, test, afterEach, mock } from 'bun:test'
 import type { OAuthCredential } from '../src/types'
 
 const originalFetch = global.fetch
+
+// Helper to create mock fetch with proper typing
+function createMockFetch(
+  handler: (...args: Parameters<typeof fetch>) => ReturnType<typeof fetch>
+) {
+  return mock(handler) as unknown as typeof fetch
+}
+
+// Type guards
+function isIntermediateAuthStep(
+  result: unknown
+): result is { type: 'intermediate'; url: string; message: string; auto: boolean; callback: () => Promise<unknown> } {
+  return typeof result === 'object' && result !== null && (result as any).type === 'intermediate'
+}
 
 describe('refreshAntigravityToken', () => {
   afterEach(() => {
@@ -15,7 +29,7 @@ describe('refreshAntigravityToken', () => {
       refresh_token: 'new_refresh_token',
     }
 
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response(JSON.stringify(mockTokenResponse), { status: 200 })
     )
 
@@ -40,7 +54,7 @@ describe('refreshAntigravityToken', () => {
       expires_in: 3600,
     }
 
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response(JSON.stringify(mockTokenResponse), { status: 200 })
     )
 
@@ -65,7 +79,7 @@ describe('refreshAntigravityToken', () => {
       refresh_token: 'rotated_token',
     }
 
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response(JSON.stringify(mockTokenResponse), { status: 200 })
     )
 
@@ -112,7 +126,7 @@ describe('refreshAntigravityToken', () => {
   })
 
   test('throws error on token refresh failure', async () => {
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response('{"error": "invalid_grant"}', { status: 400 })
     )
 
@@ -130,7 +144,7 @@ describe('refreshAntigravityToken', () => {
   })
 
   test('throws error on 401 response', async () => {
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response('Unauthorized', { status: 401 })
     )
 
@@ -153,7 +167,7 @@ describe('refreshAntigravityToken', () => {
       expires_in: 3600,
     }
 
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response(JSON.stringify(mockTokenResponse), { status: 200 })
     )
 
@@ -177,7 +191,7 @@ describe('refreshAntigravityToken', () => {
   test('sends correct request body', async () => {
     let capturedBody: URLSearchParams | undefined
 
-    global.fetch = mock(async (_url: string | URL | Request, options?: RequestInit) => {
+    global.fetch = createMockFetch(async (_url: string | URL | Request, options?: RequestInit) => {
       if (options?.body instanceof URLSearchParams) {
         capturedBody = options.body
       }
@@ -208,7 +222,7 @@ describe('refreshAntigravityToken', () => {
       expires_in: 7200,
     }
 
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response(JSON.stringify(mockTokenResponse), { status: 200 })
     )
 
@@ -246,17 +260,19 @@ describe('authorizeAntigravity', () => {
     const result = await authorizeAntigravity()
 
     expect(result.type).toBe('intermediate')
-    expect(result.url).toContain('https://accounts.google.com/o/oauth2/v2/auth')
-    expect(result.url).toContain('client_id=')
-    expect(result.url).toContain('code_challenge=')
-    expect(result.url).toContain('code_challenge_method=S256')
-    expect(result.url).toContain('access_type=offline')
-    expect(result.url).toContain('prompt=consent')
-    expect(result.url).toContain('response_type=code')
-    expect(result.url).toContain('redirect_uri=')
-    expect(result.message).toBe('Waiting for browser authentication...')
-    expect(result.auto).toBe(true)
-    expect(typeof result.callback).toBe('function')
+    if (isIntermediateAuthStep(result)) {
+      expect(result.url).toContain('https://accounts.google.com/o/oauth2/v2/auth')
+      expect(result.url).toContain('client_id=')
+      expect(result.url).toContain('code_challenge=')
+      expect(result.url).toContain('code_challenge_method=S256')
+      expect(result.url).toContain('access_type=offline')
+      expect(result.url).toContain('prompt=consent')
+      expect(result.url).toContain('response_type=code')
+      expect(result.url).toContain('redirect_uri=')
+      expect(result.message).toBe('Waiting for browser authentication...')
+      expect(result.auto).toBe(true)
+      expect(typeof result.callback).toBe('function')
+    }
   })
 
   test('includes scope in URL', async () => {
@@ -270,7 +286,9 @@ describe('authorizeAntigravity', () => {
     const { authorizeAntigravity } = await import('../src/providers/antigravity-oauth')
     const result = await authorizeAntigravity()
 
-    expect(result.url).toContain('scope=')
+    if (isIntermediateAuthStep(result)) {
+      expect(result.url).toContain('scope=')
+    }
   })
 
   test('includes projectId in state when provided', async () => {
@@ -336,7 +354,7 @@ describe('authorizeAntigravity', () => {
       }),
     }))
 
-    global.fetch = mock(async () =>
+    global.fetch = createMockFetch(async () =>
       new Response('Bad Request', { status: 400 })
     )
 
@@ -356,7 +374,7 @@ describe('authorizeAntigravity', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -391,7 +409,7 @@ describe('authorizeAntigravity', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -439,7 +457,7 @@ describe('authorizeAntigravity', () => {
     }))
 
     let loadCodeAssistCalled = false
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('loadCodeAssist')) {
         loadCodeAssistCalled = true
@@ -484,7 +502,7 @@ describe('authorizeAntigravity', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -568,7 +586,7 @@ describe('authorizeAntigravity', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -611,7 +629,7 @@ describe('fetchProjectID integration tests', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -651,7 +669,7 @@ describe('fetchProjectID integration tests', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -693,7 +711,7 @@ describe('fetchProjectID integration tests', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -731,7 +749,7 @@ describe('fetchProjectID integration tests', () => {
     }))
 
     let callCount = 0
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -776,7 +794,7 @@ describe('fetchProjectID integration tests', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -813,7 +831,7 @@ describe('fetchProjectID integration tests', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(
@@ -853,7 +871,7 @@ describe('fetchProjectID integration tests', () => {
       }),
     }))
 
-    global.fetch = mock(async (url: string | URL | Request) => {
+    global.fetch = createMockFetch(async (url: string | URL | Request) => {
       const urlStr = url.toString()
       if (urlStr.includes('oauth2.googleapis.com/token')) {
         return new Response(

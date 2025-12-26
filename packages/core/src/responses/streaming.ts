@@ -102,6 +102,7 @@ export class ResponsesStreamTransformer {
     return {
       type: 'output_text',
       text: '',
+      annotations: [],
     }
   }
 
@@ -147,9 +148,10 @@ export class ResponsesStreamTransformer {
 
       events.push({
         type: 'response.output_text.delta',
+        item_id: this.outputItemId,
+        delta: delta.content,
         output_index: 0,
         content_index: 0,
-        delta: delta.content,
       })
     }
 
@@ -186,6 +188,16 @@ export class ResponsesStreamTransformer {
    * Called when receiving [DONE] signal
    */
   finish(): ResponsesStreamEvent[] {
+    // Only emit completion events if we haven't already (no finish_reason received)
+    if (this.isFirstChunk) {
+      // No chunks received at all - empty response
+      return []
+    }
+
+    // If finish_reason wasn't received yet, emit completion events now
+    // Check if last event was response.completed
+    // For simplicity, we rely on transformChunk to handle finish_reason
+    // This method is called when [DONE] is received from stream
     return []
   }
 }

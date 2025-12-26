@@ -162,6 +162,7 @@ export function transformToResponsesResponse(res: ChatCompletionsResponse): Resp
       {
         type: 'output_text' as const,
         text: choice.message.content ?? '',
+        annotations: [],
       },
     ],
     status: (choice.finish_reason === 'stop' ? 'completed' : 'in_progress') as

@@ -57,7 +57,7 @@ interface LoadCodeAssistResponse {
   cloudaicompanionProject?: string | { id: string }
 }
 
-async function fetchProjectID(accessToken: string): Promise<string> {
+export async function fetchAntigravityProjectID(accessToken: string): Promise<string> {
   const loadHeaders: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
@@ -160,7 +160,10 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
 
         if (!tokenResponse.ok) {
           const errorText = await tokenResponse.text()
-          return { type: 'failed', error: `Token exchange failed: ${errorText}` }
+          return {
+            type: 'failed',
+            error: `Token exchange failed: ${errorText}`,
+          }
         }
 
         const tokenPayload = (await tokenResponse.json()) as AntigravityTokenResponse
@@ -185,7 +188,7 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
 
         let effectiveProjectId = projectId
         if (!effectiveProjectId) {
-          effectiveProjectId = await fetchProjectID(tokenPayload.access_token)
+          effectiveProjectId = await fetchAntigravityProjectID(tokenPayload.access_token)
         }
 
         const credential: OAuthCredential = {
@@ -245,12 +248,23 @@ export async function refreshAntigravityToken(
   // The refresh token might be rotated, but usually it stays the same.
   // If a new one is returned, we should use it.
   const newRefreshToken = tokenPayload.refresh_token || refreshToken
-  const storedRefresh = `${newRefreshToken}|${projectId || ''}`
+
+  let effectiveProjectId = currentCredential.projectId || projectId
+  if (!effectiveProjectId) {
+    try {
+      effectiveProjectId = await fetchAntigravityProjectID(tokenPayload.access_token)
+    } catch {
+      // ignore
+    }
+  }
+
+  const storedRefresh = `${newRefreshToken}|${effectiveProjectId || ''}`
 
   return {
     ...currentCredential,
     accessToken: tokenPayload.access_token,
     refreshToken: storedRefresh,
     expiresAt: Date.now() + tokenPayload.expires_in * 1000,
+    projectId: effectiveProjectId || undefined,
   }
 }

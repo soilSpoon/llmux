@@ -186,9 +186,12 @@ function createExplicitProxyHandler(modelMappings?: AmpConfig['modelMappings']) 
   }
 }
 
-function createResponsesHandler(modelMappings?: AmpConfig['modelMappings']) {
+function createResponsesHandler(
+  modelMappings?: AmpConfig['modelMappings'],
+  credentialProvider?: CredentialProvider
+) {
   return async (request: Request): Promise<Response> => {
-    const targetProvider = request.headers.get('X-Target-Provider') ?? 'openai'
+    const targetProvider = request.headers.get('X-Target-Provider') ?? undefined
     const targetModel = request.headers.get('X-Target-Model') ?? undefined
     const apiKey = request.headers.get('X-API-Key') ?? undefined
 
@@ -197,6 +200,7 @@ function createResponsesHandler(modelMappings?: AmpConfig['modelMappings']) {
       targetModel,
       apiKey,
       modelMappings,
+      credentialProvider,
     }
 
     return handleResponses(request, options)
@@ -219,7 +223,7 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
   const messagesHandler = createMessagesHandler(options.modelMappings)
   const generateContentHandler = createGenerateContentHandler(options.modelMappings)
   const explicitProxyHandler = createExplicitProxyHandler(options.modelMappings)
-  const responsesHandler = createResponsesHandler(options.modelMappings)
+  const responsesHandler = createResponsesHandler(options.modelMappings, options.credentialProvider)
 
   return [
     { method: 'GET', path: '/health', handler: handleHealth },

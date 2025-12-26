@@ -1,5 +1,6 @@
-import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
+import { ANTIGRAVITY_API_PATH_STREAM, AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
 import {
+  type ChatCompletionChunk,
   type ChatCompletionsResponse,
   type ProviderName,
   parseSSELine,
@@ -11,6 +12,7 @@ import {
   transformResponsesRequest,
   transformToResponsesResponse,
 } from '@llmux/core'
+import type { CredentialProvider } from '../auth'
 import type { AmpModelMapping } from '../config'
 import { applyModelMapping } from './model-mapping'
 import { transformStreamChunk } from './streaming'
@@ -20,6 +22,7 @@ export interface ResponsesOptions {
   targetModel?: string
   apiKey?: string
   modelMappings?: AmpModelMapping[]
+  credentialProvider?: CredentialProvider
 }
 
 const PROVIDER_ENDPOINTS: Record<string, string> = {
@@ -55,17 +58,80 @@ function formatSSEEvent(event: ResponsesStreamEvent): string {
   return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
 }
 
+/**
+ * Detect provider for a model by querying the credential provider's model registry
+ */
+async function detectProviderFromModel(
+  model: string,
+  credentialProvider?: CredentialProvider
+): Promise<string> {
+  if (!credentialProvider) {
+    return 'openai' // default fallback
+  }
+
+  try {
+    const credentials = await credentialProvider.getAllCredentials()
+    const providers = Object.keys(credentials)
+
+    // Build tokens for model lookup
+    const tokens: Record<string, string> = {}
+    for (const provider of providers) {
+      try {
+        const token = await credentialProvider.getAccessToken(provider)
+        if (token) {
+          tokens[provider] = token
+        }
+      } catch {
+        // Skip provider if token retrieval fails
+      }
+    }
+
+    // Import model fetcher
+    const { createFetcher } = await import('../models/fetchers')
+    const { createModelRegistry } = await import('../models/registry')
+
+    const registry = createModelRegistry()
+    for (const provider of providers) {
+      registry.registerFetcher(provider, createFetcher(provider, { cache: null as any }))
+    }
+
+    const models = await registry.getModels(providers as any, tokens)
+    const foundModel = models.find((m) => m.id === model || m.name === model)
+
+    if (foundModel) {
+      console.error(`[detectProviderFromModel] Found ${model} → ${foundModel.provider}`)
+      return foundModel.provider
+    }
+  } catch (error) {
+    console.error(`[detectProviderFromModel] Error looking up model:`, error)
+  }
+
+  // Fallback to OpenAI if not found
+  return 'openai'
+}
+
 export async function handleResponses(
   request: Request,
   options: ResponsesOptions
 ): Promise<Response> {
-  const targetProvider = options.targetProvider ?? 'openai'
+  console.error('[handleResponses] CALLED')
 
   try {
     const body = (await request.json()) as ResponsesRequest
+    console.error('[handleResponses] body received:', JSON.stringify(body).slice(0, 100))
     const isStreaming = body.stream === true
+    console.error('[handleResponses] isStreaming:', isStreaming)
+
+    // Determine target provider: explicit > model lookup > default
+    let resolvedTargetProvider = options.targetProvider ?? 'openai'
+    if (body.model && !options.targetProvider) {
+      const detected = await detectProviderFromModel(body.model, options.credentialProvider)
+      resolvedTargetProvider = detected
+      console.error('[handleResponses] Detected provider from model:', resolvedTargetProvider)
+    }
 
     const chatRequest = transformResponsesRequest(body)
+    console.error('[handleResponses] transformResponsesRequest completed')
 
     if (body.model) {
       chatRequest.model = applyModelMapping(body.model, options.modelMappings)
@@ -75,20 +141,35 @@ export async function handleResponses(
       chatRequest.model = options.targetModel
     }
 
-    const authProvider = AuthProviderRegistry.get(targetProvider)
+    const authProvider = AuthProviderRegistry.get(resolvedTargetProvider)
+    console.error('[handleResponses] authProvider found:', !!authProvider)
 
     let endpoint: string
     let headers: Record<string, string>
 
     if (authProvider && !options.apiKey) {
+      console.error('[handleResponses] Using authProvider path')
       endpoint = authProvider.getEndpoint(options.targetModel || chatRequest.model)
+
+      // For streaming requests with Antigravity, use streaming endpoint
+      if (isStreaming && resolvedTargetProvider === 'antigravity') {
+        const baseUrl = endpoint.split('/v1internal')[0]
+        endpoint = baseUrl + ANTIGRAVITY_API_PATH_STREAM
+        console.error('[handleResponses] Antigravity streaming endpoint:', endpoint)
+      } else {
+        console.error('[handleResponses] endpoint:', endpoint)
+      }
 
       let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
       try {
-        credentials = await TokenRefresh.ensureFresh(targetProvider)
-      } catch {
+        credentials = await TokenRefresh.ensureFresh(resolvedTargetProvider)
+        console.error('[handleResponses] credentials acquired')
+      } catch (e) {
+        console.error('[handleResponses] credentials error:', e)
         return new Response(
-          JSON.stringify({ error: `No credentials found for ${targetProvider}` }),
+          JSON.stringify({
+            error: `No credentials found for ${resolvedTargetProvider}`,
+          }),
           { status: 401, headers: { 'Content-Type': 'application/json' } }
         )
       }
@@ -96,42 +177,78 @@ export async function handleResponses(
       const credential = credentials[0]
       if (!credential) {
         return new Response(
-          JSON.stringify({ error: `No credentials found for ${targetProvider}` }),
+          JSON.stringify({
+            error: `No credentials found for ${resolvedTargetProvider}`,
+          }),
           { status: 401, headers: { 'Content-Type': 'application/json' } }
         )
       }
       headers = await authProvider.getHeaders(credential)
     } else {
-      const url = PROVIDER_ENDPOINTS[targetProvider]
+      const url = PROVIDER_ENDPOINTS[resolvedTargetProvider]
       if (!url) {
-        return new Response(JSON.stringify({ error: `Unknown provider: ${targetProvider}` }), {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        })
+        return new Response(
+          JSON.stringify({
+            error: `Unknown provider: ${resolvedTargetProvider}`,
+          }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
       }
       endpoint = url
-      headers = buildHeaders(targetProvider, options.apiKey)
+      headers = buildHeaders(resolvedTargetProvider, options.apiKey)
     }
 
     let upstreamRequest: unknown
-    if (targetProvider === 'openai') {
+    if (resolvedTargetProvider === 'openai') {
       upstreamRequest = { ...chatRequest, stream: isStreaming }
     } else {
       upstreamRequest = transformRequest(
         { ...chatRequest, stream: isStreaming },
-        { from: 'openai', to: targetProvider as ProviderName }
+        { from: 'openai', to: resolvedTargetProvider as ProviderName }
       )
+
+      // For Antigravity, inject the model and project into the transformed request
+      if (
+        resolvedTargetProvider === 'antigravity' &&
+        typeof upstreamRequest === 'object' &&
+        upstreamRequest !== null
+      ) {
+        const req = upstreamRequest as Record<string, unknown>
+        console.error(
+          '[responses handler] Antigravity request before adjustment:',
+          JSON.stringify(req).slice(0, 200)
+        )
+        req.model = chatRequest.model // Use the original model name, not the default
+        if (!options.apiKey) {
+          req.project = 'rising-fact-p41fc'
+        }
+        console.error(
+          '[responses handler] Antigravity request after adjustment:',
+          JSON.stringify(req).slice(0, 200)
+        )
+      }
     }
 
     let upstreamResponse: Response
     try {
+      console.error('[handleResponses] Calling upstream endpoint')
+      console.error('[handleResponses] endpoint:', endpoint)
+      console.error(
+        '[handleResponses] request body:',
+        JSON.stringify(upstreamRequest).slice(0, 200)
+      )
       upstreamResponse = await fetch(endpoint, {
         method: 'POST',
         headers,
         body: JSON.stringify(upstreamRequest),
       })
+      console.error('[handleResponses] upstream response status:', upstreamResponse.status)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Network error'
+      console.error('[handleResponses] upstream fetch error:', message)
       return new Response(JSON.stringify({ error: message }), {
         status: 502,
         headers: { 'Content-Type': 'application/json' },
@@ -139,14 +256,20 @@ export async function handleResponses(
     }
 
     if (!upstreamResponse.ok) {
+      console.error('[handleResponses] upstream response NOT ok')
       const contentType = upstreamResponse.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
         const text = await upstreamResponse.text()
+        console.error('[handleResponses] non-JSON response:', text.slice(0, 200))
         return new Response(JSON.stringify({ error: text || 'Non-JSON response from upstream' }), {
           status: upstreamResponse.status,
           headers: { 'Content-Type': 'application/json' },
         })
       }
+      console.error(
+        '[handleResponses] returning upstream error as-is with status',
+        upstreamResponse.status
+      )
       return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,
         headers: { 'Content-Type': 'application/json' },
@@ -154,18 +277,23 @@ export async function handleResponses(
     }
 
     if (isStreaming) {
+      console.error('[handleResponses] STREAMING PATH - upstream response ok:', upstreamResponse.ok)
       if (!upstreamResponse.body) {
+        console.error('[handleResponses] STREAMING - No response body!')
         return new Response(JSON.stringify({ error: 'No response body' }), {
           status: 502,
           headers: { 'Content-Type': 'application/json' },
         })
       }
+      console.error('[handleResponses] STREAMING - Body available, starting transform...')
 
       const transformer = new ResponsesStreamTransformer(chatRequest.model)
       const decoder = new TextDecoder()
       const encoder = new TextEncoder()
       let buffer = ''
-      const providerName = targetProvider as ProviderName
+      // Detect upstream provider from response format (will be set on first chunk)
+      let actualUpstreamProvider: ProviderName = resolvedTargetProvider as ProviderName
+      let providerDetected = false
 
       const transformStream = new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
@@ -177,40 +305,63 @@ export async function handleResponses(
             const trimmed = line.trim()
             if (!trimmed) continue
 
-            const openaiLine = transformStreamChunk(trimmed + '\n', providerName, 'openai')
-            const openaiLines = openaiLine.split('\n').filter((l) => l.trim())
+            console.error('[handleResponses STREAM] Input line:', trimmed.slice(0, 100))
 
-            for (const oLine of openaiLines) {
-              const parsed = parseSSELine(oLine.trim())
-              if (parsed === 'DONE') {
-                const finalEvents = transformer.finish()
-                for (const event of finalEvents) {
-                  controller.enqueue(encoder.encode(formatSSEEvent(event)))
-                }
-                continue
+            // Detect upstream provider from response format on first chunk
+            if (!providerDetected) {
+              providerDetected = true
+              // Check if response looks like Antigravity format (has "response" and "candidates")
+              if (trimmed.includes('"response"') && trimmed.includes('"candidates"')) {
+                actualUpstreamProvider = 'antigravity'
+                console.error('[handleResponses STREAM] Detected Antigravity format')
+              } else if (trimmed.includes('"choices"')) {
+                actualUpstreamProvider = 'openai'
+                console.error('[handleResponses STREAM] Detected OpenAI format')
               }
+            }
 
-              if (parsed !== null) {
-                const events = transformer.transformChunk(parsed)
-                for (const event of events) {
-                  controller.enqueue(encoder.encode(formatSSEEvent(event)))
-                }
+            // Transform from actual upstream provider to OpenAI SSE format
+            const openaiSSE = transformStreamChunk(trimmed, actualUpstreamProvider, 'openai')
+            console.error('[handleResponses STREAM] After transform:', openaiSSE.slice(0, 100))
+
+            // Parse OpenAI SSE line to ChatCompletionChunk
+            const parsed = parseSSELine(openaiSSE)
+            console.error(
+              '[handleResponses STREAM] Parsed:',
+              parsed === 'DONE' ? '[DONE]' : parsed === null ? 'null' : 'ChatCompletionChunk'
+            )
+
+            if (parsed === 'DONE') {
+              console.error('[handleResponses STREAM] Received [DONE]')
+              const finalEvents = transformer.finish()
+              for (const event of finalEvents) {
+                controller.enqueue(encoder.encode(formatSSEEvent(event)))
+              }
+              continue
+            }
+
+            if (parsed !== null && typeof parsed === 'object') {
+              const events = transformer.transformChunk(parsed)
+              console.error('[handleResponses STREAM] Generated', events.length, 'events')
+              for (const event of events) {
+                const formatted = formatSSEEvent(event)
+                console.error('[handleResponses STREAM] Event:', event.type)
+                controller.enqueue(encoder.encode(formatted))
               }
             }
           }
         },
         flush(controller) {
           if (buffer.trim()) {
-            const openaiLine = transformStreamChunk(buffer.trim() + '\n', providerName, 'openai')
-            const openaiLines = openaiLine.split('\n').filter((l) => l.trim())
+            console.error('[handleResponses STREAM] Flush buffer:', buffer.trim().slice(0, 100))
 
-            for (const oLine of openaiLines) {
-              const parsed = parseSSELine(oLine.trim())
-              if (parsed !== null && parsed !== 'DONE') {
-                const events = transformer.transformChunk(parsed)
-                for (const event of events) {
-                  controller.enqueue(encoder.encode(formatSSEEvent(event)))
-                }
+            const openaiSSE = transformStreamChunk(buffer.trim(), actualUpstreamProvider, 'openai')
+            const parsed = parseSSELine(openaiSSE)
+
+            if (parsed !== null && parsed !== 'DONE' && typeof parsed === 'object') {
+              const events = transformer.transformChunk(parsed)
+              for (const event of events) {
+                controller.enqueue(encoder.encode(formatSSEEvent(event)))
               }
             }
           }
@@ -228,19 +379,37 @@ export async function handleResponses(
         },
       })
     } else {
-      const upstreamBody = await upstreamResponse.json()
+      let upstreamBody: unknown
+      try {
+        upstreamBody = await upstreamResponse.json()
+      } catch (e) {
+        const text = await upstreamResponse.text()
+        console.error('[handleResponses] Failed to parse JSON, raw response:', text.slice(0, 500))
+        throw e
+      }
 
       let openaiResponse: ChatCompletionsResponse
-      if (targetProvider === 'openai') {
+      if (resolvedTargetProvider === 'openai') {
         openaiResponse = upstreamBody as ChatCompletionsResponse
       } else {
+        console.error(
+          '[handleResponses] Transforming response from',
+          resolvedTargetProvider,
+          ':',
+          JSON.stringify(upstreamBody).slice(0, 300)
+        )
         openaiResponse = transformResponse(upstreamBody, {
-          from: targetProvider as ProviderName,
+          from: resolvedTargetProvider as ProviderName,
           to: 'openai',
         }) as ChatCompletionsResponse
+        console.error('[handleResponses] Transformed to OpenAI response')
       }
 
       const responsesResponse = transformToResponsesResponse(openaiResponse)
+      console.error(
+        '[handleResponses] Final responsesResponse:',
+        JSON.stringify(responsesResponse).slice(0, 500)
+      )
 
       return new Response(JSON.stringify(responsesResponse), {
         status: 200,

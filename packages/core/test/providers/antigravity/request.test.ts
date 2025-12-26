@@ -703,15 +703,15 @@ describe('Antigravity Request Transformations', () => {
         expect(result.model).toBe('gemini-2.0-flash')
       })
 
-      it('should default project to llmux', () => {
-        const unifiedRequest = createUnifiedRequest({
-          messages: [createUnifiedMessage('user', 'Hello')],
-        })
+      it('should default project to rising-fact-p41fc', () => {
+         const unifiedRequest = createUnifiedRequest({
+           messages: [createUnifiedMessage('user', 'Hello')],
+         })
 
-        const result = transform(unifiedRequest) as AntigravityRequest
+         const result = transform(unifiedRequest) as AntigravityRequest
 
-        expect(result.project).toBe('llmux')
-      })
+         expect(result.project).toBe('rising-fact-p41fc')
+       })
     })
 
     describe('image transformation', () => {

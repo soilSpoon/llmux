@@ -197,9 +197,10 @@ export interface ResponsesContentPartAddedEvent {
 
 export interface ResponsesOutputTextDeltaEvent {
   type: 'response.output_text.delta'
-  output_index: number
-  content_index: number
+  item_id: string
   delta: string
+  output_index?: number
+  content_index?: number
 }
 
 export interface ResponsesOutputTextDoneEvent {

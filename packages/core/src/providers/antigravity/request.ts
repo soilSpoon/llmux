@@ -97,14 +97,15 @@ export function transform(request: UnifiedRequest): AntigravityRequest {
   const { messages, system, tools, config, thinking, metadata } = request
 
   // Extract wrapper fields from metadata
-  const project = (metadata?.project as string) || 'llmux'
+  // Project ID should be from credentials or use the default Antigravity project
+  const project = (metadata?.project as string) || 'rising-fact-p41fc'
   const model = (metadata?.model as string) || 'gemini-2.0-flash'
   const requestId = (metadata?.requestId as string) || `agent-${randomUUID()}`
   const sessionId = metadata?.sessionId as string | undefined
 
   // Check if it's a Claude model for thinking config
-  const isClaudeModel = model.toLowerCase().includes('claude')
-  const isThinkingModel = model.toLowerCase().includes('thinking')
+  const isClaudeModel = model?.toLowerCase().includes('claude') ?? false
+  const isThinkingModel = model?.toLowerCase().includes('thinking') ?? false
 
   // Transform messages to contents
   const contents = transformMessages(messages)

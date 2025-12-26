@@ -1,7 +1,12 @@
 import { CredentialStorage } from '../storage'
 import type { Credential } from '../types'
 import { isApiKeyCredential, isOAuthCredential } from '../types'
-import { ANTIGRAVITY_ENDPOINT_PROD, ANTIGRAVITY_HEADERS } from './antigravity-constants'
+import {
+  ANTIGRAVITY_API_PATH_GENERATE,
+  ANTIGRAVITY_API_PATH_STREAM,
+  ANTIGRAVITY_ENDPOINT_DAILY,
+  ANTIGRAVITY_HEADERS,
+} from './antigravity-constants'
 import { authorizeAntigravity, refreshAntigravityToken } from './antigravity-oauth'
 import type { AuthMethod, AuthProvider } from './base'
 
@@ -26,25 +31,31 @@ export const AntigravityProvider: AuthProvider = {
   },
 
   async getHeaders(credential: Credential): Promise<Record<string, string>> {
+    const baseHeaders = {
+      ...ANTIGRAVITY_HEADERS,
+      'Content-Type': 'application/json',
+    }
+
     if (isApiKeyCredential(credential)) {
       return {
+        ...baseHeaders,
         'x-goog-api-key': credential.key,
-        'Content-Type': 'application/json',
       }
     }
 
     if (isOAuthCredential(credential)) {
       return {
+        ...baseHeaders,
         Authorization: `Bearer ${credential.accessToken}`,
-        'Content-Type': 'application/json',
       }
     }
 
-    return {}
+    return baseHeaders
   },
 
-  getEndpoint(model: string): string {
-    return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+  getEndpoint(_model: string, options?: { streaming?: boolean }): string {
+    const path = options?.streaming ? ANTIGRAVITY_API_PATH_STREAM : ANTIGRAVITY_API_PATH_GENERATE
+    return `${ANTIGRAVITY_ENDPOINT_DAILY}${path}`
   },
 
   async refresh(credential: Credential): Promise<Credential> {
