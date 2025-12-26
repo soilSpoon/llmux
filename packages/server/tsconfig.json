@@ -15,15 +15,16 @@
       "@llmux/auth/*": [
         "../auth/src/*"
       ]
-    }
+    },
+    "types": [
+      "bun"
+    ]
   },
   "include": [
     "src/**/*"
   ],
   "exclude": [
     "node_modules",
-    "dist",
-    "test",
-    "src/**/__tests__"
+    "dist"
   ]
 }

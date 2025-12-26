@@ -34,6 +34,7 @@ registerProvider(new OpenAIProvider())
 registerProvider(new AnthropicProvider())
 registerProvider(new GeminiProvider())
 registerProvider(new AntigravityProvider())
+registerProvider(new AnthropicProvider('opencode-zen'))
 
 // Register auth providers on module load
 AuthProviderRegistry.register(OpencodeZenProvider)
@@ -439,7 +440,18 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
           })
         : null
       const providerChecker = ampConfig.providerChecker ?? (() => false)
-      fallbackHandler = new FallbackHandler(() => upstreamProxy, providerChecker)
+
+      // Create ModelLookup for model→provider resolution if credentialProvider exists
+      const modelLookup = mergedConfig.credentialProvider
+        ? (await import('./models/lookup')).createModelLookup(mergedConfig.credentialProvider)
+        : undefined
+
+      fallbackHandler = new FallbackHandler(
+        () => upstreamProxy,
+        providerChecker,
+        modelMappings,
+        modelLookup
+      )
     }
 
     const ampRoutes = createAmpRoutes({

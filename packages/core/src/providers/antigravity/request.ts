@@ -99,7 +99,20 @@ export function transform(request: UnifiedRequest): AntigravityRequest {
   // Extract wrapper fields from metadata
   // Project ID should be from credentials or use the default Antigravity project
   const project = (metadata?.project as string) || 'rising-fact-p41fc'
-  const model = (metadata?.model as string) || 'gemini-2.0-flash'
+
+  // Model Aliases defined in Antigravity API schema
+  const MODEL_ALIASES: Record<string, string> = {
+    'gemini-2.5-computer-use-preview-10-2025': 'rev19-uic3-1p',
+    'gemini-3-pro-image-preview': 'gemini-3-pro-image',
+    'gemini-3-pro-preview': 'gemini-3-pro-high',
+    'gemini-claude-sonnet-4-5': 'claude-sonnet-4-5',
+    'gemini-claude-sonnet-4-5-thinking': 'claude-sonnet-4-5-thinking',
+    'gemini-claude-opus-4-5-thinking': 'claude-opus-4-5-thinking',
+  }
+
+  const rawModel = (metadata?.model as string) || 'gemini-2.0-flash'
+  const model = MODEL_ALIASES[rawModel] || rawModel
+
   const requestId = (metadata?.requestId as string) || `agent-${randomUUID()}`
   const sessionId = metadata?.sessionId as string | undefined
 

@@ -252,6 +252,7 @@ export interface OpenAIDelta {
   role?: 'assistant'
   content?: string
   tool_calls?: OpenAIDeltaToolCall[]
+  reasoning_content?: string
 }
 
 /**

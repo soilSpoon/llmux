@@ -233,25 +233,38 @@ function convertChunkToSSE(chunk: StreamChunk): string {
         },
       })
 
-    case 'thinking':
-      if (chunk.delta?.thinking?.signature) {
+    case 'thinking': {
+      // Thinking chunks contain reasoning text
+      // Convert to thinking_delta for clients that support extended thinking
+      const thinkingText = chunk.delta?.thinking?.text || ''
+      const thinkingSignature = chunk.delta?.thinking?.signature
+
+      // If we have a signature, output signature_delta
+      if (thinkingSignature) {
         return formatSSE('content_block_delta', {
           type: 'content_block_delta',
           index: 0,
           delta: {
             type: 'signature_delta',
-            signature: chunk.delta.thinking.signature,
+            signature: thinkingSignature,
           },
         })
       }
+
+      // Skip empty thinking chunks
+      if (!thinkingText) {
+        return ''
+      }
+
       return formatSSE('content_block_delta', {
         type: 'content_block_delta',
         index: 0,
         delta: {
           type: 'thinking_delta',
-          thinking: chunk.delta?.thinking?.text || '',
+          thinking: thinkingText,
         },
       })
+    }
 
     case 'tool_call':
       if (chunk.delta?.toolCall?.id) {

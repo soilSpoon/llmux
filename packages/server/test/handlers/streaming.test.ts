@@ -226,7 +226,8 @@ describe("handleStreamingProxy", () => {
 
     // Verify wrapper structure
     expect(capturedBody).toHaveProperty("project");
-    expect(capturedBody).toHaveProperty("model", "gemini-3-pro-preview");
+    // Note: gemini-3-pro-preview is aliased to gemini-3-pro-high by ANTIGRAVITY_MODEL_ALIASES
+    expect(capturedBody).toHaveProperty("model", "gemini-3-pro-high");
     expect(capturedBody).toHaveProperty("request");
     expect(capturedBody).toHaveProperty("requestId");
     expect(capturedBody.request).toHaveProperty("contents");

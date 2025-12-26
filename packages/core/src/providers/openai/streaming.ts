@@ -26,12 +26,15 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     return null
   }
 
-  // Must start with "data: "
-  if (!trimmed.startsWith('data: ')) {
+  // Must start with "data: ", but we also allow raw JSON for non-compliant providers (like Opencode Zen)
+  let data = ''
+  if (trimmed.startsWith('data: ')) {
+    data = trimmed.slice(6)
+  } else if (trimmed.startsWith('{')) {
+    data = trimmed
+  } else {
     return null
   }
-
-  const data = trimmed.slice(6) // Remove "data: " prefix
 
   // Handle [DONE] signal
   if (data === '[DONE]') {
@@ -48,7 +51,9 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   } catch (error) {
     return {
       type: 'error',
-      error: `Failed to parse stream chunk: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to parse stream chunk: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
     }
   }
 
@@ -97,8 +102,26 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     }
   }
 
+  // Handle reasoning/thinking delta
+  if (choice.delta.reasoning_content !== undefined) {
+    return {
+      type: 'thinking',
+      delta: {
+        type: 'thinking',
+        thinking: {
+          text: choice.delta.reasoning_content,
+        },
+      },
+    }
+  }
+
   // Empty delta (e.g., role-only first chunk with no content)
-  if (choice.delta.role && !choice.delta.content && !choice.delta.tool_calls) {
+  if (
+    choice.delta.role &&
+    !choice.delta.content &&
+    !choice.delta.tool_calls &&
+    !choice.delta.reasoning_content
+  ) {
     return null
   }
 

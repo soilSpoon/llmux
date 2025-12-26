@@ -20,14 +20,19 @@ import { isAnthropicRequest, isAnthropicResponse } from './types'
  * Anthropic Provider implementation
  */
 export class AnthropicProvider extends BaseProvider {
-  readonly name: ProviderName = 'anthropic'
+  readonly name: ProviderName
+  readonly config: ProviderConfig
 
-  readonly config: ProviderConfig = {
-    name: 'anthropic',
-    supportsStreaming: true,
-    supportsThinking: true,
-    supportsTools: true,
-    defaultMaxTokens: 4096,
+  constructor(name: ProviderName = 'anthropic') {
+    super()
+    this.name = name
+    this.config = {
+      name,
+      supportsStreaming: true,
+      supportsThinking: true,
+      supportsTools: true,
+      defaultMaxTokens: 4096,
+    }
   }
 
   /**

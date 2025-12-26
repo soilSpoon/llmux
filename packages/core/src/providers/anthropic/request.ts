@@ -48,7 +48,10 @@ export function parse(request: unknown): UnifiedRequest {
     tools: parseTools(anthropic.tools),
     config: parseConfig(anthropic),
     thinking: parseThinking(anthropic.thinking),
-    metadata: parseMetadata(anthropic.metadata),
+    metadata: {
+      ...parseMetadata(anthropic.metadata),
+      model: anthropic.model,
+    },
   }
 }
 

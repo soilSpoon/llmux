@@ -92,6 +92,14 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           },
           'Model mapping applied'
         )
+      } else {
+        logger.info(
+          {
+            originalModel,
+            availableMappings: options.modelMappings?.map((m) => m.from) || [],
+          },
+          'No model mapping found, using original model'
+        )
       }
       transformedRequest.model = appliedMapping
       mappedModel = appliedMapping

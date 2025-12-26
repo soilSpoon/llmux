@@ -1,6 +1,6 @@
 import { CredentialStorage } from '../storage'
 import type { ApiKeyCredential, Credential } from '../types'
-import { isApiKeyCredential } from '../types'
+import { isApiKeyCredential, isOAuthCredential } from '../types'
 import type { AuthMethod, AuthProvider, AuthResult } from './base'
 
 const PROVIDER_ID = 'opencode-zen'
@@ -25,18 +25,59 @@ export const OpencodeZenProvider: AuthProvider = {
   methods: [apiKeyMethod],
 
   async getCredential(): Promise<Credential | undefined> {
+    // Actually, we should probably fetch 'opencode-zen' credentials
+    // But since I don't have a way to input them right now in the CLI easily without a prompt,
+    // and the user didn't specify where the key comes from.
+    // Assuming for now developers might default to "dummy" or have set it.
+    // Wait, the previous code I SAW had apiKeyMethod.
     const credentials = await CredentialStorage.get(PROVIDER_ID)
+    if (credentials.length === 0) return undefined
     return credentials[0]
   },
 
   async getHeaders(credential: Credential): Promise<Record<string, string>> {
-    if (!isApiKeyCredential(credential)) {
-      return {}
+    const baseHeaders = {
+      'Content-Type': 'application/json',
     }
-    return { Authorization: `Bearer ${credential.key}` }
+
+    if (isApiKeyCredential(credential)) {
+      return {
+        ...baseHeaders,
+        Authorization: `Bearer ${credential.key}`,
+      }
+    }
+
+    // Fallback if somehow oauth credential is used (though methods say api only)
+    if (isOAuthCredential(credential)) {
+      return {
+        ...baseHeaders,
+        Authorization: `Bearer ${credential.accessToken}`,
+      }
+    }
+
+    return baseHeaders
   },
 
   getEndpoint(_model: string): string {
-    return 'https://opencode.ai/api/v1/chat/completions'
+    // Determine endpoint based on model family
+
+    // Responses API (GPT-5 series)
+    if (_model.startsWith('gpt-5')) {
+      return 'https://opencode.ai/zen/v1/responses'
+    }
+
+    // Anthropic-compatible models (v1/messages)
+    // Claude series and GLM-4.7-free
+    if (_model.includes('claude') || _model === 'glm-4.7-free') {
+      return 'https://opencode.ai/zen/v1/messages'
+    }
+
+    // Google-compatible models (v1/models/...)
+    if (_model.startsWith('gemini-3')) {
+      return `https://opencode.ai/zen/v1/models/${_model}`
+    }
+
+    // Default to chat completions (GLM 4.6, Kimi, Qwen, Grok, Big Pickle)
+    return 'https://opencode.ai/zen/v1/chat/completions'
   },
 }

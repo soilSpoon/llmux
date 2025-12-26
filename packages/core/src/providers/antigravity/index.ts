@@ -12,14 +12,19 @@ import { parseResponse, transformResponse } from './response'
 import { parseStreamChunk, transformStreamChunk } from './streaming'
 
 export class AntigravityProvider extends BaseProvider {
-  readonly name: ProviderName = 'antigravity'
+  readonly name: ProviderName
+  readonly config: ProviderConfig
 
-  readonly config: ProviderConfig = {
-    name: 'antigravity',
-    supportsStreaming: true,
-    supportsThinking: true,
-    supportsTools: true,
-    defaultMaxTokens: 8192,
+  constructor(name: ProviderName = 'antigravity') {
+    super()
+    this.name = name
+    this.config = {
+      name,
+      supportsStreaming: true,
+      supportsThinking: true,
+      supportsTools: true,
+      defaultMaxTokens: 8192,
+    }
   }
 
   /**

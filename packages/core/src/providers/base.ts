@@ -3,13 +3,14 @@ import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../types/unif
 /**
  * Supported provider names
  */
-export type ProviderName = 'openai' | 'anthropic' | 'gemini' | 'antigravity'
+export type ProviderName = 'openai' | 'anthropic' | 'gemini' | 'antigravity' | 'opencode-zen'
 
 const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'openai',
   'anthropic',
   'gemini',
   'antigravity',
+  'opencode-zen',
 ] as const
 
 export function isValidProviderName(value: unknown): value is ProviderName {

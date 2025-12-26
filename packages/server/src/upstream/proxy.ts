@@ -9,6 +9,7 @@ export interface UpstreamProxyConfig {
 
 export interface UpstreamProxy {
   proxyRequest(request: Request): Promise<Response>
+  targetUrl: string
 }
 
 export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy {
@@ -19,6 +20,7 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
   const targetUrl = config.targetUrl.replace(/\/$/, '')
 
   return {
+    targetUrl,
     async proxyRequest(request: Request): Promise<Response> {
       const url = new URL(request.url)
       const proxyUrl = `${targetUrl}${url.pathname}${url.search}`
