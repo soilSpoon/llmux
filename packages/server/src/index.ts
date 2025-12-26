@@ -1,3 +1,5 @@
+export { createManagementRoutes, type ManagementRoutesConfig } from './amp/management'
+export { type CredentialProvider, createCredentialProvider } from './auth'
 export type {
   LlmuxConfig,
   ModelMapping,
@@ -15,5 +17,5 @@ export { detectFormat } from './middleware/format'
 export type { Route } from './router'
 export { createRouter } from './router'
 export { createRouter as createRoutingRouter, Router } from './routing'
-export type { LlmuxServer, ServerConfig } from './server'
+export type { AmpConfig, LlmuxServer, ServerConfig } from './server'
 export { createServer, startServer } from './server'

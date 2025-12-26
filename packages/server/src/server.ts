@@ -1,19 +1,25 @@
 import { getRegisteredProviders } from '@llmux/core'
+import { createManagementRoutes } from './amp/management'
 import { createAmpRoutes, type ProviderHandlers } from './amp/routes'
+import type { CredentialProvider } from './auth'
 import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
+import { handleModels } from './handlers/models'
 import { handleProxy, type ProxyOptions } from './handlers/proxy'
 import { handleStreamingProxy } from './handlers/streaming'
 import { corsMiddleware } from './middleware/cors'
 import { detectFormat } from './middleware/format'
 import { createRouter, type Route } from './router'
-import { createUpstreamProxy } from './upstream/proxy'
+import { createUpstreamProxy, type UpstreamProxy } from './upstream/proxy'
 
 export interface AmpConfig {
   handlers: ProviderHandlers
   upstreamUrl?: string
   upstreamApiKey?: string
   providerChecker?: ProviderChecker
+  enableManagementRoutes?: boolean
+  restrictManagementToLocalhost?: boolean
+  modelMappings?: Array<{ from: string; to: string | string[] }>
 }
 
 export interface ServerConfig {
@@ -21,6 +27,7 @@ export interface ServerConfig {
   hostname: string
   corsOrigins?: string[]
   amp?: AmpConfig
+  credentialProvider?: CredentialProvider
 }
 
 export interface LlmuxServer {
@@ -141,10 +148,22 @@ async function handleExplicitProxy(request: Request): Promise<Response> {
   return handleProxy(request, options)
 }
 
-function createDefaultRoutes(): Route[] {
+interface RouteOptions {
+  credentialProvider?: CredentialProvider
+  modelMappings?: AmpConfig['modelMappings']
+}
+
+function createDefaultRoutes(options: RouteOptions): Route[] {
+  const modelsHandler = (req: Request) =>
+    handleModels(req, {
+      credentialProvider: options.credentialProvider,
+      modelMappings: options.modelMappings,
+    })
+
   return [
     { method: 'GET', path: '/health', handler: handleHealth },
     { method: 'GET', path: '/providers', handler: handleProviders },
+    { method: 'GET', path: '/models', handler: modelsHandler },
     {
       method: 'POST',
       path: '/v1/chat/completions',
@@ -163,21 +182,27 @@ function createDefaultRoutes(): Route[] {
 export async function startServer(config?: Partial<ServerConfig>): Promise<LlmuxServer> {
   const mergedConfig = { ...defaultConfig, ...config }
 
-  const routes = createDefaultRoutes()
+  const modelMappings = mergedConfig.amp?.modelMappings
+
+  const routes = createDefaultRoutes({
+    credentialProvider: mergedConfig.credentialProvider,
+    modelMappings: modelMappings,
+  })
 
   if (mergedConfig.amp) {
     const ampConfig = mergedConfig.amp
+    let upstreamProxy: UpstreamProxy | null = null
     let fallbackHandler: FallbackHandler | undefined
 
     if (ampConfig.upstreamUrl || ampConfig.providerChecker) {
-      const proxy = ampConfig.upstreamUrl
+      upstreamProxy = ampConfig.upstreamUrl
         ? createUpstreamProxy({
             targetUrl: ampConfig.upstreamUrl,
             apiKey: ampConfig.upstreamApiKey,
           })
         : null
       const providerChecker = ampConfig.providerChecker ?? (() => false)
-      fallbackHandler = new FallbackHandler(() => proxy, providerChecker)
+      fallbackHandler = new FallbackHandler(() => upstreamProxy, providerChecker)
     }
 
     const ampRoutes = createAmpRoutes({
@@ -185,6 +210,14 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
       fallbackHandler,
     })
     routes.push(...ampRoutes)
+
+    if (ampConfig.enableManagementRoutes !== false && upstreamProxy) {
+      const managementRoutes = createManagementRoutes({
+        getProxy: () => upstreamProxy!,
+        restrictToLocalhost: ampConfig.restrictManagementToLocalhost ?? true,
+      })
+      routes.push(...managementRoutes)
+    }
   }
 
   let fetchHandler = createRouter(routes)

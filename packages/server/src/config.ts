@@ -20,9 +20,23 @@ export interface RoutingConfig {
   rotateOn429?: boolean
 }
 
+export interface AmpModelMapping {
+  from: string
+  to: string | string[] // 단일 또는 fallback chain
+}
+
+export interface AmpConfig {
+  enabled: boolean
+  upstreamUrl: string
+  upstreamApiKey?: string
+  restrictManagementToLocalhost?: boolean
+  modelMappings?: AmpModelMapping[]
+}
+
 export interface LlmuxConfig {
   server: ServerSettings
   routing: RoutingConfig
+  amp: AmpConfig
 }
 
 const DEFAULT_CONFIG: LlmuxConfig = {
@@ -35,6 +49,11 @@ const DEFAULT_CONFIG: LlmuxConfig = {
     defaultProvider: 'anthropic',
     fallbackOrder: ['anthropic', 'openai', 'gemini'],
     rotateOn429: true,
+  },
+  amp: {
+    enabled: true,
+    upstreamUrl: 'https://ampcode.com',
+    restrictManagementToLocalhost: false,
   },
 }
 

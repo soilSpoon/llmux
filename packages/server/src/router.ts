@@ -24,11 +24,10 @@ function parseRoute(route: Route): ParsedRoute {
   let wildcardIndex = -1
   let type: RouteType = 'exact'
 
-  for (let i = 0; i < segments.length; i++) {
-    const seg = segments[i]!
+  for (const [idx, seg] of segments.entries()) {
     if (seg.startsWith('*')) {
       wildcardName = seg.slice(1)
-      wildcardIndex = i
+      wildcardIndex = idx
       type = 'wildcard'
       break
     } else if (seg.startsWith(':')) {
@@ -55,8 +54,8 @@ function matchPath(parsed: ParsedRoute, pathname: string): MatchResult {
     }
 
     for (let i = 0; i < parsed.wildcardIndex; i++) {
-      const routeSeg = parsed.segments[i]!
-      const pathSeg = pathSegments[i]!
+      const routeSeg = parsed.segments[i] as string
+      const pathSeg = pathSegments[i] as string
 
       if (routeSeg.startsWith(':')) {
         params[routeSeg.slice(1)] = pathSeg
@@ -77,8 +76,8 @@ function matchPath(parsed: ParsedRoute, pathname: string): MatchResult {
   }
 
   for (let i = 0; i < parsed.segments.length; i++) {
-    const routeSeg = parsed.segments[i]!
-    const pathSeg = pathSegments[i]!
+    const routeSeg = parsed.segments[i] as string
+    const pathSeg = pathSegments[i] as string
 
     if (routeSeg.startsWith(':')) {
       params[routeSeg.slice(1)] = pathSeg
@@ -116,7 +115,11 @@ export function createRouter(routes: Route[]): (request: Request) => Promise<Res
 
     const methodRoutes = parsedRoutes.filter((p) => p.route.method === method)
 
-    const matches: Array<{ parsed: ParsedRoute; params: RouteParams; priority: number }> = []
+    const matches: Array<{
+      parsed: ParsedRoute
+      params: RouteParams
+      priority: number
+    }> = []
 
     for (const parsed of methodRoutes) {
       const result = matchPath(parsed, pathname)
@@ -143,7 +146,7 @@ export function createRouter(routes: Route[]): (request: Request) => Promise<Res
     }
 
     matches.sort((a, b) => b.priority - a.priority)
-    const best = matches[0]!
+    const best = matches[0] as (typeof matches)[0]
 
     try {
       return await best.parsed.route.handler(request, best.params)

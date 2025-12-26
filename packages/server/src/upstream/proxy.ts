@@ -16,10 +16,12 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
 
   return {
     async proxyRequest(request: Request): Promise<Response> {
-      try {
-        const url = new URL(request.url)
-        const proxyUrl = `${targetUrl}${url.pathname}${url.search}`
+      const url = new URL(request.url)
+      const proxyUrl = `${targetUrl}${url.pathname}${url.search}`
 
+      console.log(`[upstream] ${request.method} ${url.pathname} -> ${proxyUrl}`)
+
+      try {
         const headers = new Headers()
         request.headers.forEach((value, key) => {
           const lowerKey = key.toLowerCase()
@@ -37,11 +39,23 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
           body = await request.arrayBuffer()
         }
 
+        console.log(`[upstream] headers: ${JSON.stringify(Object.fromEntries(headers.entries()))}`)
+
+        const decoder = new TextDecoder('utf-8')
+
+        if (body) {
+          console.log(`[upstream] body: ${JSON.stringify(decoder.decode(body))}`)
+        }
+
         const upstreamResponse = await fetch(proxyUrl, {
           method: request.method,
           headers,
           body,
         })
+
+        console.log(
+          `[upstream] response: ${upstreamResponse.status} ${upstreamResponse.statusText}`
+        )
 
         const responseHeaders = new Headers()
         upstreamResponse.headers.forEach((value, key) => {
@@ -55,6 +69,7 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
         })
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Network error'
+        console.error(`[upstream] error: ${message}`, error)
         return new Response(JSON.stringify({ error: message }), {
           status: 502,
           headers: { 'Content-Type': 'application/json' },

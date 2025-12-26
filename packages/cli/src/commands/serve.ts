@@ -1,3 +1,4 @@
+import { CredentialStorage } from '@llmux/auth'
 import { ConfigLoader, startServer } from '@llmux/server'
 import { cmd } from '../cmd'
 
@@ -52,13 +53,35 @@ export const serveCommand = cmd({
     if (config.routing.defaultProvider) {
       console.log(`  Default provider: ${config.routing.defaultProvider}`)
     }
+    if (config.amp?.enabled) {
+      console.log(`  Amp upstream: ${config.amp.upstreamUrl}`)
+    }
     console.log()
+
+    // Load credentials to determine enabled providers
+    let enabledProviders: string[] | undefined
+    try {
+      const credentials = await CredentialStorage.all()
+      enabledProviders = Object.keys(credentials)
+    } catch {
+      // ignore
+    }
 
     try {
       const server = await startServer({
         port,
         hostname,
         corsOrigins,
+        enabledProviders,
+        amp: config.amp?.enabled
+          ? {
+              handlers: {},
+              upstreamUrl: config.amp.upstreamUrl,
+              upstreamApiKey: config.amp.upstreamApiKey,
+              restrictManagementToLocalhost: config.amp.restrictManagementToLocalhost,
+              modelMappings: config.amp.modelMappings,
+            }
+          : undefined,
       })
 
       console.log(`✓ Server running at http://${server.hostname}:${server.port}`)
@@ -66,6 +89,7 @@ export const serveCommand = cmd({
       console.log('Available endpoints:')
       console.log('  GET  /health              - Health check')
       console.log('  GET  /providers           - List providers')
+      console.log('  GET  /models              - List models and mappings')
       console.log('  POST /v1/chat/completions - OpenAI-compatible endpoint')
       console.log('  POST /v1/messages         - Anthropic-compatible endpoint')
       console.log('  POST /v1/generateContent  - Gemini-compatible endpoint')

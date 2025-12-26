@@ -142,8 +142,14 @@ function transformMessage(response: UnifiedResponse): OpenAIResponseMessage {
     .join('')
 
   const toolCalls = response.content
-    .filter((p) => p.type === 'tool_call' && p.toolCall)
-    .map((p) => p.toolCall!)
+    .filter(
+      (
+        p
+      ): p is ContentPart & {
+        toolCall: NonNullable<ContentPart['toolCall']>
+      } => p.type === 'tool_call' && p.toolCall !== undefined
+    )
+    .map((p) => p.toolCall)
 
   const message: OpenAIResponseMessage = {
     role: 'assistant',
