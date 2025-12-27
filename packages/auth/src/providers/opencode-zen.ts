@@ -36,14 +36,16 @@ export const OpencodeZenProvider: AuthProvider = {
   },
 
   async getHeaders(credential: Credential): Promise<Record<string, string>> {
+    console.log('[OpencodeZen] Getting headers for credential type:', credential.type)
     const baseHeaders = {
       'Content-Type': 'application/json',
+      'anthropic-version': '2023-06-01', // Required for Anthropic-compatible endpoints
     }
 
     if (isApiKeyCredential(credential)) {
       return {
         ...baseHeaders,
-        Authorization: `Bearer ${credential.key}`,
+        'x-api-key': credential.key, // Use x-api-key for Anthropic format
       }
     }
 
@@ -51,7 +53,7 @@ export const OpencodeZenProvider: AuthProvider = {
     if (isOAuthCredential(credential)) {
       return {
         ...baseHeaders,
-        Authorization: `Bearer ${credential.accessToken}`,
+        'x-api-key': credential.accessToken,
       }
     }
 
@@ -67,8 +69,8 @@ export const OpencodeZenProvider: AuthProvider = {
     }
 
     // Anthropic-compatible models (v1/messages)
-    // Claude series and GLM-4.7-free
-    if (_model.includes('claude') || _model === 'glm-4.7-free') {
+    // Claude series only
+    if (_model.includes('claude')) {
       return 'https://opencode.ai/zen/v1/messages'
     }
 
@@ -77,7 +79,7 @@ export const OpencodeZenProvider: AuthProvider = {
       return `https://opencode.ai/zen/v1/models/${_model}`
     }
 
-    // Default to chat completions (GLM 4.6, Kimi, Qwen, Grok, Big Pickle)
+    // Default to chat completions (GLM 4.6, GLM 4.7, Kimi, Qwen, Grok, Big Pickle)
     return 'https://opencode.ai/zen/v1/chat/completions'
   },
 }

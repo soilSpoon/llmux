@@ -8,6 +8,7 @@ import type {
   ContentPart,
   GenerationConfig,
   JSONSchemaProperty,
+  SystemBlock,
   ThinkingConfig,
   UnifiedMessage,
   UnifiedRequest,
@@ -45,9 +46,11 @@ export function parse(request: unknown): UnifiedRequest {
   return {
     messages: parseMessages(anthropic.messages),
     system: parseSystem(anthropic.system),
+    systemBlocks: parseSystemBlocks(anthropic.system),
     tools: parseTools(anthropic.tools),
     config: parseConfig(anthropic),
     thinking: parseThinking(anthropic.thinking),
+    stream: anthropic.stream,
     metadata: {
       ...parseMetadata(anthropic.metadata),
       model: anthropic.model,
@@ -60,14 +63,27 @@ export function parse(request: unknown): UnifiedRequest {
  */
 export function transform(request: UnifiedRequest): AnthropicRequest {
   const result: AnthropicRequest = {
-    model: '', // Model should be set by the caller/router
+    model: (request.metadata?.model as string) || '', // Restore model from metadata
     messages: transformMessages(request.messages),
     max_tokens: request.config?.maxTokens ?? DEFAULT_MAX_TOKENS,
   }
 
-  // Add system prompt if present
-  if (request.system) {
-    result.system = request.system
+  // Add stream if present
+  if (request.stream !== undefined) {
+    result.stream = request.stream
+  }
+
+  // Add system prompt - prefer systemBlocks (preserves cache_control) over system string
+  if (request.systemBlocks && request.systemBlocks.length > 0) {
+    result.system = request.systemBlocks.map((block) => ({
+      type: 'text' as const,
+      text: block.text,
+      cache_control: block.cacheControl
+        ? { type: block.cacheControl.type as 'ephemeral' }
+        : undefined,
+    }))
+  } else if (request.system) {
+    result.system = [{ type: 'text', text: request.system }]
   }
 
   // Add tools if present
@@ -126,11 +142,19 @@ function parseContent(content: string | AnthropicContentBlock[]): ContentPart[] 
 
 function parseContentBlock(block: AnthropicContentBlock): ContentPart | null {
   switch (block.type) {
-    case 'text':
+    case 'text': {
+      const textBlock = block as AnthropicTextBlock
       return {
         type: 'text',
-        text: (block as AnthropicTextBlock).text,
+        text: textBlock.text,
+        cacheControl: textBlock.cache_control
+          ? {
+              type: textBlock.cache_control.type,
+              ttl: (textBlock.cache_control as { type: string; ttl?: string }).ttl,
+            }
+          : undefined,
       }
+    }
 
     case 'image':
       return parseImageBlock(block as AnthropicImageBlock)
@@ -229,6 +253,21 @@ function parseSystem(system?: string | AnthropicSystemBlock[]): string | undefin
   return system.map((block) => block.text).join('\n')
 }
 
+function parseSystemBlocks(system?: string | AnthropicSystemBlock[]): SystemBlock[] | undefined {
+  if (!system) return undefined
+
+  if (typeof system === 'string') {
+    return [{ type: 'text', text: system }]
+  }
+
+  // Preserve cache_control as cacheControl
+  return system.map((block) => ({
+    type: 'text' as const,
+    text: block.text,
+    cacheControl: block.cache_control ? { type: block.cache_control.type } : undefined,
+  }))
+}
+
 function parseTools(tools?: AnthropicTool[]): UnifiedTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
 
@@ -294,7 +333,13 @@ function transformPart(part: ContentPart): AnthropicContentBlock | null {
       return {
         type: 'text',
         text: part.text || '',
-      }
+        cache_control: part.cacheControl
+          ? {
+              type: part.cacheControl.type as 'ephemeral',
+              ...(part.cacheControl.ttl && { ttl: part.cacheControl.ttl }),
+            }
+          : undefined,
+      } as AnthropicTextBlock
 
     case 'image':
       return transformImagePart(part)
@@ -305,7 +350,10 @@ function transformPart(part: ContentPart): AnthropicContentBlock | null {
         type: 'tool_use',
         id: part.toolCall.id,
         name: part.toolCall.name,
-        input: part.toolCall.arguments,
+        input:
+          typeof part.toolCall.arguments === 'string'
+            ? JSON.parse(part.toolCall.arguments || '{}')
+            : part.toolCall.arguments,
       }
 
     case 'tool_result':

@@ -2,8 +2,9 @@ import {
   AntigravityProvider as AntigravityAuthProvider,
   AuthProviderRegistry,
   GithubCopilotProvider,
-  OpencodeZenProvider,
+  OpencodeZenProvider as OpencodeZenAuthProvider,
 } from '@llmux/auth'
+import type { ProviderName } from '@llmux/core' // Ensure ProviderName is imported
 import {
   AnthropicProvider,
   AntigravityProvider,
@@ -11,11 +12,14 @@ import {
   GeminiProvider,
   getRegisteredProviders,
   OpenAIProvider,
+  OpencodeZenProvider,
   registerProvider,
 } from '@llmux/core'
 import { createManagementRoutes } from './amp/management'
 import { createAmpRoutes, type ProviderHandlers } from './amp/routes'
 import type { CredentialProvider } from './auth'
+import type { RoutingConfig } from './config'
+import { CooldownManager } from './cooldown'
 import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
 import { handleModels } from './handlers/models'
@@ -24,7 +28,8 @@ import { handleResponses, type ResponsesOptions } from './handlers/responses'
 import { handleStreamingProxy } from './handlers/streaming'
 import { corsMiddleware } from './middleware/cors'
 import { detectFormat, type RequestFormat } from './middleware/format'
-import { createRouter, type Route } from './router'
+import { createRouter, type Route } from './router' // Keep the HTTP router import
+import { Router } from './routing' // Add the model router import
 import { createUpstreamProxy, type UpstreamProxy } from './upstream/proxy'
 
 const logger = createLogger({ service: 'server' })
@@ -34,10 +39,10 @@ registerProvider(new OpenAIProvider())
 registerProvider(new AnthropicProvider())
 registerProvider(new GeminiProvider())
 registerProvider(new AntigravityProvider())
-registerProvider(new AnthropicProvider('opencode-zen'))
+registerProvider(new OpencodeZenProvider())
 
 // Register auth providers on module load
-AuthProviderRegistry.register(OpencodeZenProvider)
+AuthProviderRegistry.register(OpencodeZenAuthProvider)
 AuthProviderRegistry.register(GithubCopilotProvider)
 AuthProviderRegistry.register(AntigravityAuthProvider)
 
@@ -98,6 +103,22 @@ interface BuildProxyOptionsParams {
   defaultTargetProvider?: string
   overrideSourceFormat?: RequestFormat
   modelMappings?: AmpConfig['modelMappings']
+  router?: Router
+}
+
+function inferProvider(model: string): ProviderName {
+  if (model.includes('claude')) return 'anthropic'
+  if (
+    model.startsWith('gpt-') ||
+    model.startsWith('glm-') ||
+    model.startsWith('qwen') ||
+    model.startsWith('kimi') ||
+    model.startsWith('grok') ||
+    model === 'big-pickle'
+  )
+    return 'openai'
+  if (model.startsWith('gemini')) return 'gemini'
+  return 'openai' // Default fallback
 }
 
 function buildProxyOptions({
@@ -106,9 +127,21 @@ function buildProxyOptions({
   defaultTargetProvider = 'anthropic',
   overrideSourceFormat,
   modelMappings,
+  router,
 }: BuildProxyOptionsParams): ProxyOptions {
   const sourceFormat = overrideSourceFormat ?? detectFormat(body)
-  const targetProvider = request.headers.get('X-Target-Provider') ?? defaultTargetProvider
+  let targetProvider = request.headers.get('X-Target-Provider')
+
+  // Automatic provider routing based on model
+  const bodyData = body as Record<string, unknown>
+  const bodyModel = bodyData.model as string | undefined
+  if (!targetProvider && bodyModel) {
+    if (bodyModel === 'glm-4.7-free' || bodyModel === 'glm-4.6') {
+      targetProvider = 'opencode-zen'
+    }
+  }
+
+  targetProvider = targetProvider ?? defaultTargetProvider
   const targetModel = request.headers.get('X-Target-Model') ?? undefined
   const apiKey = request.headers.get('X-API-Key') ?? undefined
 
@@ -118,6 +151,7 @@ function buildProxyOptions({
     targetModel,
     apiKey,
     modelMappings,
+    router,
   }
 }
 
@@ -133,10 +167,10 @@ function buildProxyOptions({
  * - Streaming and non-streaming
  * - Model mapping and override via X-Target-Model
  */
-function createChatCompletionsHandler(modelMappings?: AmpConfig['modelMappings']) {
+function createChatCompletionsHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
-    const options = buildProxyOptions({ request, body, modelMappings })
+    const options = buildProxyOptions({ request, body, modelMappings, router })
 
     if (body.stream) {
       return handleStreamingProxy(request, options)
@@ -162,7 +196,7 @@ function createChatCompletionsHandler(modelMappings?: AmpConfig['modelMappings']
  * - Streaming and non-streaming
  * - Model mapping and override via X-Target-Model
  */
-function createMessagesHandler(modelMappings?: AmpConfig['modelMappings']) {
+function createMessagesHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
 
@@ -177,6 +211,7 @@ function createMessagesHandler(modelMappings?: AmpConfig['modelMappings']) {
       defaultTargetProvider: targetProvider,
       overrideSourceFormat: 'anthropic', // Always parse incoming as Anthropic
       modelMappings,
+      router,
     })
 
     if (body.stream) {
@@ -202,10 +237,10 @@ function createMessagesHandler(modelMappings?: AmpConfig['modelMappings']) {
  * - Streaming and non-streaming
  * - Model mapping and override via X-Target-Model
  */
-function createGenerateContentHandler(modelMappings?: AmpConfig['modelMappings']) {
+function createGenerateContentHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
-    const options = buildProxyOptions({ request, body, modelMappings })
+    const options = buildProxyOptions({ request, body, modelMappings, router })
 
     if (body.stream) {
       return handleStreamingProxy(request, options)
@@ -231,7 +266,7 @@ function createGenerateContentHandler(modelMappings?: AmpConfig['modelMappings']
  * - Streaming and non-streaming
  * - Model mapping and override via X-Target-Model
  */
-function createAutoDetectHandler(modelMappings?: AmpConfig['modelMappings']) {
+function createAutoDetectHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
 
@@ -244,6 +279,7 @@ function createAutoDetectHandler(modelMappings?: AmpConfig['modelMappings']) {
       defaultTargetProvider: detectedFormat, // Route to provider matching request format
       overrideSourceFormat: detectedFormat, // Source is whatever format was detected
       modelMappings,
+      router,
     })
 
     if (body.stream) {
@@ -270,7 +306,7 @@ function createAutoDetectHandler(modelMappings?: AmpConfig['modelMappings']) {
  * - Streaming and non-streaming
  * - Model mapping and override via X-Target-Model
  */
-function createExplicitProxyHandler(modelMappings?: AmpConfig['modelMappings']) {
+function createExplicitProxyHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const targetProvider = request.headers.get('X-Target-Provider')
     if (!targetProvider) {
@@ -286,6 +322,7 @@ function createExplicitProxyHandler(modelMappings?: AmpConfig['modelMappings']) 
       body,
       defaultTargetProvider: targetProvider,
       modelMappings,
+      router,
     })
 
     if (body.stream) {
@@ -329,6 +366,10 @@ function createResponsesHandler(
       apiKey,
       modelMappings,
       credentialProvider,
+      // Responses handler doesn't support Router yet in Options interface?
+      // Check ResponsesOptions definition.
+      // If not, we might not be able to pass it easily without refactoring ResponsesHandler too.
+      // For now, let's omit router injection here or TODO it.
     }
 
     return handleResponses(request, options)
@@ -338,6 +379,7 @@ function createResponsesHandler(
 interface RouteOptions {
   credentialProvider?: CredentialProvider
   modelMappings?: AmpConfig['modelMappings']
+  router?: Router
 }
 
 function createDefaultRoutes(options: RouteOptions): Route[] {
@@ -347,11 +389,11 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
       modelMappings: options.modelMappings,
     })
 
-  const chatCompletionsHandler = createChatCompletionsHandler(options.modelMappings)
-  const messagesHandler = createMessagesHandler(options.modelMappings)
-  const generateContentHandler = createGenerateContentHandler(options.modelMappings)
-  const autoDetectHandler = createAutoDetectHandler(options.modelMappings)
-  const explicitProxyHandler = createExplicitProxyHandler(options.modelMappings)
+  const chatCompletionsHandler = createChatCompletionsHandler(options.modelMappings, options.router)
+  const messagesHandler = createMessagesHandler(options.modelMappings, options.router)
+  const generateContentHandler = createGenerateContentHandler(options.modelMappings, options.router)
+  const autoDetectHandler = createAutoDetectHandler(options.modelMappings, options.router)
+  const explicitProxyHandler = createExplicitProxyHandler(options.modelMappings, options.router)
   const responsesHandler = createResponsesHandler(options.modelMappings, options.credentialProvider)
 
   return [
@@ -422,9 +464,53 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
 
   const modelMappings = mergedConfig.amp?.modelMappings
 
+  let modelRouter: Router | undefined
+
+  // Transform AmpConfig modelMappings to RoutingConfig for the Router
+  if (modelMappings) {
+    const routingConfig: RoutingConfig = {
+      modelMapping: {},
+    }
+
+    for (const mapping of modelMappings) {
+      const targets = Array.isArray(mapping.to) ? mapping.to : [mapping.to]
+      const primaryModel = targets[0]
+      if (!primaryModel) continue
+
+      // Infer provider for primary mapping
+      // Basic inference logic - extend logic if needed or use full map capabilities
+      const provider = inferProvider(primaryModel)
+
+      const fallbacks = targets.slice(1)
+
+      if (routingConfig.modelMapping) {
+        routingConfig.modelMapping[mapping.from] = {
+          provider,
+          model: primaryModel,
+          fallbacks,
+        }
+
+        // Also register fallbacks as direct mappings if they aren't already?
+        // This ensures Router can resolve them and find their provider/cooldown status
+        for (const fallback of fallbacks) {
+          if (!routingConfig.modelMapping[fallback]) {
+            routingConfig.modelMapping[fallback] = {
+              provider: inferProvider(fallback),
+              model: fallback,
+            }
+          }
+        }
+      }
+    }
+
+    const cooldownManager = new CooldownManager()
+    modelRouter = new Router(routingConfig, cooldownManager)
+  }
+
   const routes = createDefaultRoutes({
     credentialProvider: mergedConfig.credentialProvider,
     modelMappings: modelMappings,
+    router: modelRouter,
   })
 
   if (mergedConfig.amp) {

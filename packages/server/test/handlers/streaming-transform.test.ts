@@ -107,7 +107,8 @@ describe("transformStreamChunk", () => {
 
       const result = transformStreamChunk(openaiChunk, "openai", "anthropic");
 
-      expect(result).toContain("data:");
+      expect(Array.isArray(result)).toBe(true);
+      expect(result[0]).toContain("data:");
     });
   });
 });

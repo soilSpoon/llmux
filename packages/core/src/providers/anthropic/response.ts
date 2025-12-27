@@ -192,7 +192,10 @@ function transformContentPart(part: ContentPart): AnthropicContentBlock | null {
         type: 'tool_use',
         id: part.toolCall.id,
         name: part.toolCall.name,
-        input: part.toolCall.arguments,
+        input:
+          typeof part.toolCall.arguments === 'string'
+            ? { value: part.toolCall.arguments }
+            : part.toolCall.arguments,
       }
 
     case 'thinking':

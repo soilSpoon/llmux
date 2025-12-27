@@ -88,7 +88,7 @@ describe("handleStreamingProxy", () => {
     globalThis.fetch = Object.assign(
       mock(async () => {
         return new Response(JSON.stringify({ error: "Rate limited" }), {
-          status: 429,
+          status: 500,
           headers: { "Content-Type": "application/json" },
         });
       }),
@@ -112,7 +112,8 @@ describe("handleStreamingProxy", () => {
     };
 
     const response = await handleStreamingProxy(request, options);
-    expect(response.status).toBe(429);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Rate limited" });
   });
 
   test("streams transformed chunks", async () => {

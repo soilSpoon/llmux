@@ -13,9 +13,20 @@ export type {
 } from './antigravity/types'
 export * from './base'
 export { GeminiProvider } from './gemini'
-export type { GeminiContent, GeminiRequest, GeminiResponse, GeminiTool } from './gemini/types'
+export type {
+  GeminiContent,
+  GeminiRequest,
+  GeminiResponse,
+  GeminiTool,
+} from './gemini/types'
 // Provider implementations
 export { OpenAIProvider } from './openai'
 // Provider types
-export type { OpenAIMessage, OpenAIRequest, OpenAIResponse, OpenAITool } from './openai/types'
+export type {
+  OpenAIMessage,
+  OpenAIRequest,
+  OpenAIResponse,
+  OpenAITool,
+} from './openai/types'
+export { OpencodeZenProvider } from './opencode-zen'
 export * from './registry'

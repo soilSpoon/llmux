@@ -95,8 +95,8 @@ describe('Router (Routing)', () => {
         fallbackOrder: ['anthropic', 'openai', 'gemini'],
       })
 
-      expect(router.handleRateLimit()).toBe('anthropic')
-      expect(router.handleRateLimit()).toBe('openai')
+      expect(router.getNextProvider()).toBe('anthropic')
+      expect(router.getNextProvider()).toBe('openai')
     })
   })
 

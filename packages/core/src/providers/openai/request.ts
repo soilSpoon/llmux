@@ -92,9 +92,34 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
     })
   }
 
-  // Transform messages
+  // Transform messages, extracting tool_result parts from user messages as separate tool messages
   for (const msg of request.messages) {
-    result.messages.push(transformMessage(msg))
+    if (msg.role === 'user') {
+      // Check for tool_result parts in user message and extract them as separate tool messages
+      const toolResultParts = msg.parts.filter((p) => p.type === 'tool_result')
+      const otherParts = msg.parts.filter((p) => p.type !== 'tool_result')
+
+      // Add tool messages for each tool_result part (before the user message)
+      for (const part of toolResultParts) {
+        if (part.toolResult) {
+          result.messages.push({
+            role: 'tool',
+            tool_call_id: part.toolResult.toolCallId,
+            content:
+              typeof part.toolResult.content === 'string'
+                ? part.toolResult.content
+                : JSON.stringify(part.toolResult.content ?? ''),
+          })
+        }
+      }
+
+      // Add the user message with remaining parts (if any)
+      if (otherParts.length > 0) {
+        result.messages.push(transformMessage({ ...msg, parts: otherParts }))
+      }
+    } else {
+      result.messages.push(transformMessage(msg))
+    }
   }
 
   // Transform generation config
@@ -299,7 +324,10 @@ function transformAssistantMessage(msg: UnifiedMessage): OpenAIAssistantMessage 
         type: 'function',
         function: {
           name: part.toolCall?.name ?? '',
-          arguments: JSON.stringify(part.toolCall?.arguments),
+          arguments:
+            typeof part.toolCall?.arguments === 'string'
+              ? part.toolCall.arguments
+              : JSON.stringify(part.toolCall?.arguments),
         },
       })
     )
@@ -337,6 +365,30 @@ function transformContentPart(part: ContentPart): OpenAIContentPart {
       return { type: 'text', text: part.text }
     case 'image':
       return transformImageContent(part)
+    case 'tool_call':
+      // tool_call parts are handled separately in transformAssistantMessage
+      // If we reach here, convert to a text representation
+      return {
+        type: 'text',
+        text: `[Tool Call: ${part.toolCall?.name ?? 'unknown'}]`,
+      }
+    case 'tool_result':
+      // tool_result parts should be in 'tool' role messages, handled by transformToolMessage
+      // If we reach here (e.g., in user message context), convert to text
+      return {
+        type: 'text',
+        text:
+          typeof part.toolResult?.content === 'string'
+            ? part.toolResult.content
+            : JSON.stringify(part.toolResult?.content ?? ''),
+      }
+    case 'thinking':
+      // Thinking blocks are not directly supported in OpenAI format
+      // Convert to a text representation or skip
+      return {
+        type: 'text',
+        text: part.thinking?.text ?? '',
+      }
     default:
       throw new Error(`Cannot transform content part type to OpenAI: ${part.type}`)
   }
@@ -376,15 +428,22 @@ function parseTool(tool: OpenAITool): UnifiedTool {
 }
 
 function transformTool(tool: UnifiedTool): OpenAITool {
+  // Preserve all parameter fields to avoid information loss (e.g. detailed types, enums)
+  const parameters = { ...tool.parameters }
+
+  // OpenAI requires type to be 'object' for function parameters
+  if (!parameters.type) {
+    parameters.type = 'object'
+  }
+
   return {
     type: 'function',
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: {
-        type: 'object',
-        properties: tool.parameters.properties,
-        required: tool.parameters.required,
+      parameters: parameters as unknown as {
+        type: 'object'
+        properties?: Record<string, unknown>
       },
     },
   }

@@ -1,160 +1,162 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it } from "bun:test";
 import {
   type OpenAIRequest,
   type OpenAIResponse,
   type OpenAIMessage,
   type OpenAITool,
-  type OpenAIToolCall,
   type OpenAIStreamChunk,
   isOpenAIRequest,
   isOpenAIResponse,
   isOpenAIMessage,
   isOpenAIStreamChunk,
-} from '../../../src/providers/openai/types'
+} from "../../../src/providers/openai/types";
 
-describe('OpenAI Types', () => {
-  describe('OpenAIRequest', () => {
-    it('should have required model and messages fields', () => {
+describe("OpenAI Types", () => {
+  describe("OpenAIRequest", () => {
+    it("should have required model and messages fields", () => {
       const request: OpenAIRequest = {
-        model: 'gpt-4',
-        messages: [{ role: 'user', content: 'Hello' }],
-      }
-      expect(request.model).toBe('gpt-4')
-      expect(request.messages).toHaveLength(1)
-    })
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+      expect(request.model).toBe("gpt-4");
+      expect(request.messages).toHaveLength(1);
+    });
 
-    it('should support optional parameters', () => {
+    it("should support optional parameters", () => {
       const request: OpenAIRequest = {
-        model: 'gpt-4',
-        messages: [{ role: 'user', content: 'Hello' }],
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
         max_tokens: 1000,
         temperature: 0.7,
         top_p: 0.9,
-        stop: ['END'],
+        stop: ["END"],
         stream: true,
         tools: [],
-        tool_choice: 'auto',
-      }
-      expect(request.max_tokens).toBe(1000)
-      expect(request.temperature).toBe(0.7)
-      expect(request.stream).toBe(true)
-    })
+        tool_choice: "auto",
+      };
+      expect(request.max_tokens).toBe(1000);
+      expect(request.temperature).toBe(0.7);
+      expect(request.stream).toBe(true);
+    });
 
-    it('should support reasoning_effort for o1/o3 models', () => {
+    it("should support reasoning_effort for o1/o3 models", () => {
       const request: OpenAIRequest = {
-        model: 'o1',
-        messages: [{ role: 'user', content: 'Hello' }],
-        reasoning_effort: 'high',
-      }
-      expect(request.reasoning_effort).toBe('high')
-    })
-  })
+        model: "o1",
+        messages: [{ role: "user", content: "Hello" }],
+        reasoning_effort: "high",
+      };
+      expect(request.reasoning_effort).toBe("high");
+    });
+  });
 
-  describe('OpenAIMessage', () => {
-    it('should support system message', () => {
+  describe("OpenAIMessage", () => {
+    it("should support system message", () => {
       const msg: OpenAIMessage = {
-        role: 'system',
-        content: 'You are a helpful assistant.',
-      }
-      expect(msg.role).toBe('system')
-    })
+        role: "system",
+        content: "You are a helpful assistant.",
+      };
+      expect(msg.role).toBe("system");
+    });
 
-    it('should support user message with string content', () => {
+    it("should support user message with string content", () => {
       const msg: OpenAIMessage = {
-        role: 'user',
-        content: 'Hello',
-      }
-      expect(msg.content).toBe('Hello')
-    })
+        role: "user",
+        content: "Hello",
+      };
+      expect(msg.content).toBe("Hello");
+    });
 
-    it('should support user message with content parts array', () => {
+    it("should support user message with content parts array", () => {
       const msg: OpenAIMessage = {
-        role: 'user',
+        role: "user",
         content: [
-          { type: 'text', text: 'What is in this image?' },
-          { type: 'image_url', image_url: { url: 'https://example.com/image.jpg' } },
+          { type: "text", text: "What is in this image?" },
+          {
+            type: "image_url",
+            image_url: { url: "https://example.com/image.jpg" },
+          },
         ],
-      }
-      expect(Array.isArray(msg.content)).toBe(true)
-    })
+      };
+      expect(Array.isArray(msg.content)).toBe(true);
+    });
 
-    it('should support assistant message with tool_calls', () => {
+    it("should support assistant message with tool_calls", () => {
       const msg: OpenAIMessage = {
-        role: 'assistant',
+        role: "assistant",
         content: null,
         tool_calls: [
           {
-            id: 'call_123',
-            type: 'function',
-            function: { name: 'get_weather', arguments: '{"location":"NYC"}' },
+            id: "call_123",
+            type: "function",
+            function: { name: "get_weather", arguments: '{"location":"NYC"}' },
           },
         ],
-      }
-      expect(msg.tool_calls).toHaveLength(1)
-      expect(msg.tool_calls![0].function.name).toBe('get_weather')
-    })
+      };
+      expect(msg.tool_calls).toHaveLength(1);
+      expect(msg.tool_calls![0]!.function.name).toBe("get_weather");
+    });
 
-    it('should support tool message with tool_call_id', () => {
+    it("should support tool message with tool_call_id", () => {
       const msg: OpenAIMessage = {
-        role: 'tool',
+        role: "tool",
         content: '{"temperature": 72}',
-        tool_call_id: 'call_123',
-      }
-      expect(msg.tool_call_id).toBe('call_123')
-    })
-  })
+        tool_call_id: "call_123",
+      };
+      expect(msg.tool_call_id).toBe("call_123");
+    });
+  });
 
-  describe('OpenAITool', () => {
-    it('should define function with parameters', () => {
+  describe("OpenAITool", () => {
+    it("should define function with parameters", () => {
       const tool: OpenAITool = {
-        type: 'function',
+        type: "function",
         function: {
-          name: 'get_weather',
-          description: 'Get weather for a location',
+          name: "get_weather",
+          description: "Get weather for a location",
           parameters: {
-            type: 'object',
+            type: "object",
             properties: {
-              location: { type: 'string', description: 'City name' },
+              location: { type: "string", description: "City name" },
             },
-            required: ['location'],
+            required: ["location"],
           },
         },
-      }
-      expect(tool.type).toBe('function')
-      expect(tool.function.name).toBe('get_weather')
-    })
-  })
+      };
+      expect(tool.type).toBe("function");
+      expect(tool.function.name).toBe("get_weather");
+    });
+  });
 
-  describe('OpenAIResponse', () => {
-    it('should have required fields', () => {
+  describe("OpenAIResponse", () => {
+    it("should have required fields", () => {
       const response: OpenAIResponse = {
-        id: 'chatcmpl-123',
-        object: 'chat.completion',
+        id: "chatcmpl-123",
+        object: "chat.completion",
         created: 1694268190,
-        model: 'gpt-4',
+        model: "gpt-4",
         choices: [
           {
             index: 0,
-            message: { role: 'assistant', content: 'Hello!' },
-            finish_reason: 'stop',
+            message: { role: "assistant", content: "Hello!" },
+            finish_reason: "stop",
           },
         ],
-      }
-      expect(response.id).toBe('chatcmpl-123')
-      expect(response.choices).toHaveLength(1)
-    })
+      };
+      expect(response.id).toBe("chatcmpl-123");
+      expect(response.choices).toHaveLength(1);
+    });
 
-    it('should support usage info', () => {
+    it("should support usage info", () => {
       const response: OpenAIResponse = {
-        id: 'chatcmpl-123',
-        object: 'chat.completion',
+        id: "chatcmpl-123",
+        object: "chat.completion",
         created: 1694268190,
-        model: 'gpt-4',
+        model: "gpt-4",
         choices: [
           {
             index: 0,
-            message: { role: 'assistant', content: 'Hello!' },
-            finish_reason: 'stop',
+            message: { role: "assistant", content: "Hello!" },
+            finish_reason: "stop",
           },
         ],
         usage: {
@@ -162,149 +164,155 @@ describe('OpenAI Types', () => {
           completion_tokens: 20,
           total_tokens: 30,
         },
-      }
-      expect(response.usage?.total_tokens).toBe(30)
-    })
+      };
+      expect(response.usage?.total_tokens).toBe(30);
+    });
 
-    it('should support tool_calls in response', () => {
+    it("should support tool_calls in response", () => {
       const response: OpenAIResponse = {
-        id: 'chatcmpl-123',
-        object: 'chat.completion',
+        id: "chatcmpl-123",
+        object: "chat.completion",
         created: 1694268190,
-        model: 'gpt-4',
+        model: "gpt-4",
         choices: [
           {
             index: 0,
             message: {
-              role: 'assistant',
+              role: "assistant",
               content: null,
               tool_calls: [
                 {
-                  id: 'call_abc',
-                  type: 'function',
-                  function: { name: 'get_weather', arguments: '{}' },
+                  id: "call_abc",
+                  type: "function",
+                  function: { name: "get_weather", arguments: "{}" },
                 },
               ],
             },
-            finish_reason: 'tool_calls',
+            finish_reason: "tool_calls",
           },
         ],
-      }
-      expect(response.choices[0].finish_reason).toBe('tool_calls')
-    })
-  })
+      };
+      expect(response.choices[0]!.finish_reason).toBe("tool_calls");
+    });
+  });
 
-  describe('OpenAIStreamChunk', () => {
-    it('should represent streaming delta', () => {
+  describe("OpenAIStreamChunk", () => {
+    it("should represent streaming delta", () => {
       const chunk: OpenAIStreamChunk = {
-        id: 'chatcmpl-123',
-        object: 'chat.completion.chunk',
+        id: "chatcmpl-123",
+        object: "chat.completion.chunk",
         created: 1694268190,
-        model: 'gpt-4',
+        model: "gpt-4",
         choices: [
           {
             index: 0,
-            delta: { content: 'Hello' },
+            delta: { content: "Hello" },
             finish_reason: null,
           },
         ],
-      }
-      expect(chunk.object).toBe('chat.completion.chunk')
-      expect(chunk.choices[0].delta?.content).toBe('Hello')
-    })
-  })
+      };
+      expect(chunk.object).toBe("chat.completion.chunk");
+      expect(chunk.choices[0]!.delta?.content).toBe("Hello");
+    });
+  });
 
-  describe('Type Guards', () => {
-    describe('isOpenAIRequest', () => {
-      it('should return true for valid OpenAI request', () => {
+  describe("Type Guards", () => {
+    describe("isOpenAIRequest", () => {
+      it("should return true for valid OpenAI request", () => {
         const request = {
-          model: 'gpt-4',
-          messages: [{ role: 'user', content: 'Hello' }],
-        }
-        expect(isOpenAIRequest(request)).toBe(true)
-      })
+          model: "gpt-4",
+          messages: [{ role: "user", content: "Hello" }],
+        };
+        expect(isOpenAIRequest(request)).toBe(true);
+      });
 
-      it('should return false for missing model', () => {
+      it("should return false for missing model", () => {
         const request = {
-          messages: [{ role: 'user', content: 'Hello' }],
-        }
-        expect(isOpenAIRequest(request)).toBe(false)
-      })
+          messages: [{ role: "user", content: "Hello" }],
+        };
+        expect(isOpenAIRequest(request)).toBe(false);
+      });
 
-      it('should return false for missing messages', () => {
-        const request = { model: 'gpt-4' }
-        expect(isOpenAIRequest(request)).toBe(false)
-      })
+      it("should return false for missing messages", () => {
+        const request = { model: "gpt-4" };
+        expect(isOpenAIRequest(request)).toBe(false);
+      });
 
-      it('should return false for non-object', () => {
-        expect(isOpenAIRequest(null)).toBe(false)
-        expect(isOpenAIRequest('string')).toBe(false)
-        expect(isOpenAIRequest(123)).toBe(false)
-      })
-    })
+      it("should return false for non-object", () => {
+        expect(isOpenAIRequest(null)).toBe(false);
+        expect(isOpenAIRequest("string")).toBe(false);
+        expect(isOpenAIRequest(123)).toBe(false);
+      });
+    });
 
-    describe('isOpenAIResponse', () => {
-      it('should return true for valid OpenAI response', () => {
+    describe("isOpenAIResponse", () => {
+      it("should return true for valid OpenAI response", () => {
         const response = {
-          id: 'chatcmpl-123',
-          object: 'chat.completion',
+          id: "chatcmpl-123",
+          object: "chat.completion",
           created: 1694268190,
-          model: 'gpt-4',
+          model: "gpt-4",
           choices: [
             {
               index: 0,
-              message: { role: 'assistant', content: 'Hello!' },
-              finish_reason: 'stop',
+              message: { role: "assistant", content: "Hello!" },
+              finish_reason: "stop",
             },
           ],
-        }
-        expect(isOpenAIResponse(response)).toBe(true)
-      })
+        };
+        expect(isOpenAIResponse(response)).toBe(true);
+      });
 
-      it('should return false for missing choices', () => {
+      it("should return false for missing choices", () => {
         const response = {
-          id: 'chatcmpl-123',
-          object: 'chat.completion',
+          id: "chatcmpl-123",
+          object: "chat.completion",
           created: 1694268190,
-          model: 'gpt-4',
-        }
-        expect(isOpenAIResponse(response)).toBe(false)
-      })
-    })
+          model: "gpt-4",
+        };
+        expect(isOpenAIResponse(response)).toBe(false);
+      });
+    });
 
-    describe('isOpenAIMessage', () => {
-      it('should return true for valid message', () => {
-        expect(isOpenAIMessage({ role: 'user', content: 'Hello' })).toBe(true)
-        expect(isOpenAIMessage({ role: 'assistant', content: null })).toBe(true)
-      })
+    describe("isOpenAIMessage", () => {
+      it("should return true for valid message", () => {
+        expect(isOpenAIMessage({ role: "user", content: "Hello" })).toBe(true);
+        expect(isOpenAIMessage({ role: "assistant", content: null })).toBe(
+          true
+        );
+      });
 
-      it('should return false for invalid role', () => {
-        expect(isOpenAIMessage({ role: 'invalid', content: 'Hello' })).toBe(false)
-      })
-    })
+      it("should return false for invalid role", () => {
+        expect(isOpenAIMessage({ role: "invalid", content: "Hello" })).toBe(
+          false
+        );
+      });
+    });
 
-    describe('isOpenAIStreamChunk', () => {
-      it('should return true for valid stream chunk', () => {
+    describe("isOpenAIStreamChunk", () => {
+      it("should return true for valid stream chunk", () => {
         const chunk = {
-          id: 'chatcmpl-123',
-          object: 'chat.completion.chunk',
+          id: "chatcmpl-123",
+          object: "chat.completion.chunk",
           created: 1694268190,
-          model: 'gpt-4',
-          choices: [{ index: 0, delta: { content: 'Hi' }, finish_reason: null }],
-        }
-        expect(isOpenAIStreamChunk(chunk)).toBe(true)
-      })
+          model: "gpt-4",
+          choices: [
+            { index: 0, delta: { content: "Hi" }, finish_reason: null },
+          ],
+        };
+        expect(isOpenAIStreamChunk(chunk)).toBe(true);
+      });
 
-      it('should return false for non-chunk object', () => {
+      it("should return false for non-chunk object", () => {
         const response = {
-          id: 'chatcmpl-123',
-          object: 'chat.completion',
+          id: "chatcmpl-123",
+          object: "chat.completion",
           created: 1694268190,
-          model: 'gpt-4',
+          model: "gpt-4",
           choices: [],
-        }
-        expect(isOpenAIStreamChunk(response)).toBe(false)
-      })
-    })
-  })
-})
+        };
+        expect(isOpenAIStreamChunk(response)).toBe(false);
+      });
+    });
+  });
+});

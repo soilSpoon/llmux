@@ -81,7 +81,7 @@ export class AnthropicProvider extends BaseProvider {
   /**
    * Transform a unified StreamChunk into Anthropic SSE format
    */
-  transformStreamChunk(chunk: StreamChunk): string {
+  transformStreamChunk(chunk: StreamChunk): string | string[] {
     return transformStream(chunk)
   }
 }

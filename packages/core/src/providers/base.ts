@@ -69,7 +69,7 @@ export interface Provider {
   /**
    * Transform a unified stream chunk to provider format
    */
-  transformStreamChunk?(chunk: StreamChunk): string
+  transformStreamChunk?(chunk: StreamChunk): string | string[]
 }
 
 /**
@@ -85,5 +85,5 @@ export abstract class BaseProvider implements Provider {
   abstract transformResponse(response: UnifiedResponse): unknown
 
   parseStreamChunk?(chunk: string): StreamChunk | StreamChunk[] | null
-  transformStreamChunk?(chunk: StreamChunk): string
+  transformStreamChunk?(chunk: StreamChunk): string | string[]
 }

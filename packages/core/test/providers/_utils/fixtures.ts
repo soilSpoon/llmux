@@ -1,24 +1,23 @@
 import type {
-  ContentPart,
   JSONSchema,
   ToolCall,
   UnifiedMessage,
   UnifiedRequest,
   UnifiedResponse,
   UnifiedTool,
-} from '../../../src/types/unified'
+} from "../../../src/types/unified";
 
 /**
  * Creates a unified message with text content
  */
 export function createUnifiedMessage(
-  role: UnifiedMessage['role'],
+  role: UnifiedMessage["role"],
   text: string
 ): UnifiedMessage {
   return {
     role,
-    parts: [{ type: 'text', text }],
-  }
+    parts: [{ type: "text", text }],
+  };
 }
 
 /**
@@ -33,7 +32,7 @@ export function createUnifiedToolCall(
     id,
     name,
     arguments: args,
-  }
+  };
 }
 
 /**
@@ -42,13 +41,13 @@ export function createUnifiedToolCall(
 export function createUnifiedTool(
   name: string,
   description?: string,
-  parameters: JSONSchema = { type: 'object', properties: {} }
+  parameters: JSONSchema = { type: "object", properties: {} }
 ): UnifiedTool {
   return {
     name,
     description,
     parameters,
-  }
+  };
 }
 
 /**
@@ -58,13 +57,13 @@ export function createUnifiedRequest(
   overrides: Partial<UnifiedRequest> = {}
 ): UnifiedRequest {
   return {
-    messages: [createUnifiedMessage('user', 'Hello')],
+    messages: [createUnifiedMessage("user", "Hello")],
     config: {
       temperature: 0.7,
       maxTokens: 1000,
     },
     ...overrides,
-  }
+  };
 }
 
 /**
@@ -75,14 +74,14 @@ export function createUnifiedResponse(
 ): UnifiedResponse {
   return {
     id: `resp_${Math.random().toString(36).slice(2, 11)}`,
-    content: [{ type: 'text', text: 'Hello! How can I help you today?' }],
-    stopReason: 'end_turn',
+    content: [{ type: "text", text: "Hello! How can I help you today?" }],
+    stopReason: "end_turn",
     usage: {
       inputTokens: 10,
       outputTokens: 20,
       totalTokens: 30,
     },
-    model: 'test-model',
+    model: "test-model",
     ...overrides,
-  }
+  };
 }

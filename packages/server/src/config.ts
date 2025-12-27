@@ -11,6 +11,11 @@ export interface ServerSettings {
 export interface ModelMapping {
   provider: ProviderName
   model: string
+  /**
+   * Ordered list of fallback models to try if the primary model fails (e.g. 429).
+   * Format: "model-name" (must key into modelMapping or be a valid model ID)
+   */
+  fallbacks?: string[]
 }
 
 export interface RoutingConfig {

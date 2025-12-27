@@ -4,10 +4,12 @@
 export interface UnifiedRequest {
   messages: UnifiedMessage[]
   system?: string
+  systemBlocks?: SystemBlock[] // Preserves cache_control for Anthropic
   tools?: UnifiedTool[]
   config?: GenerationConfig
   thinking?: ThinkingConfig
   metadata?: RequestMetadata
+  stream?: boolean // Preserves stream parameter
 }
 
 /**
@@ -41,6 +43,7 @@ export interface ContentPart {
   toolCall?: ToolCall
   toolResult?: ToolResult
   thinking?: ThinkingBlock
+  cacheControl?: CacheControl // Preserves Anthropic cache_control
 }
 
 /**
@@ -58,7 +61,7 @@ export interface ImageData {
 export interface ToolCall {
   id: string
   name: string
-  arguments: Record<string, unknown>
+  arguments: Record<string, unknown> | string
 }
 
 /**
@@ -97,6 +100,23 @@ export interface ThinkingConfig {
   enabled: boolean
   budget?: number
   includeThoughts?: boolean
+}
+
+/**
+ * CacheControl - Anthropic cache control metadata
+ */
+export interface CacheControl {
+  type: string
+  ttl?: string
+}
+
+/**
+ * SystemBlock - System prompt block with cache control support
+ */
+export interface SystemBlock {
+  type: 'text'
+  text: string
+  cacheControl?: CacheControl
 }
 
 /**

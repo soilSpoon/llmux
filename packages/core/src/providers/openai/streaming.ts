@@ -5,12 +5,7 @@
  */
 
 import type { StopReason, StreamChunk, UsageInfo } from '../../types/unified'
-import type {
-  OpenAIDeltaToolCall,
-  OpenAIFinishReason,
-  OpenAIStreamChunk,
-  OpenAIUsage,
-} from './types'
+import type { OpenAIDelta, OpenAIDeltaToolCall, OpenAIFinishReason, OpenAIUsage } from './types'
 
 /**
  * Parse an OpenAI SSE chunk into a StreamChunk.
@@ -31,8 +26,11 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (trimmed.startsWith('data: ')) {
     data = trimmed.slice(6)
   } else if (trimmed.startsWith('{')) {
+    // If it starts with {, it's a raw JSON object string
     data = trimmed
   } else {
+    // Other lines are ignored (like "event: ..." lines in some SSE formats,
+    // though OpenAI typically doesn't use those)
     return null
   }
 
@@ -45,15 +43,36 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   }
 
   // Parse JSON
-  let parsed: OpenAIStreamChunk
+  let parsed: {
+    content?: string
+    usage?: OpenAIUsage
+    choices?: {
+      delta?: OpenAIDelta
+      finish_reason?: OpenAIFinishReason
+      message?: OpenAIDelta // Non-standard fallback
+    }[]
+    finish_reason?: OpenAIFinishReason // Top-level finish_reason
+  }
+
   try {
-    parsed = JSON.parse(data)
+    parsed = JSON.parse(data) as typeof parsed
   } catch (error) {
     return {
       type: 'error',
       error: `Failed to parse stream chunk: ${
         error instanceof Error ? error.message : String(error)
       }`,
+    }
+  }
+
+  // Handle non-standard formats where content is at top level (some providers/GLM)
+  if (parsed.content !== undefined && typeof parsed.content === 'string') {
+    return {
+      type: 'content',
+      delta: {
+        type: 'text',
+        text: parsed.content,
+      },
     }
   }
 
@@ -67,6 +86,13 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
 
   // Handle empty choices
   if (!parsed.choices || parsed.choices.length === 0) {
+    // If it's a finish_reason at top level
+    if (parsed.finish_reason) {
+      return {
+        type: 'done',
+        stopReason: parseFinishReason(parsed.finish_reason),
+      }
+    }
     return null
   }
 
@@ -83,45 +109,44 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     }
   }
 
+  // Handle situation where delta is missing but content is there (Zhipu/GLM style sometimes)
+  // Check for non-standard 'message' field in choice
+  const delta: OpenAIDelta = choice.delta || choice.message || {}
+
   // Handle tool calls in delta
-  if (choice.delta.tool_calls && choice.delta.tool_calls.length > 0) {
-    const firstToolCall = choice.delta.tool_calls[0]
+  if (delta.tool_calls && delta.tool_calls.length > 0) {
+    const firstToolCall = delta.tool_calls[0]
     if (firstToolCall) {
       return parseToolCallDelta(firstToolCall)
     }
   }
 
   // Handle content delta
-  if (choice.delta.content !== undefined) {
+  if (delta.content !== undefined) {
     return {
       type: 'content',
       delta: {
         type: 'text',
-        text: choice.delta.content,
+        text: delta.content,
       },
     }
   }
 
   // Handle reasoning/thinking delta
-  if (choice.delta.reasoning_content !== undefined) {
+  if (delta.reasoning_content !== undefined) {
     return {
       type: 'thinking',
       delta: {
         type: 'thinking',
         thinking: {
-          text: choice.delta.reasoning_content,
+          text: delta.reasoning_content,
         },
       },
     }
   }
 
   // Empty delta (e.g., role-only first chunk with no content)
-  if (
-    choice.delta.role &&
-    !choice.delta.content &&
-    !choice.delta.tool_calls &&
-    !choice.delta.reasoning_content
-  ) {
+  if (delta.role && !delta.content && !delta.tool_calls && !delta.reasoning_content) {
     return null
   }
 
@@ -242,7 +267,7 @@ function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
         id: toolCall.id || '',
         name: toolCall.function?.name || '',
         // Store raw string in a wrapper - consumer will accumulate and parse
-        arguments: args as unknown as Record<string, unknown>,
+        arguments: args,
       },
     },
   }

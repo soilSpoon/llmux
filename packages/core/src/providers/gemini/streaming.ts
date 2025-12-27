@@ -287,7 +287,10 @@ function transformToolCallChunk(chunk: StreamChunk): GeminiStreamChunk {
     parts.push({
       functionCall: {
         name: chunk.delta.toolCall.name,
-        args: chunk.delta.toolCall.arguments,
+        args:
+          typeof chunk.delta.toolCall.arguments === 'string'
+            ? { value: chunk.delta.toolCall.arguments }
+            : chunk.delta.toolCall.arguments,
       },
     })
   }

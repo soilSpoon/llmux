@@ -132,7 +132,10 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
         parts.push({
           functionCall: {
             name: part.toolCall?.name ?? '',
-            args: part.toolCall?.arguments ?? {},
+            args:
+              typeof part.toolCall?.arguments === 'string'
+                ? { value: part.toolCall?.arguments }
+                : (part.toolCall?.arguments ?? {}),
             id: part.toolCall?.id,
           },
           // Add thoughtSignature for Claude compatibility

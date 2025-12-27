@@ -92,6 +92,7 @@ export type {
   OpenAIResponse,
   OpenAITool,
 } from './providers/openai/types'
+export { OpencodeZenProvider } from './providers/opencode-zen'
 // Provider registry
 export {
   getProvider,

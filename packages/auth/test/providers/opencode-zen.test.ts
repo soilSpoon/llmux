@@ -46,10 +46,14 @@ describe("OpencodeZenProvider", () => {
     expect(credential).toEqual({ type: "api", key: "test-key" });
   });
 
-  test("getHeaders returns Authorization header", async () => {
+  test("getHeaders returns correct headers for api credential", async () => {
     const credential = { type: "api" as const, key: "sk-test-123" };
     const headers = await OpencodeZenProvider.getHeaders(credential);
-    expect(headers["Authorization"]).toBe("Bearer sk-test-123");
+    expect(headers).toEqual({
+      "Content-Type": "application/json",
+      "anthropic-version": "2023-06-01",
+      "x-api-key": "sk-test-123",
+    });
   });
 
   test("getHeaders returns empty for non-api credential", async () => {
@@ -62,7 +66,8 @@ describe("OpencodeZenProvider", () => {
     const headers = await OpencodeZenProvider.getHeaders(credential);
     expect(headers).toEqual({
       "Content-Type": "application/json",
-      Authorization: "Bearer token",
+      "anthropic-version": "2023-06-01",
+      "x-api-key": "token",
     });
   });
 
