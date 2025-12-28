@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { decodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { StopReason, StreamChunk, UsageInfo } from '../../types/unified'
 import { createLogger } from '../../util/logger'
 import type { GeminiFinishReason, GeminiUsageMetadata } from '../gemini/types'
@@ -206,7 +207,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
       }
     }
 
-    // Function call chunk
+    // Function call chunk - decode tool name
     if (part.functionCall) {
       const fc = part.functionCall as Record<string, unknown>
       return {
@@ -215,7 +216,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
           type: 'tool_call',
           toolCall: {
             id: (fc.id as string) || `${fc.name}-${randomUUID()}`,
-            name: fc.name as string,
+            name: decodeAntigravityToolName(fc.name as string),
             arguments: fc.args as Record<string, unknown>,
           },
         },

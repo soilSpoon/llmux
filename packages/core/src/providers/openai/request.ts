@@ -14,6 +14,7 @@ import type {
 import type {
   OpenAIAssistantMessage,
   OpenAIContentPart,
+  OpenAIFunctionParameters,
   OpenAIMessage,
   OpenAIRequest,
   OpenAITextContent,
@@ -441,10 +442,7 @@ function transformTool(tool: UnifiedTool): OpenAITool {
     function: {
       name: tool.name,
       description: tool.description,
-      parameters: parameters as unknown as {
-        type: 'object'
-        properties?: Record<string, unknown>
-      },
+      parameters: parameters as unknown as OpenAIFunctionParameters,
     },
   }
 }

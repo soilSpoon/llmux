@@ -74,7 +74,7 @@ export function parseStreamPart(part: LanguageModelV3StreamPart): StreamChunk | 
             id: part.id,
             name: '',
             // Store raw string for accumulation
-            arguments: part.delta as unknown as Record<string, unknown>,
+            arguments: part.delta,
           },
         },
       }
@@ -273,7 +273,12 @@ function parseUsage(usage: LanguageModelV3Usage): UsageInfo {
 function transformUsage(usage: UsageInfo | undefined): LanguageModelV3Usage {
   if (!usage) {
     return {
-      inputTokens: { total: 0, noCache: undefined, cacheRead: undefined, cacheWrite: undefined },
+      inputTokens: {
+        total: 0,
+        noCache: undefined,
+        cacheRead: undefined,
+        cacheWrite: undefined,
+      },
       outputTokens: { total: 0, text: undefined, reasoning: undefined },
     }
   }

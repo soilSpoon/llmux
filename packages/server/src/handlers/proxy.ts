@@ -428,7 +428,6 @@ interface OpencodeZenTool {
   description?: string
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function fixOpencodeZenBody(body: Record<string, unknown>) {
   if (!body || typeof body !== 'object') return
 

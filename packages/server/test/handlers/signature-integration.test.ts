@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach } from "bun:test";
 import "../setup";
 import {
   buildSignatureSessionKey,
@@ -6,7 +6,6 @@ import {
   ensureThinkingSignatures,
   extractConversationKey,
   shouldCacheSignatures,
-  signatureCache,
 } from "../../src/handlers/signature-integration";
 
 describe("signature-integration", () => {

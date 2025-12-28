@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type {
   ContentPart,
   JSONSchema,
@@ -422,7 +423,7 @@ function transformPart(part: ContentPart): GeminiPart {
     case 'tool_call':
       return {
         functionCall: {
-          name: part.toolCall?.name ?? '',
+          name: encodeAntigravityToolName(part.toolCall?.name ?? ''),
           args:
             typeof part.toolCall?.arguments === 'string'
               ? { value: part.toolCall?.arguments }
@@ -480,7 +481,7 @@ function transformPart(part: ContentPart): GeminiPart {
  */
 function transformTools(tools: UnifiedTool[]): GeminiTool[] {
   const functionDeclarations: GeminiFunctionDeclaration[] = tools.map((tool) => ({
-    name: tool.name,
+    name: encodeAntigravityToolName(tool.name),
     description: tool.description,
     parameters: transformToGeminiSchema(tool.parameters),
   }))
@@ -567,7 +568,11 @@ function transformToGeminiSchemaProperty(prop: JSONSchemaProperty): GeminiSchema
     result.items = transformToGeminiSchemaProperty(prop.items)
   }
 
-  if (prop.enum) {
+  // Handle const -> enum conversion (Antigravity doesn't support const)
+  const propAny = prop as Record<string, unknown>
+  if (propAny.const !== undefined) {
+    result.enum = [propAny.const as string]
+  } else if (prop.enum) {
     result.enum = prop.enum as string[]
   }
 

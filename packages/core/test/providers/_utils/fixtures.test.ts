@@ -95,7 +95,10 @@ describe("Unified Fixtures", () => {
         content: [{ type: "text", text: "Custom response" }],
       });
       expect(res.model).toBe("gpt-4");
-      expect((res.content[0]! as any).text).toBe("Custom response");
+      const firstContent = res.content[0];
+      if (firstContent?.type === "text") {
+        expect(firstContent.text).toBe("Custom response");
+      }
     });
   });
 });

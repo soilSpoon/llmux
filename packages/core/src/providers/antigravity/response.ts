@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
+import { decodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type {
   ContentPart,
   StopReason,
@@ -61,13 +62,13 @@ export function parseResponse(response: unknown): UnifiedResponse {
         signature: part.thoughtSignature,
       })
     } else if (part.functionCall) {
-      // Function call
+      // Function call - decode tool name
       hasToolCall = true
       contentParts.push({
         type: 'tool_call',
         toolCall: {
           id: part.functionCall.id || `${part.functionCall.name}-${randomUUID()}`,
-          name: part.functionCall.name,
+          name: decodeAntigravityToolName(part.functionCall.name),
           arguments: part.functionCall.args,
         },
       })

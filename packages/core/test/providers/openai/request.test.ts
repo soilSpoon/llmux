@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { parse, transform } from "../../../src/providers/openai/request";
-import type { OpenAIRequest } from "../../../src/providers/openai/types";
+import type {
+  OpenAIRequest,
+  OpenAIAssistantMessage,
+} from "../../../src/providers/openai/types";
 import {
   createUnifiedMessage,
   createUnifiedRequest,
@@ -134,8 +137,9 @@ describe("OpenAI Request Transform", () => {
       expect(result.messages).toHaveLength(2);
       const assistantMsg = result.messages[1];
       expect(assistantMsg!.role).toBe("assistant");
-      expect((assistantMsg as any).tool_calls).toHaveLength(1);
-      expect((assistantMsg as any).tool_calls[0]).toEqual({
+      const assistantMsgTyped = assistantMsg as OpenAIAssistantMessage;
+      expect(assistantMsgTyped.tool_calls).toHaveLength(1);
+      expect(assistantMsgTyped.tool_calls![0]).toEqual({
         id: "call_123",
         type: "function",
         function: {
@@ -268,8 +272,9 @@ describe("OpenAI Request Transform", () => {
 
       const assistantMsg = result.messages[0];
       expect(assistantMsg!.role).toBe("assistant");
-      expect((assistantMsg as any).content).toBe("Let me check the weather.");
-      expect((assistantMsg as any).tool_calls).toHaveLength(1);
+      const assistantMsgTyped = assistantMsg as OpenAIAssistantMessage;
+      expect(assistantMsgTyped.content).toBe("Let me check the weather.");
+      expect(assistantMsgTyped.tool_calls).toHaveLength(1);
     });
   });
 

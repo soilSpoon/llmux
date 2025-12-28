@@ -21,6 +21,11 @@ import type {
   ResponsesOutputItemAddedEvent,
 } from "../src/responses/types";
 
+// Helper to intentionally cast invalid data for resilience testing
+function castTo<T>(data: unknown): T {
+  return data as T;
+}
+
 describe("Responses API Streaming", () => {
   describe("parseSSELine", () => {
     it("should parse valid Chat Completions chunk", () => {
@@ -509,13 +514,15 @@ describe("Responses API Streaming", () => {
   describe("Error Handling", () => {
     it("should handle chunks with null choices gracefully", () => {
       const transformer = new ResponsesStreamTransformer("gpt-4o");
-      const chunk: ChatCompletionChunk = {
+      // Create a malformed chunk that simulates corrupted API response
+      // This tests defensive coding in the transformer
+      const chunk = castTo<ChatCompletionChunk>({
         id: "chatcmpl-1",
         object: "chat.completion.chunk",
         created: Math.floor(Date.now() / 1000),
         model: "gpt-4o",
-        choices: [null as any],
-      };
+        choices: [null],
+      });
 
       const events = transformer.transformChunk(chunk);
       expect(events).toHaveLength(0);

@@ -4,7 +4,12 @@ import {
   transformResponse,
 } from "../../../src/providers/anthropic/response";
 import type { UnifiedResponse } from "../../../src/types/unified";
-import type { AnthropicResponse } from "../../../src/providers/anthropic/types";
+import type {
+  AnthropicResponse,
+  AnthropicTextBlock,
+  AnthropicToolUseBlock,
+  AnthropicThinkingBlock,
+} from "../../../src/providers/anthropic/types";
 import { createUnifiedResponse } from "../_utils/fixtures";
 
 describe("Anthropic Response Transformations", () => {
@@ -259,7 +264,7 @@ describe("Anthropic Response Transformations", () => {
       expect(result.role).toBe("assistant");
       expect(result.content).toHaveLength(1);
       expect(result.content[0]!.type).toBe("text");
-      expect((result.content[0]! as any).text).toBe("Hello!");
+      expect((result.content[0] as AnthropicTextBlock).text).toBe("Hello!");
       expect(result.stop_reason).toBe("end_turn");
     });
 
@@ -311,9 +316,13 @@ describe("Anthropic Response Transformations", () => {
       expect(result.content).toHaveLength(2);
       expect(result.content[0]!.type).toBe("text");
       expect(result.content[1]!.type).toBe("tool_use");
-      expect((result.content[1]! as any).id).toBe("toolu_123");
-      expect((result.content[1]! as any).name).toBe("get_weather");
-      expect((result.content[1]! as any).input).toEqual({ location: "NYC" });
+      expect((result.content[1] as AnthropicToolUseBlock).id).toBe("toolu_123");
+      expect((result.content[1] as AnthropicToolUseBlock).name).toBe(
+        "get_weather"
+      );
+      expect((result.content[1] as AnthropicToolUseBlock).input).toEqual({
+        location: "NYC",
+      });
     });
 
     it("should transform thinking content parts", () => {
@@ -336,8 +345,12 @@ describe("Anthropic Response Transformations", () => {
 
       expect(result.content).toHaveLength(2);
       expect(result.content[0]!.type).toBe("thinking");
-      expect((result.content[0]! as any).thinking).toBe("Let me analyze...");
-      expect((result.content[0]! as any).signature).toBe("sig123");
+      expect((result.content[0] as AnthropicThinkingBlock).thinking).toBe(
+        "Let me analyze..."
+      );
+      expect((result.content[0] as AnthropicThinkingBlock).signature).toBe(
+        "sig123"
+      );
     });
 
     it("should handle stop_reason mappings", () => {
@@ -413,7 +426,7 @@ describe("Anthropic Response Transformations", () => {
 
       expect(roundTripped.id).toBe(anthropic.id);
       expect(roundTripped.content).toHaveLength(1);
-      expect((roundTripped.content[0]! as any).text).toBe(
+      expect((roundTripped.content[0] as AnthropicTextBlock).text).toBe(
         "Hello! How can I help?"
       );
       expect(roundTripped.stop_reason).toBe("end_turn");
@@ -443,8 +456,12 @@ describe("Anthropic Response Transformations", () => {
 
       expect(roundTripped.content).toHaveLength(1);
       expect(roundTripped.content[0]!.type).toBe("tool_use");
-      expect((roundTripped.content[0]! as any).id).toBe("toolu_123");
-      expect((roundTripped.content[0]! as any).name).toBe("test_tool");
+      expect((roundTripped.content[0] as AnthropicToolUseBlock).id).toBe(
+        "toolu_123"
+      );
+      expect((roundTripped.content[0] as AnthropicToolUseBlock).name).toBe(
+        "test_tool"
+      );
     });
   });
 });

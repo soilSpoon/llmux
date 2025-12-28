@@ -1,3 +1,7 @@
+export {
+  decodeAntigravityToolName,
+  encodeAntigravityToolName,
+} from './reversible-tool-name'
 export { sanitizeSchema } from './sanitize'
 export { sanitizeToolName } from './tool-name'
 export {

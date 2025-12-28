@@ -10,6 +10,11 @@ import {
 import "../setup";
 import { handleProxy, type ProxyOptions } from "../../src/handlers/proxy";
 
+// Helper to intentionally cast invalid data for resilience testing
+function castTo<T>(data: unknown): T {
+  return data as T;
+}
+
 describe("handleProxy", () => {
   const originalFetch = globalThis.fetch;
 
@@ -146,14 +151,14 @@ describe("handleProxy", () => {
 
   test("retries with backoff on 429 and eventually returns error", async () => {
     // Mock setTimeout to resolve immediately
-    const setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
-      cb: any
-    ) => {
-      if (typeof cb === "function") {
-        cb();
-      }
-      return 0 as any;
-    }) as any);
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(
+      castTo<typeof setTimeout>((cb: (...args: any[]) => void) => {
+        if (typeof cb === "function") {
+          cb();
+        }
+        return castTo<ReturnType<typeof setTimeout>>(0);
+      })
+    );
 
     let callCount = 0;
     globalThis.fetch = Object.assign(

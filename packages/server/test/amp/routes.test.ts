@@ -254,8 +254,12 @@ describe("FallbackHandler integration", () => {
           }
         }
         upstreamRequests.push({ path: url.pathname, body });
+        const bodyModel =
+          body && typeof body === "object" && "model" in body
+            ? (body as { model: string }).model
+            : undefined;
         return new Response(
-          JSON.stringify({ source: "upstream", model: (body as any)?.model }),
+          JSON.stringify({ source: "upstream", model: bodyModel }),
           {
             status: 200,
             headers: { "Content-Type": "application/json" },

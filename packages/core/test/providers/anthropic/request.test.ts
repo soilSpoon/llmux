@@ -1,7 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import { parse, transform } from "../../../src/providers/anthropic/request";
 import type { UnifiedRequest } from "../../../src/types/unified";
-import type { AnthropicRequest } from "../../../src/providers/anthropic/types";
+import type {
+  AnthropicRequest,
+  AnthropicImageBlock,
+  AnthropicToolUseBlock,
+  AnthropicToolResultBlock,
+  AnthropicThinkingBlock,
+} from "../../../src/providers/anthropic/types";
 import {
   createUnifiedRequest,
   createUnifiedMessage,
@@ -100,9 +106,15 @@ describe("Anthropic Request Transformations", () => {
       const content = result.messages[0]!.content as Array<{ type: string }>;
       expect(content[0]!.type).toBe("text");
       expect(content[1]!.type).toBe("image");
-      expect((content[1]! as any).source.type).toBe("base64");
-      expect((content[1]! as any).source.media_type).toBe("image/png");
-      expect((content[1]! as any).source.data).toBe("base64data");
+      expect((content[1] as AnthropicImageBlock).source.type).toBe("base64");
+      expect((content[1] as AnthropicImageBlock).source).toHaveProperty(
+        "media_type",
+        "image/png"
+      );
+      expect((content[1] as AnthropicImageBlock).source).toHaveProperty(
+        "data",
+        "base64data"
+      );
     });
 
     it("should transform image URL content parts", () => {
@@ -127,8 +139,9 @@ describe("Anthropic Request Transformations", () => {
 
       const content = result.messages[0]!.content as Array<{ type: string }>;
       expect(content[0]!.type).toBe("image");
-      expect((content[0]! as any).source.type).toBe("url");
-      expect((content[0]! as any).source.url).toBe(
+      expect((content[0] as AnthropicImageBlock).source.type).toBe("url");
+      expect((content[0] as AnthropicImageBlock).source).toHaveProperty(
+        "url",
         "https://example.com/image.jpg"
       );
     });
@@ -187,9 +200,11 @@ describe("Anthropic Request Transformations", () => {
       expect(content).toHaveLength(2);
       expect(content[0]!.type).toBe("text");
       expect(content[1]!.type).toBe("tool_use");
-      expect((content[1]! as any).id).toBe("toolu_123");
-      expect((content[1]! as any).name).toBe("get_weather");
-      expect((content[1]! as any).input).toEqual({ location: "NYC" });
+      expect((content[1] as AnthropicToolUseBlock).id).toBe("toolu_123");
+      expect((content[1] as AnthropicToolUseBlock).name).toBe("get_weather");
+      expect((content[1] as AnthropicToolUseBlock).input).toEqual({
+        location: "NYC",
+      });
     });
 
     it("should transform tool_result parts in user messages", () => {
@@ -214,8 +229,12 @@ describe("Anthropic Request Transformations", () => {
 
       const content = result.messages[0]!.content as Array<{ type: string }>;
       expect(content[0]!.type).toBe("tool_result");
-      expect((content[0]! as any).tool_use_id).toBe("toolu_123");
-      expect((content[0]! as any).content).toBe('{"temp": 72, "unit": "F"}');
+      expect((content[0] as AnthropicToolResultBlock).tool_use_id).toBe(
+        "toolu_123"
+      );
+      expect((content[0] as AnthropicToolResultBlock).content).toBe(
+        '{"temp": 72, "unit": "F"}'
+      );
     });
 
     it("should transform tool_result with is_error flag", () => {
@@ -240,7 +259,7 @@ describe("Anthropic Request Transformations", () => {
       const result = transform(unified) as AnthropicRequest;
 
       const content = result.messages[0]!.content as Array<{ type: string }>;
-      expect((content[0]! as any).is_error).toBe(true);
+      expect((content[0] as AnthropicToolResultBlock).is_error).toBe(true);
     });
 
     it("should transform generation config parameters", () => {
@@ -314,10 +333,10 @@ describe("Anthropic Request Transformations", () => {
 
       const content = result.messages[0]!.content as Array<{ type: string }>;
       expect(content[0]!.type).toBe("thinking");
-      expect((content[0]! as any).thinking).toBe(
+      expect((content[0] as AnthropicThinkingBlock).thinking).toBe(
         "Let me analyze this step by step..."
       );
-      expect((content[0]! as any).signature).toBe(
+      expect((content[0] as AnthropicThinkingBlock).signature).toBe(
         "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pk"
       );
     });

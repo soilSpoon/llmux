@@ -263,7 +263,7 @@ describe("handleStreamingProxy", () => {
 
     const response = await handleStreamingProxy(request, options);
     expect(response.status).toBe(404);
-    const body = (await response.json()) as any;
+    const body = (await response.json()) as { error: string };
     expect(body.error).toBe("Project not found");
   });
 });

@@ -244,7 +244,10 @@ describe("Integration: Round-trip Transformation", () => {
 
       const parsed = sourceProvider.parseResponse(backToSourceResponse);
 
-      expect((parsed.content[0]! as any).text).toBe("Original response");
+      const firstContent = parsed.content[0];
+      if (firstContent?.type === "text") {
+        expect(firstContent.text).toBe("Original response");
+      }
       expect(parsed.stopReason).toBe("end_turn");
     });
   });

@@ -4,6 +4,7 @@ import {
   transformResponse,
 } from "../../../src/providers/ai-sdk/response";
 import type { LanguageModelV3GenerateResult } from "@ai-sdk/provider";
+import type { StopReason } from "../../../src/types/unified";
 import { createUnifiedResponse } from "../_utils/fixtures";
 
 describe("AI SDK Response Transformations", () => {
@@ -163,7 +164,7 @@ describe("AI SDK Response Transformations", () => {
           },
           warnings: [],
         });
-        expect(result.stopReason).toBe(expected as any);
+        expect(result.stopReason).toBe(expected as StopReason);
       }
     });
 
@@ -265,24 +266,23 @@ describe("AI SDK Response Transformations", () => {
     });
 
     it("transforms various stop reasons", () => {
-      const testCases: Array<{ stopReason: string | null; expected: string }> =
-        [
-          { stopReason: "end_turn", expected: "stop" },
-          { stopReason: "max_tokens", expected: "length" },
-          { stopReason: "tool_use", expected: "tool-calls" },
-          { stopReason: "content_filter", expected: "content-filter" },
-          { stopReason: "stop_sequence", expected: "stop" },
-          { stopReason: "error", expected: "error" },
-          { stopReason: null, expected: "other" },
-        ];
+      const testCases = [
+        { stopReason: "end_turn", expected: "stop" },
+        { stopReason: "max_tokens", expected: "length" },
+        { stopReason: "tool_use", expected: "tool-calls" },
+        { stopReason: "content_filter", expected: "content-filter" },
+        { stopReason: "stop_sequence", expected: "stop" },
+        { stopReason: "error", expected: "error" },
+        { stopReason: null, expected: "other" },
+      ] as const;
 
       for (const { stopReason, expected } of testCases) {
         const unified = createUnifiedResponse({
           content: [{ type: "text", text: "test" }],
-          stopReason: stopReason as unknown as "end_turn",
+          stopReason: stopReason as StopReason,
         });
         const result = transformResponse(unified);
-        expect(result.finishReason.unified).toBe(expected as any);
+        expect(result.finishReason.unified).toBe(expected);
       }
     });
 

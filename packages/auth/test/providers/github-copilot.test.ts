@@ -14,10 +14,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isOAuthCredential } from "../../src/types";
 
-function mockFetch(implementation: any): typeof fetch {
+function mockFetch(
+  implementation: (
+    ...args: Parameters<typeof fetch>
+  ) => ReturnType<typeof fetch>
+): typeof fetch {
   return Object.assign(mock(implementation), {
     preconnect: () => {},
   }) as typeof fetch;
+}
+
+// Helper to intentionally cast invalid data for resilience testing
+function castTo<T>(data: unknown): T {
+  return data as T;
 }
 
 describe("GithubCopilotProvider", () => {
@@ -137,7 +146,7 @@ describe("GithubCopilotDeviceFlow", () => {
     );
     let capturedBody: string | undefined;
 
-    global.fetch = mockFetch(async (_url: string, init?: RequestInit) => {
+    global.fetch = mockFetch(async (_input: unknown, init?: RequestInit) => {
       capturedBody = init?.body as string;
       return new Response(
         JSON.stringify({
@@ -255,14 +264,14 @@ describe("pollForToken", () => {
 
   test("handles slow_down response type", async () => {
     // Mock setTimeout to resolve immediately
-    const setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
-      cb: any
-    ) => {
-      if (typeof cb === "function") {
-        cb();
-      }
-      return 0 as any;
-    }) as any);
+    const setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(
+      castTo<typeof setTimeout>((cb: (...args: any[]) => void) => {
+        if (typeof cb === "function") {
+          cb();
+        }
+        return castTo<ReturnType<typeof setTimeout>>(0);
+      })
+    );
 
     const { pollForToken } = await import("../../src/providers/github-copilot");
     let callCount = 0;
@@ -512,7 +521,7 @@ describe("GithubCopilotProvider.refresh", () => {
   test("sends correct request body for refresh", async () => {
     let capturedBody: string | undefined;
 
-    global.fetch = mockFetch(async (_url: string, init?: RequestInit) => {
+    global.fetch = mockFetch(async (_input: unknown, init?: RequestInit) => {
       capturedBody = init?.body as string;
       return new Response(
         JSON.stringify({
@@ -558,7 +567,8 @@ describe("deviceFlowMethod.authorize", () => {
 
   test("authorize method succeeds with valid flow", async () => {
     let callCount = 0;
-    global.fetch = mockFetch(async (url: string) => {
+    global.fetch = mockFetch(async (input: unknown) => {
+      const url = input?.toString() || "";
       callCount++;
       if (url.includes("/device/code")) {
         return new Response(

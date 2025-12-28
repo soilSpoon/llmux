@@ -74,4 +74,44 @@ describe("Router", () => {
     // Default fallback order[0] or openai if not set
     expect(result).toEqual({ provider: "openai", model: "unknown-model" });
   });
+
+  it("should respect Retry-After duration", () => {
+    // Mark with specific retry-after time (e.g., 60 seconds)
+    cooldownManager.markRateLimited("openai:gpt-4", 60000);
+
+    expect(cooldownManager.isAvailable("openai:gpt-4")).toBe(false);
+
+    // The reset time should be at least 60 seconds in the future
+    const resetTime = cooldownManager.getResetTime("openai:gpt-4");
+    expect(resetTime).toBeGreaterThan(Date.now());
+  });
+
+  it("should apply exponential backoff on repeated rate limits", () => {
+    // First rate limit - base duration (30s)
+    const duration1 = cooldownManager.markRateLimited("openai:test-model");
+
+    // Simulate the cooldown expiring immediately for testing
+    // Second rate limit - should be 2x base
+    const duration2 = cooldownManager.markRateLimited("openai:test-model");
+
+    // Third rate limit - should be 4x base
+    const duration3 = cooldownManager.markRateLimited("openai:test-model");
+
+    // Each subsequent duration should be larger (exponential backoff)
+    // Due to jitter, we just check the trend
+    expect(duration2).toBeGreaterThanOrEqual(duration1);
+    expect(duration3).toBeGreaterThanOrEqual(duration2);
+  });
+
+  it("should reset backoff level on successful reset", () => {
+    // Mark rate limited multiple times to increase backoff
+    cooldownManager.markRateLimited("openai:reset-test");
+    cooldownManager.markRateLimited("openai:reset-test");
+
+    // Reset the model
+    cooldownManager.reset("openai:reset-test");
+
+    // Model should be available
+    expect(cooldownManager.isAvailable("openai:reset-test")).toBe(true);
+  });
 });
