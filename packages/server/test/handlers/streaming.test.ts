@@ -266,4 +266,69 @@ describe("handleStreamingProxy", () => {
     const body = (await response.json()) as { error: string };
     expect(body.error).toBe("Project not found");
   });
+
+  test("patches stop_reason for tool_use blocks", async () => {
+    // This stream simulates:
+    // 1. Tool use start
+    // 2. Tool input delta
+    // 3. Stop event with stop_reason: end_turn (Gemini behavior)
+    // Expectation: The output should have stop_reason: tool_use
+    const chunks = [
+      'data: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"model":"claude-3","stop_reason":null}}\n\n',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tool_1","name":"test_tool","input":{}}}\n\n',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":10}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ];
+
+    const mockStream = new ReadableStream({
+      start(controller) {
+        for (const chunk of chunks) {
+          controller.enqueue(new TextEncoder().encode(chunk));
+        }
+        controller.close();
+      },
+    });
+
+    globalThis.fetch = Object.assign(
+      mock(async () => {
+        return new Response(mockStream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
+      }),
+      { preconnect: () => {} }
+    ) as typeof fetch;
+
+    const request = new Request("http://localhost/v1/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
+        stream: true,
+      }),
+    });
+
+    const options: ProxyOptions = {
+      sourceFormat: "anthropic", // Must be anthropic source to trigger patching
+      targetProvider: "anthropic",
+      apiKey: "test-key",
+    };
+
+    const response = await handleStreamingProxy(request, options);
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let fullText = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      fullText += decoder.decode(value, { stream: true });
+    }
+
+    // Verify the patch occurred
+    expect(fullText).toContain('"stop_reason":"tool_use"');
+    expect(fullText).not.toContain('"stop_reason":"end_turn"');
+  });
 });

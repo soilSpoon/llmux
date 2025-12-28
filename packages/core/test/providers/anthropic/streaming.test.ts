@@ -253,10 +253,16 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
       };
 
       const result = transformStreamChunk(chunk);
+      const output = Array.isArray(result) ? result.join("") : result;
 
-      expect(result).toContain("tool_use");
-      expect(result).toContain("toolu_123");
-      expect(result).toContain("get_weather");
+      // Should contain content_block_start with tool_use
+      expect(output).toContain("content_block_start");
+      expect(output).toContain("tool_use");
+      expect(output).toContain("toolu_123");
+      expect(output).toContain("get_weather");
+      // Empty object {} now also produces input_json_delta
+      expect(output).toContain("input_json_delta");
+      expect(output).toContain("{}");
     });
 
     it("should transform done chunk to message_stop SSE", () => {
@@ -312,20 +318,25 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
       expect(result).toContain("text_delta");
     });
     it("should transform incremental tool arguments to input_json_delta SSE", () => {
-      // 1. Start chunk (ID/Name only)
+      // 1. Start chunk (ID/Name and empty object)
       const startChunk: StreamChunk = {
         type: "tool_call",
         delta: {
           toolCall: {
             id: "toolu_123",
             name: "get_weather",
-            arguments: {}, // Empty initially
+            arguments: {}, // Empty object - will produce input_json_delta with {}
           },
         },
       };
       const startResult = transformStreamChunk(startChunk);
-      expect(startResult).toContain("content_block_start");
-      expect(startResult).toContain("tool_use");
+      const startOutput = Array.isArray(startResult)
+        ? startResult.join("")
+        : startResult;
+      expect(startOutput).toContain("content_block_start");
+      expect(startOutput).toContain("tool_use");
+      // Empty object {} now also produces input_json_delta
+      expect(startOutput).toContain("input_json_delta");
 
       // 2. Delta chunk (arguments string)
       const deltaChunk: StreamChunk = {

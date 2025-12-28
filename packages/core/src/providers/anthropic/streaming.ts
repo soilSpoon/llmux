@@ -305,17 +305,29 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
       // 2. Delta event (if arguments provided) - this accumulates the JSON
       // arguments is typed as Record | string
       const args = toolCall.arguments
-      if (args && typeof args === 'string' && args.length > 0) {
-        events.push(
-          formatSSE('content_block_delta', {
-            type: 'content_block_delta',
-            index: 0, // Placeholder
-            delta: {
-              type: 'input_json_delta',
-              partial_json: args,
-            },
-          })
-        )
+      if (args) {
+        let jsonString: string
+        if (typeof args === 'string') {
+          jsonString = args
+        } else if (typeof args === 'object') {
+          // Serialize object arguments to JSON string
+          jsonString = JSON.stringify(args)
+        } else {
+          jsonString = ''
+        }
+
+        if (jsonString.length > 0) {
+          events.push(
+            formatSSE('content_block_delta', {
+              type: 'content_block_delta',
+              index: 0, // Placeholder
+              delta: {
+                type: 'input_json_delta',
+                partial_json: jsonString,
+              },
+            })
+          )
+        }
       }
 
       if (events.length === 0) return ''

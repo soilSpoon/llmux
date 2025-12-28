@@ -394,8 +394,14 @@ describe("Streaming: SSE Chunk Transformation", () => {
       const transformed = provider.transformStreamChunk!(streamChunk);
 
       expect(transformed).toBeDefined();
-      expect(typeof transformed).toBe("string");
-      expect(transformed.length).toBeGreaterThan(0);
+      // Anthropic returns an array of SSE events for tool_call (content_block_start + input_json_delta)
+      if (Array.isArray(transformed)) {
+        expect(transformed.length).toBeGreaterThan(0);
+        transformed.forEach((t) => expect(typeof t).toBe("string"));
+      } else {
+        expect(typeof transformed).toBe("string");
+        expect(transformed.length).toBeGreaterThan(0);
+      }
     });
 
     it("should transform thinking chunk", () => {

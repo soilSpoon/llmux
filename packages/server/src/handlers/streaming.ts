@@ -10,6 +10,7 @@ import {
 import { createLogger, getProvider, type ProviderName, transformRequest } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
+import { normalizeBashArguments } from './bash-normalization'
 import { applyModelMapping } from './model-mapping'
 import {
   buildSignatureSessionKey,
@@ -100,6 +101,57 @@ function buildHeaders(
   return headers
 }
 
+/**
+ * Apply Bash argument normalization to a StreamChunk.
+ * This handles cases where Gemini returns `cmd` instead of `command` for Bash tool calls.
+ */
+function applyBashNormalizationToChunk(
+  chunk: import('@llmux/core').StreamChunk
+): import('@llmux/core').StreamChunk {
+  // Only process tool_call chunks
+  if (chunk.type !== 'tool_call' || !chunk.delta?.toolCall) {
+    return chunk
+  }
+
+  const toolCall = chunk.delta.toolCall
+  if (!toolCall.name || !toolCall.arguments || typeof toolCall.arguments !== 'object') {
+    return chunk
+  }
+
+  // Apply normalization to the arguments
+  const normalizedArgs = normalizeBashArguments(
+    toolCall.name,
+    toolCall.arguments as Record<string, unknown>
+  )
+
+  // If no change was made, return original chunk
+  if (normalizedArgs === toolCall.arguments) {
+    return chunk
+  }
+
+  // Log that normalization was applied
+  logger.debug(
+    {
+      toolName: toolCall.name,
+      originalArgs: toolCall.arguments,
+      normalizedArgs,
+    },
+    '[streaming] Bash argument normalization applied'
+  )
+
+  // Return new chunk with normalized arguments
+  return {
+    ...chunk,
+    delta: {
+      ...chunk.delta,
+      toolCall: {
+        ...toolCall,
+        arguments: normalizedArgs,
+      },
+    },
+  }
+}
+
 export function transformStreamChunk(
   chunk: string,
   fromProvider: ProviderName,
@@ -143,7 +195,12 @@ export function transformStreamChunk(
     }
 
     if (Array.isArray(unified)) {
-      return unified
+      // Apply Bash normalization for Antigravity provider
+      const normalized =
+        fromProvider === 'antigravity'
+          ? unified.map((c) => applyBashNormalizationToChunk(c))
+          : unified
+      return normalized
         .map((c) => targetProvider.transformStreamChunk?.(c))
         .filter((v): v is string => v !== undefined)
     }
@@ -152,7 +209,11 @@ export function transformStreamChunk(
       return chunk
     }
 
-    const result = targetProvider.transformStreamChunk(unified)
+    // Apply Bash normalization for Antigravity provider
+    const normalizedChunk =
+      fromProvider === 'antigravity' ? applyBashNormalizationToChunk(unified) : unified
+
+    const result = targetProvider.transformStreamChunk(normalizedChunk)
     return result
   } catch (error) {
     logger.error(
@@ -606,12 +667,25 @@ export async function handleStreamingProxy(
 
       if (sourceFormat === 'anthropic') {
         // 1. Handle message end events
+        // 1. Handle message end events
         if (chunkBlockType === 'stop') {
+          let finalChunk = chunk
           if (currentBlockType !== null) {
+            // If we are closing a tool_use block, we MUST ensure the stop_reason is "tool_use".
+            // Gemini (Antigravity) may send "STOP" -> "end_turn" even for tool calls.
+            if (currentBlockType === 'tool_use') {
+              logger.debug(
+                '[streaming] Patching stop_reason: end_turn -> tool_use for tool_use block'
+              )
+              finalChunk = finalChunk.replace(
+                /"stop_reason":"end_turn"/g,
+                '"stop_reason":"tool_use"'
+              )
+            }
             sendBlockStop(currentBlockIndex, controller)
             currentBlockType = null
           }
-          controller.enqueue(encoder.encode(chunk))
+          controller.enqueue(encoder.encode(finalChunk))
           return
         }
 
