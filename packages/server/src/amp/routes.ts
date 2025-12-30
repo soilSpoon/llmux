@@ -65,9 +65,10 @@ function createModelsDispatcher(modelsHandler?: RouteHandler): RouteHandler {
 }
 
 function createUpstreamRedirectHandler(upstreamUrl: string = 'https://ampcode.com'): RouteHandler {
-  return async (_request: Request, params?: RouteParams) => {
-    const threadPath = params?.path || ''
-    const upstreamAddress = new URL(threadPath, upstreamUrl).toString()
+  return async (request: Request) => {
+    const url = new URL(request.url)
+    const pathname = url.pathname
+    const upstreamAddress = new URL(pathname, upstreamUrl).toString()
 
     return new Response(null, {
       status: 307,
