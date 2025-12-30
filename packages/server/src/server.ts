@@ -641,6 +641,7 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
     const ampRoutes = createAmpRoutes({
       handlers: ampConfig.handlers,
       fallbackHandler,
+      upstreamUrl: ampConfig.upstreamUrl,
     })
     routes.push(...ampRoutes)
 
