@@ -32,5 +32,10 @@ export function detectFormat(body: unknown): RequestFormat {
     return 'openai'
   }
 
+  // OpenAI Responses API format (uses 'input' instead of 'messages')
+  if (b.model && 'input' in b) {
+    return 'openai'
+  }
+
   throw new Error('Unknown request format')
 }

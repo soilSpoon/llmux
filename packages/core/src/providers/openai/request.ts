@@ -37,10 +37,11 @@ export function parse(request: OpenAIRequest): UnifiedRequest {
   }
 
   let systemContent: string | undefined
+  const messages = request.messages || request.input || []
 
-  for (const msg of request.messages) {
-    if (msg.role === 'system') {
-      // Extract system message content
+  for (const msg of messages) {
+    if (msg.role === 'system' || msg.role === 'developer') {
+      // Extract system/developer message content
       systemContent = extractTextContent(msg.content)
     } else {
       result.messages.push(parseMessage(msg))
@@ -73,6 +74,21 @@ export function parse(request: OpenAIRequest): UnifiedRequest {
 }
 
 /**
+ * Check if the model is an O-series reasoning model (o1, o3, etc.)
+ * These models have different parameter requirements.
+ */
+function isReasoningModel(model: string): boolean {
+  const lowerModel = model.toLowerCase()
+  return (
+    lowerModel.startsWith('o1') ||
+    lowerModel.startsWith('o3') ||
+    lowerModel.includes('-o1') ||
+    lowerModel.includes('-o3') ||
+    lowerModel.includes('gpt-5') // Treat gpt-5.1 as reasoning model (provisional)
+  )
+}
+
+/**
  * Transform a UnifiedRequest into OpenAI request format.
  *
  * @param request - The UnifiedRequest to transform
@@ -85,16 +101,20 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
     messages: [],
   }
 
+  const isReasoning = isReasoningModel(model)
+
   // Add system message if present
   if (request.system) {
+    if (!result.messages) result.messages = []
     result.messages.push({
-      role: 'system',
+      role: isReasoning ? 'developer' : 'system',
       content: request.system,
     })
   }
 
   // Transform messages, extracting tool_result parts from user messages as separate tool messages
   for (const msg of request.messages) {
+    if (!result.messages) result.messages = []
     if (msg.role === 'user') {
       // Check for tool_result parts in user message and extract them as separate tool messages
       const toolResultParts = msg.parts.filter((p) => p.type === 'tool_result')
@@ -126,13 +146,21 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
   // Transform generation config
   if (request.config) {
     if (request.config.maxTokens !== undefined) {
-      result.max_tokens = request.config.maxTokens
+      if (isReasoning) {
+        // O-series models use max_completion_tokens instead of max_tokens
+        result.max_completion_tokens = request.config.maxTokens
+      } else {
+        result.max_tokens = request.config.maxTokens
+      }
     }
-    if (request.config.temperature !== undefined) {
-      result.temperature = request.config.temperature
-    }
-    if (request.config.topP !== undefined) {
-      result.top_p = request.config.topP
+    // O-series models don't support temperature and top_p
+    if (!isReasoning) {
+      if (request.config.temperature !== undefined) {
+        result.temperature = request.config.temperature
+      }
+      if (request.config.topP !== undefined) {
+        result.top_p = request.config.topP
+      }
     }
     if (request.config.stopSequences && request.config.stopSequences.length > 0) {
       result.stop = request.config.stopSequences
@@ -147,6 +175,16 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
   // Transform thinking config
   if (request.thinking?.enabled) {
     result.reasoning_effort = 'medium'
+  }
+
+  // Transform metadata fields
+  if (request.metadata) {
+    if (request.metadata.serviceTier !== undefined) {
+      result.service_tier = request.metadata.serviceTier as string
+    }
+    if (request.metadata.parallelToolCalls !== undefined) {
+      result.parallel_tool_calls = request.metadata.parallelToolCalls as boolean
+    }
   }
 
   return result
@@ -165,7 +203,8 @@ function parseMessage(msg: OpenAIMessage): UnifiedMessage {
     case 'tool':
       return parseToolMessage(msg)
     case 'system':
-      throw new Error('System messages should be handled separately')
+    case 'developer':
+      throw new Error('System/Developer messages should be handled separately')
     default: {
       const _exhaustiveCheck: never = msg
       throw new Error(`Unknown message role: ${(_exhaustiveCheck as OpenAIMessage).role}`)
@@ -235,6 +274,7 @@ function parseContent(content: string | OpenAIContentPart[]): ContentPart[] {
 function parseContentPart(part: OpenAIContentPart): ContentPart {
   switch (part.type) {
     case 'text':
+    case 'input_text':
       return { type: 'text', text: part.text }
     case 'image_url':
       return parseImageContent(part)
@@ -421,11 +461,33 @@ function transformImageContent(part: ContentPart): OpenAIContentPart {
 // =============================================================================
 
 function parseTool(tool: OpenAITool): UnifiedTool {
-  return {
-    name: tool.function.name,
-    description: tool.function.description,
-    parameters: (tool.function.parameters || { type: 'object' }) as JSONSchema,
+  // Handle standard OpenAI format
+  if (tool.function) {
+    return {
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: (tool.function.parameters || {
+        type: 'object',
+      }) as JSONSchema,
+    }
   }
+
+  // Handle flattened format (seen in Oracle/opencode-zen requests)
+  // type: "function", name: "...", description: "...", parameters: {...}
+  const flatTool = tool as unknown as {
+    name?: string
+    description?: string
+    parameters?: JSONSchema
+  }
+  if (tool.type === 'function' && flatTool.name) {
+    return {
+      name: flatTool.name,
+      description: flatTool.description,
+      parameters: (flatTool.parameters || { type: 'object' }) as JSONSchema,
+    }
+  }
+
+  throw new Error(`Tool must have a function definition. Received: ${JSON.stringify(tool)}`)
 }
 
 function transformTool(tool: UnifiedTool): OpenAITool {
@@ -457,6 +519,10 @@ function parseConfig(request: OpenAIRequest): NonNullable<UnifiedRequest['config
   if (request.max_tokens !== undefined) {
     config.maxTokens = request.max_tokens
   }
+  // O-series models use max_completion_tokens
+  if (request.max_completion_tokens !== undefined) {
+    config.maxTokens = request.max_completion_tokens
+  }
   if (request.temperature !== undefined) {
     config.temperature = request.temperature
   }
@@ -480,8 +546,8 @@ function extractTextContent(content: string | OpenAIContentPart[]): string {
   }
 
   return content
-    .filter((p) => p.type === 'text')
-    .map((p) => (p as { type: 'text'; text: string }).text)
+    .filter((p) => p.type === 'text' || p.type === 'input_text')
+    .map((p) => (p as { type: 'text' | 'input_text'; text: string }).text)
     .join('\n')
 }
 

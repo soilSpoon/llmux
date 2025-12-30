@@ -12,7 +12,8 @@
  */
 export interface OpenAIRequest {
   model: string
-  messages: OpenAIMessage[]
+  messages?: OpenAIMessage[]
+  input?: OpenAIMessage[]
 
   // Generation parameters
   max_tokens?: number
@@ -43,6 +44,7 @@ export interface OpenAIRequest {
 
   // Reasoning (o1/o3 models)
   reasoning_effort?: 'low' | 'medium' | 'high'
+  max_completion_tokens?: number
 }
 
 /**
@@ -50,6 +52,7 @@ export interface OpenAIRequest {
  */
 export type OpenAIMessage =
   | OpenAISystemMessage
+  | OpenAIDeveloperMessage
   | OpenAIUserMessage
   | OpenAIAssistantMessage
   | OpenAIToolMessage
@@ -59,6 +62,15 @@ export type OpenAIMessage =
  */
 export interface OpenAISystemMessage {
   role: 'system'
+  content: string | OpenAIContentPart[]
+  name?: string
+}
+
+/**
+ * Developer message (o1/reasoning models)
+ */
+export interface OpenAIDeveloperMessage {
+  role: 'developer'
   content: string | OpenAIContentPart[]
   name?: string
 }
@@ -94,10 +106,15 @@ export interface OpenAIToolMessage {
 /**
  * Content part types
  */
-export type OpenAIContentPart = OpenAITextContent | OpenAIImageContent
+export type OpenAIContentPart = OpenAITextContent | OpenAIInputTextContent | OpenAIImageContent
 
 export interface OpenAITextContent {
   type: 'text'
+  text: string
+}
+
+export interface OpenAIInputTextContent {
+  type: 'input_text'
   text: string
 }
 
@@ -278,7 +295,7 @@ export interface OpenAIDeltaToolCall {
 export function isOpenAIRequest(value: unknown): value is OpenAIRequest {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
-  return typeof obj.model === 'string' && Array.isArray(obj.messages)
+  return typeof obj.model === 'string' && (Array.isArray(obj.messages) || Array.isArray(obj.input))
 }
 
 /**
@@ -298,7 +315,7 @@ export function isOpenAIResponse(value: unknown): value is OpenAIResponse {
 export function isOpenAIMessage(value: unknown): value is OpenAIMessage {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
-  const validRoles = ['system', 'user', 'assistant', 'tool']
+  const validRoles = ['system', 'developer', 'user', 'assistant', 'tool']
   return typeof obj.role === 'string' && validRoles.includes(obj.role)
 }
 

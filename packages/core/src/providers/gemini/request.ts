@@ -257,17 +257,32 @@ function parseSchemaProperty(schema: GeminiSchema): JSONSchemaProperty {
 // =============================================================================
 
 function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
-  return messages.map(transformMessage)
+  // Build a map of toolCallId -> toolName from all messages in the request
+  const toolNameMap = new Map<string, string>()
+  for (const message of messages) {
+    if (message.parts) {
+      for (const part of message.parts) {
+        if (part.type === 'tool_call' && part.toolCall) {
+          toolNameMap.set(part.toolCall.id, part.toolCall.name)
+        }
+      }
+    }
+  }
+
+  return messages.map((message) => transformMessage(message, toolNameMap))
 }
 
-function transformMessage(message: UnifiedMessage): GeminiContent {
+function transformMessage(
+  message: UnifiedMessage,
+  toolNameMap?: Map<string, string>
+): GeminiContent {
   // Map role: user stays user, assistant becomes model, tool becomes user
   const role = message.role === 'assistant' ? 'model' : 'user'
-  const parts = message.parts.map(transformPart)
+  const parts = message.parts.map((p) => transformPart(p, toolNameMap))
   return { role, parts }
 }
 
-function transformPart(part: ContentPart): GeminiPart {
+function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): GeminiPart {
   switch (part.type) {
     case 'text':
       return { text: part.text ?? '' }
@@ -310,9 +325,12 @@ function transformPart(part: ContentPart): GeminiPart {
           response = { result: part.toolResult.content }
         }
 
+        // Resolve original tool name from the map using toolCallId
+        const toolName = toolNameMap?.get(part.toolResult.toolCallId) || part.toolResult.toolCallId
+
         return {
           functionResponse: {
-            name: part.toolResult.toolCallId,
+            name: toolName,
             response,
           },
         }

@@ -77,6 +77,7 @@ describe("OpenAIProvider", () => {
 
       expect(result.model).toBe("gpt-4");
       expect(result.messages).toHaveLength(2);
+      if (!result.messages || result.messages.length < 2) throw new Error('Expected messages');
       expect(result.messages[0]).toEqual({
         role: "system",
         content: "Be helpful",

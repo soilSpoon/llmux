@@ -4,6 +4,7 @@ import { getProvider } from '../providers/registry'
 export interface TransformOptions {
   from: ProviderName
   to: ProviderName
+  model?: string
 }
 
 /**
@@ -16,5 +17,5 @@ export function transformRequest(request: unknown, options: TransformOptions): u
   const targetProvider = getProvider(options.to)
 
   const unified = sourceProvider.parse(request)
-  return targetProvider.transform(unified)
+  return targetProvider.transform(unified, options.model)
 }

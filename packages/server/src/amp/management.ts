@@ -1,5 +1,8 @@
+import { createLogger } from '@llmux/core'
 import type { Route, RouteParams } from '../router'
 import type { UpstreamProxy } from '../upstream/proxy'
+
+const logger = createLogger({ service: 'management-routes' })
 
 export type RouteHandler = (request: Request, params?: RouteParams) => Promise<Response>
 
@@ -18,6 +21,7 @@ const MANAGEMENT_PATHS = [
   '/api/threads',
   '/api/otel',
   '/api/tab',
+  '/api/provider',
   '/threads',
   '/docs',
   '/settings',
@@ -32,7 +36,13 @@ function isLocalhostRequest(request: Request): boolean {
 
 function createProxyHandler(config: ManagementRoutesConfig): RouteHandler {
   return async (request: Request, _params?: RouteParams): Promise<Response> => {
+    const url = new URL(request.url)
+    // Logging handled by upstream proxy for detailed request/response
+    // Keeping a very low-level debug here just for route matching confirmation if needed
+    // logger.debug({ path: url.pathname }, "[management] Route matched");
+
     if (config.restrictToLocalhost && !isLocalhostRequest(request)) {
+      logger.warn({ hostname: url.hostname }, '[management] Access denied - not localhost')
       return new Response(
         JSON.stringify({
           error: 'Access denied: management routes restricted to localhost',
@@ -46,6 +56,7 @@ function createProxyHandler(config: ManagementRoutesConfig): RouteHandler {
 
     const proxy = config.getProxy()
     if (!proxy) {
+      logger.error({}, '[management] Amp upstream proxy not available')
       return new Response(JSON.stringify({ error: 'amp upstream proxy not available' }), {
         status: 503,
         headers: { 'Content-Type': 'application/json' },
@@ -58,7 +69,18 @@ function createProxyHandler(config: ManagementRoutesConfig): RouteHandler {
       body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
     })
 
-    return proxy.proxyRequest(newRequest)
+    // Proxying... (logger in proxy.ts handles details)
+
+    const response = await proxy.proxyRequest(newRequest)
+
+    if (!response.ok) {
+      logger.warn(
+        { status: response.status, url: request.url },
+        '[management] Proxy returned error response'
+      )
+    }
+
+    return response
   }
 }
 

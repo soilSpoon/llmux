@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import type { AmpModelMapping } from '../../config'
-import { applyModelMapping } from '../model-mapping'
+import { applyModelMapping, parseModelMapping, applyModelMappingV2 } from '../model-mapping'
 
 describe('applyModelMapping', () => {
   describe('단일 매핑', () => {
@@ -48,3 +48,85 @@ describe('applyModelMapping', () => {
     })
   })
 })
+
+// ============================================================================
+// Phase 1: Shorthand Syntax Support (TDD)
+// ============================================================================
+
+describe('parseModelMapping', () => {
+  it('should parse shorthand format "model:provider"', () => {
+    const result = parseModelMapping('gpt-5.1:openai')
+    expect(result).toEqual({ model: 'gpt-5.1', provider: 'openai' })
+  })
+
+  it('should handle model with provider containing hyphens', () => {
+    const result = parseModelMapping('claude-opus-4-5:antigravity')
+    expect(result).toEqual({ model: 'claude-opus-4-5', provider: 'antigravity' })
+  })
+
+  it('should handle model without provider (passthrough)', () => {
+    const result = parseModelMapping('gpt-5.1')
+    expect(result).toEqual({ model: 'gpt-5.1', provider: undefined })
+  })
+
+  it('should handle model with colons in name (split on last colon)', () => {
+    const result = parseModelMapping('model:with:colons:openai')
+    expect(result).toEqual({ model: 'model:with:colons', provider: 'openai' })
+  })
+
+  it('should return undefined provider for empty string after colon', () => {
+    const result = parseModelMapping('model:')
+    expect(result).toEqual({ model: 'model', provider: undefined })
+  })
+})
+
+describe('applyModelMappingV2', () => {
+  const mappings: AmpModelMapping[] = [
+    { from: 'claude-opus-4-5-20251101', to: 'claude-opus-4-5-thinking:antigravity' },
+    { from: 'gpt-5.1', to: 'gpt-5.1:openai' },
+    { from: 'gemini-pro', to: 'gemini-pro:gemini' },
+    { from: 'legacy-model', to: 'new-model' },
+    { from: 'multi-target', to: ['first-model:openai', 'second:anthropic'] },
+  ]
+
+  it('should parse shorthand mapping and return model + provider', () => {
+    const result = applyModelMappingV2('gpt-5.1', mappings)
+    expect(result).toEqual({ model: 'gpt-5.1', provider: 'openai' })
+  })
+
+  it('should parse antigravity mapping', () => {
+    const result = applyModelMappingV2('claude-opus-4-5-20251101', mappings)
+    expect(result).toEqual({ model: 'claude-opus-4-5-thinking', provider: 'antigravity' })
+  })
+
+  it('should parse gemini mapping', () => {
+    const result = applyModelMappingV2('gemini-pro', mappings)
+    expect(result).toEqual({ model: 'gemini-pro', provider: 'gemini' })
+  })
+
+  it('should handle legacy format without provider', () => {
+    const result = applyModelMappingV2('legacy-model', mappings)
+    expect(result).toEqual({ model: 'new-model', provider: undefined })
+  })
+
+  it('should use first element when mapping target is array', () => {
+    const result = applyModelMappingV2('multi-target', mappings)
+    expect(result).toEqual({ model: 'first-model', provider: 'openai' })
+  })
+
+  it('should return original model when no mapping found', () => {
+    const result = applyModelMappingV2('unknown-model', mappings)
+    expect(result).toEqual({ model: 'unknown-model', provider: undefined })
+  })
+
+  it('should return original model when mappings is undefined', () => {
+    const result = applyModelMappingV2('any-model', undefined)
+    expect(result).toEqual({ model: 'any-model', provider: undefined })
+  })
+
+  it('should return original model when mappings is empty', () => {
+    const result = applyModelMappingV2('any-model', [])
+    expect(result).toEqual({ model: 'any-model', provider: undefined })
+  })
+})
+

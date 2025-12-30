@@ -22,7 +22,8 @@ const pinoLogger: Logger = pino({
     options: {
       colorize: true,
       translateTime: 'SYS:standard',
-      ignore: 'pid,hostname',
+      ignore: 'pid,hostname,service,module,requestId',
+      singleLine: true,
     },
   },
 })

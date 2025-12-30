@@ -3,7 +3,13 @@ import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../types/unif
 /**
  * Supported provider names
  */
-export type ProviderName = 'openai' | 'anthropic' | 'gemini' | 'antigravity' | 'opencode-zen'
+export type ProviderName =
+  | 'openai'
+  | 'anthropic'
+  | 'gemini'
+  | 'antigravity'
+  | 'opencode-zen'
+  | 'openai-web'
 
 const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'openai',
@@ -11,6 +17,7 @@ const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'gemini',
   'antigravity',
   'opencode-zen',
+  'openai-web',
 ] as const
 
 export function isValidProviderName(value: unknown): value is ProviderName {
@@ -49,7 +56,10 @@ export interface Provider {
   /**
    * Transform UnifiedRequest into provider-specific request format
    */
-  transform(request: UnifiedRequest): unknown
+  /**
+   * Transform UnifiedRequest into provider-specific request format
+   */
+  transform(request: UnifiedRequest, model?: string): unknown
 
   /**
    * Parse provider-specific response format into UnifiedResponse
@@ -80,7 +90,7 @@ export abstract class BaseProvider implements Provider {
   abstract readonly config: ProviderConfig
 
   abstract parse(request: unknown): UnifiedRequest
-  abstract transform(request: UnifiedRequest): unknown
+  abstract transform(request: UnifiedRequest, model?: string): unknown
   abstract parseResponse(response: unknown): UnifiedResponse
   abstract transformResponse(response: UnifiedResponse): unknown
 

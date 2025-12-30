@@ -28,5 +28,6 @@ export type {
   OpenAIResponse,
   OpenAITool,
 } from './openai/types'
+export { OpenAIWebProvider } from './openai-web'
 export { OpencodeZenProvider } from './opencode-zen'
 export * from './registry'

@@ -1,4 +1,12 @@
-import { AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
+import {
+  ANTIGRAVITY_API_PATH_GENERATE,
+  ANTIGRAVITY_API_PATH_STREAM,
+  ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  ANTIGRAVITY_ENDPOINT_FALLBACKS,
+  ANTIGRAVITY_HEADERS,
+  AuthProviderRegistry,
+  TokenRefresh,
+} from '@llmux/auth'
 import {
   createLogger,
   isValidProviderName,
@@ -8,7 +16,9 @@ import {
 } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
-import { applyModelMapping } from './model-mapping'
+import { accountRotationManager } from './account-rotation'
+import { applyModelMappingV2 } from './model-mapping'
+import { parseRetryAfterMs } from './streaming'
 
 const logger = createLogger({ service: 'proxy-handler' })
 
@@ -60,6 +70,10 @@ function buildHeaders(
     case 'gemini':
       headers['x-goog-api-key'] = apiKey
       break
+    case 'antigravity':
+      headers.Authorization = `Bearer ${apiKey}`
+      Object.assign(headers, ANTIGRAVITY_HEADERS)
+      break
     case 'opencode-zen':
       if (fromProtocol === 'openai') {
         headers.Authorization = `Bearer ${apiKey}`
@@ -82,7 +96,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     })
   }
 
-  const targetProvider: ProviderName = targetProviderInput
+  let targetProvider: ProviderName = targetProviderInput
 
   try {
     const body = (await request.json()) as { model?: string; stream?: boolean }
@@ -117,12 +131,27 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     let mappedModel: string | undefined = originalModel
 
     if (originalModel) {
-      const appliedMapping = applyModelMapping(originalModel, options.modelMappings)
+      const mappingResult = applyModelMappingV2(originalModel, options.modelMappings)
+      const appliedMapping = mappingResult.model
+
+      if (mappingResult.provider) {
+        if (isValidProviderName(mappingResult.provider)) {
+          targetProvider = mappingResult.provider
+          // Also update effectiveTargetProvider if we switched provider?
+          // The code below recalculates things inside the retry loop based on `currentProvider`.
+          // `currentProvider` is initialized to `targetProvider`.
+          // So updating `targetProvider` here is correct for the loop.
+        } else {
+          logger.warn({ provider: mappingResult.provider }, 'Invalid provider in model mapping')
+        }
+      }
+
       if (appliedMapping !== originalModel) {
         logger.info(
           {
             originalModel,
             mappedModel: appliedMapping,
+            targetProvider, // Log the (possibly updated) provider
             mappings:
               options.modelMappings?.map(
                 (m) => `${m.from}->${Array.isArray(m.to) ? m.to.join(',') : m.to}`
@@ -152,6 +181,10 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       mappedModel = options.targetModel
     }
 
+    // Log tools information from original request
+    const originalTools = (body as { tools?: unknown[] }).tools
+    const originalToolsCount = Array.isArray(originalTools) ? originalTools.length : 0
+
     logger.info(
       {
         sourceFormat: options.sourceFormat,
@@ -159,20 +192,53 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         originalModel,
         finalModel: mappedModel,
         stream: body.stream ?? false,
+        toolsCount: originalToolsCount,
       },
       'Proxy request'
     )
 
+    if (Array.isArray(originalTools) && originalTools.length > 0) {
+      const toolNames = originalTools.map((t: unknown) => {
+        if (typeof t === 'object' && t !== null) {
+          if ('name' in t) return (t as { name: string }).name
+          if ('function' in t && typeof (t as { function: unknown }).function === 'object') {
+            const fn = (t as { function: Record<string, unknown> }).function
+            if ('name' in fn) return fn.name as string
+          }
+        }
+        return 'unknown'
+      })
+      logger.debug(
+        {
+          toolNames,
+          toolsCount: originalToolsCount,
+        },
+        '[Proxy] Original tools in request'
+      )
+    }
+
     // Retry loop for rotation
-    const maxAttempts = 5
+    const MAX_ATTEMPTS = 10
     let attempt = 0
     let lastResponse: Response | undefined
     let currentProvider = targetProvider
     let currentModel = mappedModel
     let effectiveCredentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
+    let accountIndex = 0
+    let overrideProjectId: string | null = null // For Project ID Fallback
 
-    while (attempt < maxAttempts) {
+    while (attempt < MAX_ATTEMPTS) {
       attempt++
+
+      logger.debug(
+        {
+          attempt,
+          maxAttempts: MAX_ATTEMPTS,
+          provider: currentProvider,
+          model: currentModel,
+        },
+        '[proxy] Starting attempt'
+      )
 
       // Re-evaluate AuthProvider based on currentProvider (which might have changed due to fallback)
       const currentAuthProvider = AuthProviderRegistry.get(currentProvider)
@@ -200,10 +266,42 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       const transformedRequest = transformRequest(body, {
         from: formatToProvider(options.sourceFormat),
         to: currentEffectiveProvider,
-      }) as { model?: string }
+      }) as { model?: string; tools?: unknown[] }
 
       if (currentModel) {
         transformedRequest.model = currentModel
+      }
+
+      // Apply Project ID override if set (for License Error Fallback)
+      if (overrideProjectId && currentProvider === 'antigravity') {
+        ;(transformedRequest as Record<string, unknown>).project = overrideProjectId
+        logger.debug({ overrideProjectId }, '[proxy] Applied Project ID override')
+      }
+
+      // Log transformed request tools inside retry loop
+      const transformedTools = transformedRequest.tools
+      const transformedToolsCount = Array.isArray(transformedTools) ? transformedTools.length : 0
+
+      if (transformedToolsCount > 0 && Array.isArray(transformedTools)) {
+        const transformedToolNames = transformedTools.map((t: unknown) => {
+          if (typeof t === 'object' && t !== null) {
+            if ('name' in t) return (t as { name: string }).name
+            if ('function' in t && typeof (t as { function: unknown }).function === 'object') {
+              const fn = (t as { function: Record<string, unknown> }).function
+              if ('name' in fn) return fn.name as string
+            }
+          }
+          return 'unknown'
+        })
+        logger.debug(
+          {
+            toolNames: transformedToolNames,
+            toolsCount: transformedToolsCount,
+            sourceFormat: options.sourceFormat,
+            targetFormat: currentEffectiveProvider,
+          },
+          '[Proxy] Transformed tools in request'
+        )
       }
 
       let endpoint = ''
@@ -223,7 +321,11 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           )
         }
 
-        const credential = effectiveCredentials[0]
+        accountIndex = accountRotationManager.getNextAvailable(
+          currentProvider,
+          effectiveCredentials || []
+        )
+        const credential = effectiveCredentials?.[accountIndex]
         if (!credential) {
           return new Response(
             JSON.stringify({
@@ -232,7 +334,9 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
             { status: 401, headers: { 'Content-Type': 'application/json' } }
           )
         }
-        headers = await currentAuthProvider.getHeaders(credential)
+        headers = await currentAuthProvider.getHeaders(credential, {
+          model: currentModel || 'gemini-pro',
+        })
       } else {
         let url = PROVIDER_ENDPOINTS[currentProvider]
 
@@ -249,6 +353,25 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         }
         endpoint = url
         headers = buildHeaders(currentProvider, options.apiKey, effectiveTargetProvider)
+      }
+
+      // Antigravity Endpoint Fallback Logic
+      if (currentProvider === 'antigravity') {
+        const fallbackIndex = (attempt - 1) % ANTIGRAVITY_ENDPOINT_FALLBACKS.length
+        const baseEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[fallbackIndex]
+        const apiPath = body.stream ? ANTIGRAVITY_API_PATH_STREAM : ANTIGRAVITY_API_PATH_GENERATE
+        endpoint = `${baseEndpoint}${apiPath}`
+
+        logger.debug(
+          {
+            attempt,
+            endpoint,
+            fallbackIndex,
+            baseEndpoint,
+            isStreaming: !!body.stream,
+          },
+          '[proxy] Using Antigravity fallback endpoint'
+        )
       }
 
       // Forward anthropic-beta header handling ...
@@ -281,6 +404,34 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         fixOpencodeZenBody(transformedRequest)
       }
 
+      // DEBUG: Log request details before sending
+      const bodyToLog = JSON.stringify(transformedRequest)
+      logger.debug(
+        {
+          attempt,
+          endpoint,
+          requestHeaders: Object.keys(headers).reduce(
+            (acc, key) => {
+              const lowerKey = key.toLowerCase()
+              if (
+                lowerKey.includes('auth') ||
+                lowerKey.includes('key') ||
+                lowerKey.includes('token')
+              ) {
+                acc[key] = '[REDACTED]'
+              } else {
+                acc[key] = headers[key] ?? ''
+              }
+              return acc
+            },
+            {} as Record<string, string>
+          ),
+          bodyPreview: bodyToLog.slice(0, 500),
+          bodyLength: bodyToLog.length,
+        },
+        '[proxy] Sending upstream request'
+      )
+
       let upstreamResponse: Response
       try {
         upstreamResponse = await fetch(endpoint, {
@@ -291,9 +442,16 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Network error'
 
-        // Network error usually worth a generic retry or could use router to fallback if strict
-        if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 1000))
+        logger.warn(
+          { error: message, attempt, maxAttempts: MAX_ATTEMPTS },
+          '[proxy] Upstream fetch failed'
+        )
+
+        // Network error: use exponential backoff
+        if (attempt < MAX_ATTEMPTS) {
+          const delay = Math.min(1000 * 2 ** (attempt - 1), 8000)
+          logger.debug({ attempt, delayMs: delay }, '[proxy] Retrying after network error')
+          await new Promise((r) => setTimeout(r, delay))
           continue
         }
 
@@ -303,67 +461,114 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         })
       }
 
+      // DEBUG: Log response headers
+      logger.debug(
+        {
+          attempt,
+          status: upstreamResponse.status,
+          responseHeaders: Object.fromEntries(upstreamResponse.headers.entries()),
+        },
+        '[proxy] Received upstream response'
+      )
+
       lastResponse = upstreamResponse
 
       if (upstreamResponse.status === 429) {
-        const retryAfterHeader =
-          upstreamResponse.headers.get('Retry-After') ||
-          upstreamResponse.headers.get('rating-limit-reset')
-        let retryAfterMs = 0
+        let bodyText = ''
+        try {
+          bodyText = await upstreamResponse.clone().text()
+        } catch {}
 
-        if (retryAfterHeader) {
-          const retryAfterSeconds = parseInt(retryAfterHeader, 10)
-          if (!Number.isNaN(retryAfterSeconds)) {
-            retryAfterMs = retryAfterSeconds * 1000
-          } else {
-            // Try parsing as http-date if not integer? (Simple parse for now)
-          }
-        }
+        const retryAfterMs = parseRetryAfterMs(upstreamResponse, bodyText)
+
+        accountRotationManager.markRateLimited(currentProvider, accountIndex, retryAfterMs)
+
+        logger.warn(
+          {
+            attempt,
+            retryAfterMs,
+            provider: currentProvider,
+            model: currentModel,
+            accountIndex,
+          },
+          '[proxy] Rate limited (429)'
+        )
 
         // Use Router to handle rate limit and find fallback
         if (options.router && currentModel) {
           options.router.handleRateLimit(currentModel, retryAfterMs || undefined)
 
-          // Try to resolve a new model (which might be a fallback)
-          options.router.resolveModel(currentModel) // Determine availability state updates
-          // Better to pass originalModel to find fallback chain, but if we are already in fallback...
-          // Router.resolveModel logic starts from config.modelMapping of requested string.
-          // If we are deep in fallback, we need to know the *next* fallback.
-          // Our current Router implementation iterates through fallback list of the *mapped* model.
-          // But resolveModel(requestedModel) will return the first *available* one.
-          // So if we pass the *original* requested model (from options.targetModel or body), it should work.
+          // Only trigger model fallback if ALL accounts are rate limited
+          if (
+            accountRotationManager.areAllRateLimited(currentProvider, effectiveCredentials || [])
+          ) {
+            const routeQueryModel = originalModel || currentModel
+            if (routeQueryModel) {
+              const nextRoute = options.router.resolveModel(routeQueryModel)
 
-          const routeQueryModel = originalModel || currentModel
-          if (routeQueryModel) {
-            const nextRoute = options.router.resolveModel(routeQueryModel)
-
-            // If we found a different provider/model that is available, switch to it
-            if (nextRoute.provider !== currentProvider || nextRoute.model !== currentModel) {
-              logger.info(
-                {
-                  from: `${currentProvider}:${currentModel}`,
-                  to: `${nextRoute.provider}:${nextRoute.model}`,
-                  reason: '429 Fallback',
-                },
-                'Switching to fallback model'
-              )
-              currentProvider = nextRoute.provider
-              currentModel = nextRoute.model
-              // Reset attempt counter or just continue?
-              // Continue loop uses attempt limit, maybe we should respect total attempts
-              continue
+              // If we found a different provider/model that is available, switch to it
+              if (nextRoute.provider !== currentProvider || nextRoute.model !== currentModel) {
+                logger.info(
+                  {
+                    from: `${currentProvider}:${currentModel}`,
+                    to: `${nextRoute.provider}:${nextRoute.model}`,
+                    reason: '429 Fallback (All Accounts Limited)',
+                  },
+                  '[proxy] Switching to fallback model'
+                )
+                currentProvider = nextRoute.provider
+                currentModel = nextRoute.model
+                continue
+              }
             }
           }
         }
 
-        // Standard backoff if no router or no fallback found
-        const delay = Math.min(1000 * 2 ** (attempt - 1), 16000)
+        // Wait based on retryAfterMs (max 5 seconds as requested)
+        const delay = Math.min(retryAfterMs, 5000)
+
+        logger.debug({ attempt, delayMs: delay }, '[proxy] Waiting before retry')
         await new Promise((r) => setTimeout(r, delay))
 
-        if (currentAuthProvider && !options.apiKey && currentAuthProvider.rotate) {
-          currentAuthProvider.rotate()
-        }
         continue
+      }
+
+      // Antigravity Project ID Fallback for License Error (#3501)
+      if (
+        currentProvider === 'antigravity' &&
+        !upstreamResponse.ok &&
+        (upstreamResponse.status === 403 || upstreamResponse.status === 400) &&
+        attempt < MAX_ATTEMPTS
+      ) {
+        let errorBody = ''
+        try {
+          errorBody = await upstreamResponse.clone().text()
+        } catch {
+          errorBody = ''
+        }
+
+        if (
+          errorBody.includes('#3501') ||
+          (errorBody.includes('PERMISSION_DENIED') && errorBody.includes('license'))
+        ) {
+          const currentProject = (transformedRequest as Record<string, unknown>).project
+          if (currentProject !== ANTIGRAVITY_DEFAULT_PROJECT_ID) {
+            logger.warn(
+              {
+                attempt,
+                currentProject,
+                defaultProject: ANTIGRAVITY_DEFAULT_PROJECT_ID,
+              },
+              '[proxy] License error detected. Switching to default project ID and retrying.'
+            )
+            // Set override flag instead of modifying transformedRequest directly
+            overrideProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
+
+            // Wait briefly before retry
+            await new Promise((r) => setTimeout(r, 1000))
+            continue
+          }
+        }
       }
 
       break
@@ -401,10 +606,99 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
     const upstreamBody = await lastResponse.json()
 
+    // Log tool_calls in response
+    const upstreamToolCalls = (
+      upstreamBody as {
+        tool_calls?: unknown[]
+        content?: unknown[]
+      }
+    ).tool_calls
+    const upstreamContent = (upstreamBody as { content?: unknown[] }).content
+
+    let toolCallNames: string[] = []
+    if (Array.isArray(upstreamToolCalls) && upstreamToolCalls.length > 0) {
+      toolCallNames = upstreamToolCalls.map((tc: unknown) => {
+        if (typeof tc === 'object' && tc !== null && 'function' in tc) {
+          const fn = (tc as { function: { name: string } }).function
+          return fn.name
+        }
+        return 'unknown'
+      })
+      logger.debug(
+        {
+          toolCallNames,
+          count: toolCallNames.length,
+        },
+        '[Proxy] Tool calls in upstream response'
+      )
+    } else if (Array.isArray(upstreamContent)) {
+      // Anthropic format: tool_use blocks in content
+      const toolUses = upstreamContent.filter(
+        (c: unknown) =>
+          typeof c === 'object' &&
+          c !== null &&
+          'type' in c &&
+          (c as { type: string }).type === 'tool_use'
+      )
+      if (toolUses.length > 0) {
+        toolCallNames = toolUses.map((c: unknown) => (c as { name: string }).name || 'unknown')
+        logger.debug(
+          {
+            toolCallNames,
+            count: toolCallNames.length,
+          },
+          '[Proxy] Tool use blocks in upstream content'
+        )
+      }
+    }
+
     const transformedResponse = transformResponse(upstreamBody, {
       from: targetProvider,
       to: formatToProvider(options.sourceFormat),
     })
+
+    // Log transformed tool_calls
+    const transformedToolCalls = (
+      transformedResponse as {
+        tool_calls?: unknown[]
+        content?: unknown[]
+      }
+    ).tool_calls
+    const transformedContent = (transformedResponse as { content?: unknown[] }).content
+
+    let transformedToolNames: string[] = []
+    if (Array.isArray(transformedToolCalls) && transformedToolCalls.length > 0) {
+      transformedToolNames = transformedToolCalls.map((tc: unknown) => {
+        if (typeof tc === 'object' && tc !== null && 'function' in tc) {
+          const fn = (tc as { function: { name: string } }).function
+          return fn.name
+        }
+        return 'unknown'
+      })
+    } else if (Array.isArray(transformedContent)) {
+      const toolUses = transformedContent.filter(
+        (c: unknown) =>
+          typeof c === 'object' &&
+          c !== null &&
+          'type' in c &&
+          (c as { type: string }).type === 'tool_use'
+      )
+      if (toolUses.length > 0) {
+        transformedToolNames = toolUses.map(
+          (c: unknown) => (c as { name: string }).name || 'unknown'
+        )
+      }
+    }
+
+    if (transformedToolNames.length > 0) {
+      logger.info(
+        {
+          toolCallNames: transformedToolNames,
+          count: transformedToolNames.length,
+        },
+        '[Proxy] Tool calls in transformed response'
+      )
+    }
 
     return new Response(JSON.stringify(transformedResponse), {
       status: 200,

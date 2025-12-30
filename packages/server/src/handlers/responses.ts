@@ -1,6 +1,7 @@
 import { ANTIGRAVITY_API_PATH_STREAM, AuthProviderRegistry, TokenRefresh } from '@llmux/auth'
 import {
   type ChatCompletionsResponse,
+  createLogger,
   type ProviderName,
   parseSSELine,
   type ResponsesRequest,
@@ -13,8 +14,17 @@ import {
 } from '@llmux/core'
 import type { CredentialProvider } from '../auth'
 import type { AmpModelMapping } from '../config'
+import { getCodexInstructions } from './codex'
 import { applyModelMapping } from './model-mapping'
+import {
+  isOpenAIModel,
+  isRateLimited,
+  type OpenAIProviderType,
+  resolveOpenAIProvider,
+} from './openai-fallback'
 import { transformStreamChunk } from './streaming'
+
+const logger = createLogger({ service: 'responses-handler' })
 
 export interface ResponsesOptions {
   targetProvider?: string
@@ -28,6 +38,7 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
+  'openai-web': 'https://chatgpt.com/backend-api/codex/responses',
 }
 
 function buildHeaders(targetProvider: string, apiKey?: string): Record<string, string> {
@@ -43,6 +54,7 @@ function buildHeaders(targetProvider: string, apiKey?: string): Record<string, s
       headers['anthropic-version'] = '2023-06-01'
       break
     case 'openai':
+    case 'openai-web':
       headers.Authorization = `Bearer ${apiKey}`
       break
     case 'gemini':
@@ -113,20 +125,37 @@ export async function handleResponses(
   request: Request,
   options: ResponsesOptions
 ): Promise<Response> {
-  console.error('[handleResponses] CALLED')
+  logger.debug('[handleResponses] CALLED')
 
   try {
     const body = (await request.json()) as ResponsesRequest
-    console.error('[handleResponses] body received:', JSON.stringify(body).slice(0, 100))
+    logger.debug({ body: JSON.stringify(body).slice(0, 100) }, '[handleResponses] body received')
     const isStreaming = body.stream === true
-    console.error('[handleResponses] isStreaming:', isStreaming)
+    logger.debug({ isStreaming }, '[handleResponses] streaming mode')
 
-    // Determine target provider: explicit > model lookup > default
+    // Determine target provider with OpenAI fallback support
     let resolvedTargetProvider = options.targetProvider ?? 'openai'
+    let fallbackProvider: OpenAIProviderType | null = null
+
     if (body.model && !options.targetProvider) {
-      const detected = await detectProviderFromModel(body.model, options.credentialProvider)
-      resolvedTargetProvider = detected
-      console.error('[handleResponses] Detected provider from model:', resolvedTargetProvider)
+      // For OpenAI-compatible models, use the smart fallback resolver
+      if (isOpenAIModel(body.model)) {
+        const resolved = await resolveOpenAIProvider()
+        resolvedTargetProvider = resolved.primary
+        fallbackProvider = resolved.fallback
+        logger.info(
+          { model: body.model, primary: resolvedTargetProvider, fallback: fallbackProvider },
+          '[handleResponses] OpenAI provider resolved with fallback'
+        )
+      } else {
+        // For non-OpenAI models, use the existing detection logic
+        const detected = await detectProviderFromModel(body.model, options.credentialProvider)
+        resolvedTargetProvider = detected
+        logger.debug(
+          { provider: resolvedTargetProvider },
+          '[handleResponses] Detected provider from model'
+        )
+      }
     }
 
     const chatRequest = transformResponsesRequest(body)
@@ -140,8 +169,10 @@ export async function handleResponses(
       chatRequest.model = options.targetModel
     }
 
-    const authProvider = AuthProviderRegistry.get(resolvedTargetProvider)
-    console.error('[handleResponses] authProvider found:', !!authProvider)
+    // Use the resolved provider directly (openai-web is a first-class provider)
+    const authProviderId = resolvedTargetProvider
+    const authProvider = AuthProviderRegistry.get(authProviderId)
+    console.error('[handleResponses] authProvider found:', !!authProvider, 'for', authProviderId)
 
     let endpoint: string
     let headers: Record<string, string>
@@ -161,7 +192,9 @@ export async function handleResponses(
 
       let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
       try {
-        credentials = await TokenRefresh.ensureFresh(resolvedTargetProvider)
+        // Use the resolved provider directly for credentials
+        const credentialProviderId = resolvedTargetProvider
+        credentials = await TokenRefresh.ensureFresh(credentialProviderId)
         console.error('[handleResponses] credentials acquired')
       } catch (e) {
         console.error('[handleResponses] credentials error:', e)
@@ -182,7 +215,9 @@ export async function handleResponses(
           { status: 401, headers: { 'Content-Type': 'application/json' } }
         )
       }
-      headers = await authProvider.getHeaders(credential)
+      headers = await authProvider.getHeaders(credential, {
+        model: options.targetModel || chatRequest.model,
+      })
     } else {
       const url = PROVIDER_ENDPOINTS[resolvedTargetProvider]
       if (!url) {
@@ -203,6 +238,32 @@ export async function handleResponses(
     let upstreamRequest: unknown
     if (resolvedTargetProvider === 'openai') {
       upstreamRequest = { ...chatRequest, stream: isStreaming }
+    } else if (resolvedTargetProvider === 'openai-web') {
+      // openai-web uses Codex backend with specific requirements:
+      // - store: false (ChatGPT backend requires stateless mode)
+      // - stream: true (always stream, response handling converts if needed)
+      // - instructions: required system prompt
+      let instructions = body.instructions
+      if (!instructions) {
+        // Fetch default instructions if not provided
+        // body.model should be set for openai-web requests (e.g., 'gpt-5-codex', 'gpt-5.1')
+        instructions = await getCodexInstructions(body.model || 'gpt-5.1')
+      }
+      const codexBody = {
+        model: body.model,
+        instructions,
+        input: body.input,
+        store: false,
+        stream: true,
+        // Pass through other optional fields if present
+        ...(body.tools && { tools: body.tools }),
+        ...(body.reasoning && { reasoning: body.reasoning }),
+      }
+      upstreamRequest = codexBody
+      console.error(
+        '[handleResponses] openai-web codex body:',
+        JSON.stringify(codexBody).slice(0, 300)
+      )
     } else {
       upstreamRequest = transformRequest(
         { ...chatRequest, stream: isStreaming },
@@ -255,19 +316,37 @@ export async function handleResponses(
     }
 
     if (!upstreamResponse.ok) {
-      console.error('[handleResponses] upstream response NOT ok')
+      logger.warn({ status: upstreamResponse.status }, '[handleResponses] upstream response NOT ok')
+
+      // Handle 429 with fallback provider
+      if (isRateLimited(upstreamResponse) && fallbackProvider) {
+        logger.info(
+          { from: resolvedTargetProvider, to: fallbackProvider },
+          '[handleResponses] Rate limited, retrying with fallback provider'
+        )
+        // Recursively call with fallback provider
+        return handleResponses(
+          new Request(request.url, {
+            method: 'POST',
+            headers: request.headers,
+            body: JSON.stringify(body),
+          }),
+          { ...options, targetProvider: fallbackProvider }
+        )
+      }
+
       const contentType = upstreamResponse.headers.get('content-type') || ''
       if (!contentType.includes('application/json')) {
         const text = await upstreamResponse.text()
-        console.error('[handleResponses] non-JSON response:', text.slice(0, 200))
+        logger.debug({ text: text.slice(0, 200) }, '[handleResponses] non-JSON response')
         return new Response(JSON.stringify({ error: text || 'Non-JSON response from upstream' }), {
           status: upstreamResponse.status,
           headers: { 'Content-Type': 'application/json' },
         })
       }
-      console.error(
-        '[handleResponses] returning upstream error as-is with status',
-        upstreamResponse.status
+      logger.debug(
+        { status: upstreamResponse.status },
+        '[handleResponses] returning upstream error as-is'
       )
       return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,
@@ -389,12 +468,24 @@ export async function handleResponses(
       })
     } else {
       let upstreamBody: unknown
+      const text = await upstreamResponse.text()
       try {
-        upstreamBody = await upstreamResponse.json()
+        upstreamBody = JSON.parse(text)
       } catch (e) {
-        const text = await upstreamResponse.text()
         console.error('[handleResponses] Failed to parse JSON, raw response:', text.slice(0, 500))
         throw e
+      }
+
+      // openai-web returns responses API format directly, no transformation needed
+      if (resolvedTargetProvider === 'openai-web') {
+        console.error(
+          '[handleResponses] openai-web response (passthrough):',
+          JSON.stringify(upstreamBody).slice(0, 500)
+        )
+        return new Response(JSON.stringify(upstreamBody), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
       }
 
       let openaiResponse: ChatCompletionsResponse

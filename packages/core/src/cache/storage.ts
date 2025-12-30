@@ -52,9 +52,24 @@ export class MemoryStorage implements SignatureStorage {
 export class SQLiteStorage implements SignatureStorage {
   private db: InstanceType<typeof import('bun:sqlite').Database>
 
-  constructor(dbPath: string = 'signatures.db') {
+  constructor(dbPath?: string) {
     const { Database } = require('bun:sqlite')
-    this.db = new Database(dbPath)
+    const { homedir } = require('node:os')
+    const { join, dirname } = require('node:path')
+    const { mkdirSync } = require('node:fs')
+
+    // Default to ~/.llmux/signatures.db if not provided
+    const targetPath = dbPath ?? join(homedir(), '.llmux', 'signatures.db')
+
+    // Ensure directory exists
+    const dir = dirname(targetPath)
+    try {
+      mkdirSync(dir, { recursive: true })
+    } catch {
+      // Ignore if exists, or let Database constructor fail if permission denied
+    }
+
+    this.db = new Database(targetPath)
     this.init()
   }
 
@@ -92,7 +107,7 @@ export class SQLiteStorage implements SignatureStorage {
 
     return {
       signature: row.signature,
-      family: row.family,
+      family: row.family as ModelFamily,
       timestamp: row.timestamp,
       sessionId,
     }
@@ -123,7 +138,7 @@ export class SQLiteStorage implements SignatureStorage {
       .all(sessionId) as Array<{
       entry_key: string
       signature: string
-      family: ModelFamily
+      family: string
       timestamp: number
     }>
 
@@ -131,7 +146,7 @@ export class SQLiteStorage implements SignatureStorage {
     for (const row of rows) {
       entries.set(row.entry_key, {
         signature: row.signature,
-        family: row.family,
+        family: row.family as ModelFamily,
         timestamp: row.timestamp,
         sessionId,
       })

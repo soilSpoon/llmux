@@ -2,12 +2,14 @@ import {
   AntigravityProvider as AntigravityAuthProvider,
   AuthProviderRegistry,
   GithubCopilotProvider,
+  OpenAIWebProvider,
   OpencodeZenProvider as OpencodeZenAuthProvider,
 } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core' // Ensure ProviderName is imported
 import {
   AnthropicProvider,
   AntigravityProvider,
+  OpenAIWebProvider as CoreOpenAIWebProvider,
   createLogger,
   GeminiProvider,
   getRegisteredProviders,
@@ -40,9 +42,11 @@ registerProvider(new AnthropicProvider())
 registerProvider(new GeminiProvider())
 registerProvider(new AntigravityProvider())
 registerProvider(new OpencodeZenProvider())
+registerProvider(new CoreOpenAIWebProvider())
 
 // Register auth providers on module load
 AuthProviderRegistry.register(OpencodeZenAuthProvider)
+AuthProviderRegistry.register(OpenAIWebProvider)
 AuthProviderRegistry.register(GithubCopilotProvider)
 AuthProviderRegistry.register(AntigravityAuthProvider)
 
@@ -108,8 +112,14 @@ interface BuildProxyOptionsParams {
 
 function inferProvider(model: string): ProviderName {
   if (model.includes('claude')) return 'anthropic'
+  // Check openai-web models FIRST (more specific patterns)
+  if (model.startsWith('gpt-5') || model.includes('codex')) return 'openai-web'
+  // Then check generic openai patterns
   if (
     model.startsWith('gpt-') ||
+    model.startsWith('o1') ||
+    model.startsWith('o3') ||
+    model.startsWith('o4') ||
     model.startsWith('glm-') ||
     model.startsWith('qwen') ||
     model.startsWith('kimi') ||
@@ -169,6 +179,14 @@ function buildProxyOptions({
  */
 function createChatCompletionsHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createChatCompletionsHandler',
+      },
+      'Handling request'
+    )
     const body = (await request.clone().json()) as RequestBody
     const options = buildProxyOptions({ request, body, modelMappings, router })
 
@@ -198,6 +216,14 @@ function createChatCompletionsHandler(modelMappings?: AmpConfig['modelMappings']
  */
 function createMessagesHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createMessagesHandler',
+      },
+      'Handling request'
+    )
     const body = (await request.clone().json()) as RequestBody
 
     // /v1/messages endpoint: Anthropic-style messages format
@@ -239,6 +265,14 @@ function createMessagesHandler(modelMappings?: AmpConfig['modelMappings'], route
  */
 function createGenerateContentHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createGenerateContentHandler',
+      },
+      'Handling request'
+    )
     const body = (await request.clone().json()) as RequestBody
     const options = buildProxyOptions({ request, body, modelMappings, router })
 
@@ -268,6 +302,14 @@ function createGenerateContentHandler(modelMappings?: AmpConfig['modelMappings']
  */
 function createAutoDetectHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createAutoDetectHandler',
+      },
+      'Handling request'
+    )
     const body = (await request.clone().json()) as RequestBody
 
     // Auto-detect format from request body, allow override via X-Target-Provider header
@@ -308,6 +350,14 @@ function createAutoDetectHandler(modelMappings?: AmpConfig['modelMappings'], rou
  */
 function createExplicitProxyHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createExplicitProxyHandler',
+      },
+      'Handling request'
+    )
     const targetProvider = request.headers.get('X-Target-Provider')
     if (!targetProvider) {
       return new Response(JSON.stringify({ error: 'X-Target-Provider header required' }), {
@@ -356,6 +406,14 @@ function createResponsesHandler(
   credentialProvider?: CredentialProvider
 ) {
   return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createResponsesHandler',
+      },
+      'Handling request'
+    )
     const targetProvider = request.headers.get('X-Target-Provider') ?? undefined
     const targetModel = request.headers.get('X-Target-Model') ?? undefined
     const apiKey = request.headers.get('X-API-Key') ?? undefined
@@ -370,6 +428,37 @@ function createResponsesHandler(
       // Check ResponsesOptions definition.
       // If not, we might not be able to pass it easily without refactoring ResponsesHandler too.
       // For now, let's omit router injection here or TODO it.
+    }
+
+    return handleResponses(request, options)
+  }
+}
+
+/**
+ * /backend-api/codex/responses endpoint handler
+ *
+ * Codex CLI compatible endpoint. Forces openai-web provider.
+ * This endpoint is used by Codex CLI and other clients expecting
+ * the ChatGPT backend API format.
+ */
+function createCodexResponsesHandler(
+  modelMappings?: AmpConfig['modelMappings'],
+  credentialProvider?: CredentialProvider
+) {
+  return async (request: Request): Promise<Response> => {
+    logger.debug(
+      {
+        path: request.url,
+        method: request.method,
+        handler: 'createCodexResponsesHandler',
+      },
+      'Handling Codex request'
+    )
+
+    const options: ResponsesOptions = {
+      targetProvider: 'openai-web',
+      modelMappings,
+      credentialProvider,
     }
 
     return handleResponses(request, options)
@@ -455,6 +544,15 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
       // Normalized OpenAI Responses API format for all providers
       // Input: OpenAI format | Output: OpenAI Responses API format
       // Supports streaming transformation and model-based provider detection
+    },
+
+    // Codex CLI compatible endpoint
+    {
+      method: 'POST',
+      path: '/backend-api/codex/responses',
+      handler: createCodexResponsesHandler(options.modelMappings, options.credentialProvider),
+      // Codex CLI compatible endpoint: forces openai-web provider
+      // Same as /v1/responses but with targetProvider: "openai-web"
     },
   ]
 }
@@ -569,7 +667,7 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
     port: mergedConfig.port,
     hostname: mergedConfig.hostname,
     fetch: fetchHandler,
-    idleTimeout: 30, // 30 seconds idle timeout to prevent early socket closure
+    idleTimeout: 255, // 255 seconds (max allowed) to prevent early socket closure for long outputs
   })
 
   const actualPort = server.port ?? mergedConfig.port

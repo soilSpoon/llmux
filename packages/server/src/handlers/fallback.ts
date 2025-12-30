@@ -1,10 +1,10 @@
-import { createLogger } from '@llmux/core'
+import { createLogger, isValidProviderName } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import { detectFormat } from '../middleware/format'
 import type { ModelLookup } from '../models/lookup'
 import type { RouteParams } from '../router'
 import type { UpstreamProxy } from '../upstream/proxy'
-import { applyModelMapping } from './model-mapping'
+import { applyModelMappingV2 } from './model-mapping'
 import { handleStreamingProxy } from './streaming'
 
 export type RouteHandler = (request: Request, params?: RouteParams) => Promise<Response>
@@ -78,11 +78,13 @@ export class FallbackHandler {
 
   wrap(handler: RouteHandler): RouteHandler {
     return async (request: Request, params?: RouteParams): Promise<Response> => {
-      const bodyBytes = await request.arrayBuffer()
+      // Read body as text immediately.
+      // We use text because creating a new Request with string body allows safe cloning downstream,
+      // whereas ArrayBuffer-based Requests can have issues with stream locking in Bun.
+      const bodyText = await request.text()
 
       // Log original AMP request for debugging
       try {
-        const bodyText = new TextDecoder().decode(bodyBytes)
         const bodyJson = JSON.parse(bodyText)
         logger.debug(
           {
@@ -100,7 +102,7 @@ export class FallbackHandler {
       const bodyForExtraction = new Request(request.url, {
         method: request.method,
         headers: request.headers,
-        body: bodyBytes,
+        body: bodyText,
       })
 
       const pathParams: PathParams = {
@@ -113,15 +115,27 @@ export class FallbackHandler {
         const restoredRequest = new Request(request.url, {
           method: request.method,
           headers: request.headers,
-          body: bodyBytes,
+          body: bodyText,
         })
         return handler(restoredRequest, params)
       }
 
       // Apply model mapping
       const originalModel = model
-      const mappedModel = applyModelMapping(originalModel, this.modelMappings)
-      let finalBodyBytes: ArrayBuffer | Uint8Array = bodyBytes
+      const mappingResult = applyModelMappingV2(originalModel, this.modelMappings)
+      const mappedModel = mappingResult.model
+      const mappedProvider = mappingResult.provider
+      let finalBodyText = bodyText
+
+      let detectedProvider: string | undefined
+
+      if (mappedProvider && isValidProviderName(mappedProvider)) {
+        detectedProvider = mappedProvider
+        logger.info(
+          { model: mappedModel, provider: mappedProvider },
+          'Explicit provider override via mapping (fallback)'
+        )
+      }
 
       if (mappedModel !== originalModel) {
         logger.info(
@@ -139,11 +153,10 @@ export class FallbackHandler {
 
         // If mapped, we need to rewrite the body for the proxy
         try {
-          const text = new TextDecoder().decode(bodyBytes)
-          const json = JSON.parse(text)
+          const json = JSON.parse(bodyText)
           if (json.model) {
             json.model = mappedModel
-            finalBodyBytes = new TextEncoder().encode(JSON.stringify(json))
+            finalBodyText = JSON.stringify(json)
           }
         } catch (e) {
           logger.warn(
@@ -160,11 +173,15 @@ export class FallbackHandler {
 
       // Check if model is available via ModelLookup (from /models endpoint data)
       let hasProvider = this.hasLocalProvider(model)
-      let detectedProvider: string | undefined
+
+      if (detectedProvider) {
+        hasProvider = true
+      }
 
       if (!hasProvider && this.modelLookup) {
-        detectedProvider = await this.modelLookup.getProviderForModel(model)
-        if (detectedProvider) {
+        const lookupProvider = await this.modelLookup.getProviderForModel(model)
+        if (lookupProvider) {
+          detectedProvider = lookupProvider
           hasProvider = true
           logger.info(
             { model, provider: detectedProvider },
@@ -178,7 +195,7 @@ export class FallbackHandler {
         const restoredRequest = new Request(request.url, {
           method: request.method,
           headers: request.headers,
-          body: finalBodyBytes,
+          body: finalBodyText,
         })
 
         // If we detected a provider via ModelLookup, call streaming handler directly
@@ -186,16 +203,27 @@ export class FallbackHandler {
         if (detectedProvider) {
           // Parse body to detect source format
           let sourceFormat: 'openai' | 'anthropic' | 'gemini' = 'anthropic'
-          try {
-            const text = new TextDecoder().decode(finalBodyBytes)
-            const json = JSON.parse(text)
-            const detected = detectFormat(json)
-            // Only use detected format if it's one of the standard formats
-            if (detected === 'openai' || detected === 'anthropic' || detected === 'gemini') {
-              sourceFormat = detected
+
+          // Try to determine format from URL first
+          if (request.url.includes('/v1/messages') && !request.url.includes('/chat/completions')) {
+            sourceFormat = 'anthropic'
+          } else if (request.url.includes('/v1/chat/completions')) {
+            sourceFormat = 'openai'
+          } else if (request.url.includes('generateContent')) {
+            sourceFormat = 'gemini'
+          } else {
+            // Fallback to body inspection if URL is ambiguous
+            try {
+              const text = finalBodyText // Body is already text
+              const json = JSON.parse(text)
+              const detected = detectFormat(json)
+              // Only use detected format if it's one of the standard formats
+              if (detected === 'openai' || detected === 'anthropic' || detected === 'gemini') {
+                sourceFormat = detected
+              }
+            } catch {
+              // Default to anthropic if parsing fails
             }
-          } catch {
-            // Default to anthropic if parsing fails
           }
 
           logger.info(
@@ -224,8 +252,8 @@ export class FallbackHandler {
         const proxyRequest = new Request(request.url, {
           method: request.method,
           headers: request.headers,
-          // Use finalBodyBytes to ensure mapped model is sent to upstream
-          body: finalBodyBytes,
+          // Use finalBodyText to ensure mapped model is sent to upstream
+          body: finalBodyText,
         })
         return proxy.proxyRequest(proxyRequest)
       }

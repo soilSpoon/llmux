@@ -59,6 +59,10 @@ export const serveCommand = cmd({
 
     try {
       const credentialProvider = createCredentialProvider()
+
+      // Get upstream API key from config or environment variable
+      const upstreamApiKey = config.amp?.upstreamApiKey ?? process.env.AMP_UPSTREAM_API_KEY
+
       const server = await startServer({
         port,
         hostname,
@@ -68,7 +72,7 @@ export const serveCommand = cmd({
           ? {
               handlers: {},
               upstreamUrl: config.amp.upstreamUrl,
-              upstreamApiKey: config.amp.upstreamApiKey,
+              upstreamApiKey,
               restrictManagementToLocalhost: config.amp.restrictManagementToLocalhost,
               modelMappings: config.amp.modelMappings,
             }

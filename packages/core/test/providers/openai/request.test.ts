@@ -22,7 +22,7 @@ describe("OpenAI Request Transform", () => {
 
       expect(result.model).toBe("gpt-4");
       expect(result.messages).toHaveLength(1);
-      expect(result.messages[0]).toEqual({
+      expect(result.messages![0]).toEqual({
         role: "user",
         content: "Hello, world!",
       });
@@ -37,11 +37,11 @@ describe("OpenAI Request Transform", () => {
       const result = transform(unified, "gpt-4");
 
       expect(result.messages).toHaveLength(2);
-      expect(result.messages[0]).toEqual({
+      expect(result.messages![0]).toEqual({
         role: "system",
         content: "You are a helpful assistant.",
       });
-      expect(result.messages[1]).toEqual({
+      expect(result.messages![1]).toEqual({
         role: "user",
         content: "Hello",
       });
@@ -58,7 +58,7 @@ describe("OpenAI Request Transform", () => {
       const result = transform(unified, "gpt-4");
 
       expect(result.messages).toHaveLength(2);
-      expect(result.messages[1]).toEqual({
+      expect(result.messages![1]).toEqual({
         role: "assistant",
         content: "Hi there!",
       });
@@ -81,6 +81,34 @@ describe("OpenAI Request Transform", () => {
       expect(result.temperature).toBe(0.7);
       expect(result.top_p).toBe(0.9);
       expect(result.stop).toEqual(["STOP", "END"]);
+    });
+
+    it("transforms service_tier parameter", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Hello")],
+        metadata: { serviceTier: "default" },
+      });
+
+      const result = transform(unified, "gpt-4");
+
+      expect(result.service_tier).toBe("default");
+    });
+
+    it("transforms parallel_tool_calls parameter", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Hello")],
+        tools: [
+          createUnifiedTool("test", "Test tool", {
+            type: "object",
+            properties: {},
+          }),
+        ],
+        metadata: { parallelToolCalls: false },
+      });
+
+      const result = transform(unified, "gpt-4");
+
+      expect(result.parallel_tool_calls).toBe(false);
     });
 
     it("transforms tools", () => {
@@ -135,6 +163,7 @@ describe("OpenAI Request Transform", () => {
       const result = transform(unified, "gpt-4");
 
       expect(result.messages).toHaveLength(2);
+      if (!result.messages || result.messages.length < 2) throw new Error('Expected messages');
       const assistantMsg = result.messages[1];
       expect(assistantMsg!.role).toBe("assistant");
       const assistantMsgTyped = assistantMsg as OpenAIAssistantMessage;
@@ -170,6 +199,7 @@ describe("OpenAI Request Transform", () => {
       const result = transform(unified, "gpt-4");
 
       expect(result.messages).toHaveLength(1);
+      if (!result.messages || result.messages.length < 1) throw new Error('Expected messages');
       expect(result.messages[0]).toEqual({
         role: "tool",
         tool_call_id: "call_123",
@@ -199,8 +229,11 @@ describe("OpenAI Request Transform", () => {
       const result = transform(unified, "gpt-4o");
 
       expect(result.messages).toHaveLength(1);
-      expect(result.messages[0]!.role).toBe("user");
-      expect(result.messages[0]!.content).toEqual([
+      if (!result.messages || result.messages.length < 1) throw new Error('Expected messages');
+      const userMsg = result.messages[0];
+      if (!userMsg) throw new Error('Expected user message');
+      expect(userMsg.role).toBe("user");
+      expect(userMsg.content).toEqual([
         { type: "text", text: "What is in this image?" },
         {
           type: "image_url",
@@ -229,7 +262,10 @@ describe("OpenAI Request Transform", () => {
 
       const result = transform(unified, "gpt-4o");
 
-      expect(result.messages[0]!.content).toEqual([
+      if (!result.messages || result.messages.length < 1) throw new Error('Expected messages');
+      const userMsg = result.messages[0];
+      if (!userMsg) throw new Error('Expected user message');
+      expect(userMsg.content).toEqual([
         {
           type: "image_url",
           image_url: { url: "data:image/png;base64,iVBORw0KGgoAAAANS..." },
@@ -248,6 +284,26 @@ describe("OpenAI Request Transform", () => {
       const result = transform(unified, "o1");
 
       expect(result.reasoning_effort).toBe("medium");
+    });
+
+    it("strips unsupported parameters for O-series reasoning models", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Solve this problem")],
+        config: {
+          temperature: 0.7,
+          topP: 0.9,
+          maxTokens: 1000,
+        },
+      });
+
+      const result = transform(unified, "o1");
+
+      // O-series models don't support temperature, top_p
+      expect(result.temperature).toBeUndefined();
+      expect(result.top_p).toBeUndefined();
+      // max_tokens should be converted to max_completion_tokens for O-series
+      expect(result.max_tokens).toBeUndefined();
+      expect((result as any).max_completion_tokens).toBe(1000);
     });
 
     it("transforms assistant message with text and tool calls", () => {
@@ -270,8 +326,10 @@ describe("OpenAI Request Transform", () => {
 
       const result = transform(unified, "gpt-4");
 
+      if (!result.messages || result.messages.length < 1) throw new Error('Expected messages');
       const assistantMsg = result.messages[0];
-      expect(assistantMsg!.role).toBe("assistant");
+      if (!assistantMsg) throw new Error('Expected assistant message');
+      expect(assistantMsg.role).toBe("assistant");
       const assistantMsgTyped = assistantMsg as OpenAIAssistantMessage;
       expect(assistantMsgTyped.content).toBe("Let me check the weather.");
       expect(assistantMsgTyped.tool_calls).toHaveLength(1);
@@ -392,6 +450,23 @@ describe("OpenAI Request Transform", () => {
           required: ["location"],
         },
       });
+    });
+
+    it("throws error for tool without function definition", () => {
+      const openaiRequest: OpenAIRequest = {
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
+        tools: [
+          {
+            type: "function",
+            // missing function property
+          } as any,
+        ],
+      };
+
+      expect(() => parse(openaiRequest)).toThrow(
+        "Tool must have a function definition"
+      );
     });
 
     it("parses assistant message with tool calls", () => {
@@ -536,6 +611,18 @@ describe("OpenAI Request Transform", () => {
       expect(result.thinking).toEqual({
         enabled: true,
       });
+    });
+
+    it("parses max_completion_tokens for O-series models", () => {
+      const openaiRequest: OpenAIRequest = {
+        model: "o1",
+        messages: [{ role: "user", content: "Hello" }],
+        max_completion_tokens: 2000,
+      };
+
+      const result = parse(openaiRequest);
+
+      expect(result.config?.maxTokens).toBe(2000);
     });
 
     it("parses assistant message with content and tool calls", () => {

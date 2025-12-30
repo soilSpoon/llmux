@@ -1,17 +1,28 @@
 import {
+  ANTIGRAVITY_API_PATH_STREAM,
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  ANTIGRAVITY_ENDPOINT_FALLBACKS,
   ANTIGRAVITY_HEADERS,
   AuthProviderRegistry,
   CredentialStorage,
   fetchAntigravityProjectID,
+  isApiKeyCredential,
   isOAuthCredential,
   TokenRefresh,
 } from '@llmux/auth'
-import { createLogger, getProvider, type ProviderName, transformRequest } from '@llmux/core'
+import {
+  createLogger,
+  getProvider,
+  isValidProviderName,
+  type ProviderName,
+  transformRequest,
+} from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
+import { accountRotationManager } from './account-rotation'
 import { normalizeBashArguments } from './bash-normalization'
-import { applyModelMapping } from './model-mapping'
+import { getCodexInstructions } from './codex'
+import { applyModelMappingV2 } from './model-mapping'
 import {
   buildSignatureSessionKey,
   cacheSignatureFromChunk,
@@ -26,8 +37,6 @@ const logger = createLogger({ service: 'streaming-handler' })
 // Model Aliases for Antigravity API
 // These models need to be translated to their internal names
 const ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
-  'gemini-2.5-computer-use-preview-10-2025': 'rev19-uic3-1p',
-  'gemini-3-pro-image-preview': 'gemini-3-pro-image',
   'gemini-3-pro-preview': 'gemini-3-pro-high',
   'gemini-claude-sonnet-4-5': 'claude-sonnet-4-5',
   'gemini-claude-sonnet-4-5-thinking': 'claude-sonnet-4-5-thinking',
@@ -36,6 +45,131 @@ const ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
 
 function applyAntigravityAlias(model: string): string {
   return ANTIGRAVITY_MODEL_ALIASES[model] || model
+}
+
+export function parseRetryAfterMs(response: Response, body?: string): number {
+  // 1. Check retry-after-ms header
+  const retryAfterMsHeader = response.headers.get('retry-after-ms')
+  if (retryAfterMsHeader) {
+    const parsed = parseInt(retryAfterMsHeader, 10)
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed
+  }
+
+  // 2. Check retry-after header (seconds)
+  const retryAfterHeader = response.headers.get('retry-after')
+  if (retryAfterHeader) {
+    const parsed = parseInt(retryAfterHeader, 10)
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed * 1000
+  }
+
+  // 3. Check body for retryDelay
+  if (body) {
+    const match = body.match(/"retryDelay":\s*"([0-9.]+)s"/)
+    if (match?.[1]) return parseFloat(match[1]) * 1000
+  }
+
+  // 4. Default fallback (30 seconds)
+  return 30000
+}
+
+/**
+ * Transform tools from ChatCompletion API format to Responses API format
+ * ChatCompletion: { type: "function", function: { name, description, parameters } }
+ * Responses API: { type: "function", name, description, parameters }
+ *
+ * Also handles Anthropic format: { name, description, input_schema }
+ */
+export function transformToolsForCodex(
+  tools: Array<{
+    type?: string
+    name?: string
+    description?: string
+    parameters?: unknown
+    input_schema?: unknown
+    function?: {
+      name?: string
+      description?: string
+      parameters?: unknown
+    }
+  }>
+): Array<{
+  type: string
+  name: string
+  description?: string
+  parameters?: unknown
+}> {
+  logger.debug({ toolsCount: tools.length }, '[tools] Starting transformToolsForCodex')
+
+  return tools.map((tool, idx) => {
+    let transformed: {
+      type: string
+      name: string
+      description?: string
+      parameters?: unknown
+    }
+
+    // ChatCompletion API format (has function wrapper)
+    if (tool.function?.name) {
+      transformed = {
+        type: 'function',
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters,
+      }
+      logger.debug(
+        {
+          index: idx,
+          originalFormat: 'ChatCompletion',
+          name: tool.function.name,
+        },
+        '[tools] Transformed from ChatCompletion format'
+      )
+      return transformed
+    }
+
+    // Anthropic format (has input_schema)
+    if (tool.name && tool.input_schema) {
+      transformed = {
+        type: 'function',
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.input_schema,
+      }
+      logger.debug(
+        { index: idx, originalFormat: 'Anthropic', name: tool.name },
+        '[tools] Transformed from Anthropic format'
+      )
+      return transformed
+    }
+
+    // Already Responses API format or similar (name at top level with parameters)
+    if (tool.name) {
+      transformed = {
+        type: tool.type || 'function',
+        name: tool.name,
+        description: tool.description,
+        parameters: tool.parameters,
+      }
+      logger.debug(
+        { index: idx, originalFormat: 'Responses API', name: tool.name },
+        '[tools] Already in Responses API format'
+      )
+      return transformed
+    }
+
+    // Fallback: return as-is but ensure required fields
+    transformed = {
+      type: tool.type || 'function',
+      name: tool.name || 'unknown',
+      description: tool.description,
+      parameters: tool.parameters || tool.input_schema,
+    }
+    logger.warn(
+      { index: idx, originalTool: JSON.stringify(tool).slice(0, 100) },
+      '[tools] Using fallback transformation (missing name)'
+    )
+    return transformed
+  })
 }
 
 import type { Router } from '../routing'
@@ -56,6 +190,7 @@ const PROVIDER_ENDPOINTS: Record<string, string> = {
   antigravity:
     'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse',
   'opencode-zen': 'https://opencode.ai/zen/v1/messages',
+  'openai-web': 'https://chatgpt.com/backend-api/codex/responses',
 }
 
 function formatToProvider(format: RequestFormat): ProviderName {
@@ -157,11 +292,6 @@ export function transformStreamChunk(
   fromProvider: ProviderName,
   toFormat: RequestFormat
 ): string | string[] {
-  console.error(
-    `[DIAG] transformStreamChunk called from=${fromProvider} to=${toFormat} chunk=${chunk
-      .trim()
-      .slice(0, 50)}`
-  )
   // Do not return early if the chunk is a raw JSON object, as it needs to be formatted as SSE
   if (fromProvider === toFormat && !chunk.trim().startsWith('{')) return chunk
 
@@ -235,74 +365,92 @@ export async function handleStreamingProxy(
   request: Request,
   options: ProxyOptions
 ): Promise<Response> {
-  logger.info(
-    {
-      targetProvider: options.targetProvider,
-      targetModel: options.targetModel,
-      apiKeyLength: options.apiKey?.length,
-      isDummyKey: options.apiKey === 'dummy',
-    },
-    '[Streaming] Handling proxy request entry'
-  )
+  const startTime = Date.now()
+  const reqId = Math.random().toString(36).slice(2, 8)
+
+  // Context to accumulate log data
+  const streamContext = {
+    reqId,
+    fromFormat: options.sourceFormat,
+    targetProvider: options.targetProvider,
+    targetModel: options.targetModel || 'unknown',
+    originalModel: 'unknown',
+    finalModel: 'unknown',
+    chunkCount: 0,
+    totalBytes: 0,
+    duration: 0,
+    error: undefined as string | undefined,
+    requestInfo: undefined as
+      | {
+          model: string
+          provider: string
+          endpoint: string
+          toolsCount: number
+          bodyLength: number
+        }
+      | undefined,
+  }
+
+  // logger.debug({ reqId, ...options }, '[Streaming] Init')
 
   try {
     const body = (await request.json()) as { model?: string }
-    const originalModel = body.model
+    const originalModel = body.model || 'unknown'
+    streamContext.originalModel = originalModel
 
     let initialMappedModel: string | undefined = originalModel
+    let initialTargetProvider = options.targetProvider
 
-    if (originalModel) {
-      const appliedMapping = applyModelMapping(originalModel, options.modelMappings)
+    if (originalModel !== 'unknown') {
+      const mappingResult = applyModelMappingV2(originalModel, options.modelMappings)
+      const appliedMapping = mappingResult.model
 
-      if (appliedMapping !== originalModel) {
-        logger.info(
-          {
-            originalModel,
-            mappedModel: appliedMapping,
-            mappings:
-              options.modelMappings?.map(
-                (m) => `${m.from}->${Array.isArray(m.to) ? m.to.join(',') : m.to}`
-              ) || [],
-          },
-          'Model mapping applied (streaming)'
-        )
-      } else {
-        logger.info(
-          {
-            originalModel,
-            availableMappings: options.modelMappings?.map((m) => m.from) || [],
-          },
-          'No model mapping found, using original model (streaming)'
-        )
+      if (mappingResult.provider && isValidProviderName(mappingResult.provider)) {
+        initialTargetProvider = mappingResult.provider
       }
       initialMappedModel = appliedMapping
     }
 
     if (options.targetModel) {
-      logger.info(
-        { originalModel, targetModel: options.targetModel },
-        'Target model override applied (streaming)'
-      )
       initialMappedModel = options.targetModel
     }
 
     // Retry loop for rotation
-    const maxAttempts = 5
+    const MAX_ATTEMPTS = 10
     let attempt = 0
-    let lastResponse: Response | undefined
-    let currentProvider = options.targetProvider
+    let currentProvider = initialTargetProvider
     let currentModel = initialMappedModel
 
-    // Variables hoisted for scope access after retry loop
-    let effectiveTargetProvider: ProviderName = options.targetProvider as ProviderName // Default
+    // Variables hoisted
+    let effectiveTargetProvider: ProviderName = initialTargetProvider as ProviderName
     let requestBody: Record<string, unknown> = {}
     let endpoint: string = ''
     let headers: Record<string, string> = {}
     let shouldCacheSignaturesForModel: boolean = false
     let signatureSessionKey: string | undefined
+    let overrideProjectId: string | null = null // For Project ID Fallback
 
-    while (attempt < maxAttempts) {
+    while (attempt < MAX_ATTEMPTS) {
       attempt++
+
+      logger.debug(
+        {
+          reqId,
+          attempt,
+          maxAttempts: MAX_ATTEMPTS,
+          provider: currentProvider,
+          model: currentModel,
+        },
+        '[streaming] Starting attempt'
+      )
+
+      // Variables for this attempt
+      let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
+      let accountIndex = 0
+
+      // Update context
+      streamContext.targetProvider = currentProvider
+      streamContext.finalModel = currentModel || 'unknown'
 
       // Resolve effective provider for opencode-zen (re-evaluated in loop)
       effectiveTargetProvider = currentProvider as ProviderName
@@ -324,13 +472,96 @@ export async function handleStreamingProxy(
       }
 
       // Re-transform request if needed (provider or model change)
-      const transformedRequest = transformRequest(body, {
-        from: formatToProvider(options.sourceFormat),
-        to: effectiveTargetProvider,
-      })
+      // LOG ORIGINAL REQUEST
+      const originalTools = Array.isArray((body as Record<string, unknown>).tools)
+        ? ((body as Record<string, unknown>).tools as Array<{ name?: string }>).length
+        : 0
+      const originalMessages = Array.isArray((body as Record<string, unknown>).messages)
+        ? ((body as Record<string, unknown>).messages as Array<unknown>).length
+        : 0
+      logger.debug(
+        {
+          from: formatToProvider(options.sourceFormat),
+          to: effectiveTargetProvider,
+          originalToolsCount: originalTools,
+          originalMessagesCount: originalMessages,
+          hasSystem: !!(body as Record<string, unknown>).system,
+        },
+        '[streaming] BEFORE transform - original request'
+      )
+
+      let transformedRequest: unknown
+      try {
+        transformedRequest = transformRequest(body, {
+          from: formatToProvider(options.sourceFormat),
+          to: effectiveTargetProvider,
+          model: currentModel,
+        })
+        requestBody = transformedRequest as Record<string, unknown>
+      } catch (error) {
+        streamContext.error = error instanceof Error ? error.message : String(error)
+        logger.error(
+          {
+            service: 'streaming-handler',
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+            bodyKeys: Object.keys(body as object),
+            options,
+          },
+          '[streaming] Error transforming request'
+        )
+        throw error
+      }
 
       // Transform output is a union type based on target provider, narrow to base request object
       requestBody = transformedRequest as Record<string, unknown>
+
+      // LOG TRANSFORMED REQUEST
+      // Antigravity implementation uses a wrapper object with a 'request' property
+      const unwrappedRequest = (requestBody.request as Record<string, unknown>) || requestBody
+
+      const transformedTools = Array.isArray(unwrappedRequest.tools)
+        ? (unwrappedRequest.tools as unknown[]).reduce((acc: number, tool) => {
+            const t = tool as { functionDeclarations?: unknown[] }
+            if (t.functionDeclarations && Array.isArray(t.functionDeclarations)) {
+              return acc + t.functionDeclarations.length
+            }
+            return acc + 1
+          }, 0)
+        : Array.isArray(unwrappedRequest.functionDeclarations)
+          ? (unwrappedRequest.functionDeclarations as unknown[]).length
+          : Array.isArray(
+                (
+                  unwrappedRequest as {
+                    tool_config?: { function_declarations?: unknown[] }
+                  }
+                ).tool_config?.function_declarations
+              )
+            ? ((
+                unwrappedRequest as {
+                  tool_config?: { function_declarations?: unknown[] }
+                }
+              ).tool_config?.function_declarations?.length ?? 0)
+            : 0
+
+      const transformedContents = Array.isArray(unwrappedRequest.contents)
+        ? (unwrappedRequest.contents as unknown[]).length
+        : Array.isArray(unwrappedRequest.messages)
+          ? (unwrappedRequest.messages as unknown[]).length
+          : 0
+
+      logger.debug(
+        {
+          provider: currentProvider,
+          isWrapped: !!requestBody.request,
+          transformedToolsCount: transformedTools,
+          transformedContentsCount: transformedContents,
+          hasSystemInstruction: !!unwrappedRequest.systemInstruction,
+          requestBodyKeys: Object.keys(requestBody).join(', '),
+          unwrappedKeys: Object.keys(unwrappedRequest).join(', '),
+        },
+        '[streaming] AFTER transform - transformed request'
+      )
 
       if (currentModel) {
         // Antigravity transform handles internal model aliases
@@ -339,6 +570,12 @@ export async function handleStreamingProxy(
         if (currentProvider !== 'antigravity' || currentModel !== originalModel) {
           requestBody.model = currentModel
         }
+      }
+
+      // Apply Project ID override if set (for License Error Fallback)
+      if (overrideProjectId && currentProvider === 'antigravity') {
+        ;(requestBody as Record<string, unknown>).project = overrideProjectId
+        logger.debug({ overrideProjectId }, '[streaming] Applied Project ID override')
       }
 
       // Apply Antigravity model alias transformation (re-applied in loop)
@@ -371,7 +608,21 @@ export async function handleStreamingProxy(
           conversationKey,
           projectKey
         )
-        ensureThinkingSignatures(requestBody, signatureSessionKey)
+        logger.debug(
+          {
+            model: currentModel,
+            provider: currentProvider,
+            conversationKey,
+            sessionKey: signatureSessionKey?.slice(0, 50),
+          },
+          '[tools+signature] Preparing signature restoration for Claude thinking model'
+        )
+        // Pass model to ensure only Claude thinking models are processed
+        ensureThinkingSignatures(requestBody, signatureSessionKey, currentModel)
+        logger.debug(
+          { sessionKey: signatureSessionKey?.slice(0, 50) },
+          '[tools+signature] ensureThinkingSignatures completed'
+        )
       }
 
       const authProvider = AuthProviderRegistry.get(currentProvider)
@@ -383,6 +634,7 @@ export async function handleStreamingProxy(
       if (authProvider && (!options.apiKey || options.apiKey === 'dummy')) {
         // ... (Credential logic)
         try {
+          // Default endpoint retrieval
           endpoint = authProvider.getEndpoint(options.targetModel || 'gemini-pro', {
             streaming: true,
           })
@@ -391,24 +643,46 @@ export async function handleStreamingProxy(
           endpoint = ''
         }
 
+        // Antigravity Endpoint Fallback Logic
+        if (currentProvider === 'antigravity') {
+          const fallbackIndex = (attempt - 1) % ANTIGRAVITY_ENDPOINT_FALLBACKS.length
+          const baseEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[fallbackIndex]
+          const apiPath = ANTIGRAVITY_API_PATH_STREAM // Always streaming in this handler
+          endpoint = `${baseEndpoint}${apiPath}`
+
+          logger.debug(
+            {
+              attempt,
+              endpoint,
+              fallbackIndex,
+              baseEndpoint,
+            },
+            '[streaming] Using Antigravity fallback endpoint'
+          )
+        }
+
         // Simplified credential retrieval for retry loop context
-        let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
         try {
           credentials = await TokenRefresh.ensureFresh(currentProvider)
         } catch {
+          logger.warn({ reqId, provider: currentProvider }, 'No credentials found')
           // If failed, break or return 401
           return new Response(JSON.stringify({ error: `No credentials for ${currentProvider}` }), {
             status: 401,
           })
         }
 
-        const credential = credentials?.[0]
+        accountIndex = accountRotationManager.getNextAvailable(currentProvider, credentials || [])
+        const credential = credentials?.[accountIndex]
+
         if (!credential)
           return new Response(JSON.stringify({ error: `No credentials` }), {
             status: 401,
           })
 
-        headers = await authProvider.getHeaders(credential)
+        headers = await authProvider.getHeaders(credential, {
+          model: options.targetModel,
+        })
 
         // Antigravity Project ID injection
         if (currentProvider === 'antigravity' && isOAuthCredential(credential)) {
@@ -434,7 +708,30 @@ export async function handleStreamingProxy(
           }
         }
       } else {
-        headers = buildHeaders(currentProvider, options.apiKey, effectiveTargetProvider)
+        let effectiveApiKey = options.apiKey
+
+        if (!effectiveApiKey && currentProvider === 'openai') {
+          // Attempt fallback lookup for openai-web/codex credentials
+          const fallbackKeys = ['openai', 'openai-web', 'codex']
+          for (const key of fallbackKeys) {
+            const creds = await CredentialStorage.get(key)
+            if (creds.length > 0) {
+              const cred = creds[0]
+              let foundKey: string | undefined
+              if (cred && isOAuthCredential(cred)) {
+                foundKey = cred.accessToken
+              } else if (cred && isApiKeyCredential(cred)) {
+                foundKey = cred.key
+              }
+              if (foundKey) {
+                effectiveApiKey = foundKey
+                break
+              }
+            }
+          }
+        }
+
+        headers = buildHeaders(currentProvider, effectiveApiKey, effectiveTargetProvider)
         let url = PROVIDER_ENDPOINTS[currentProvider] || PROVIDER_ENDPOINTS[effectiveTargetProvider]
         if (currentProvider === 'opencode-zen' && effectiveTargetProvider === 'openai') {
           url = 'https://opencode.ai/zen/v1/chat/completions'
@@ -452,9 +749,110 @@ export async function handleStreamingProxy(
         headers['anthropic-beta'] = anthropicBeta
       }
 
+      // Handle openai-web (Codex) format: requires instructions field
+      if (currentProvider === 'openai-web') {
+        // Codex backend requires instructions, store, and stream fields
+        // Fetch instructions from GitHub with caching (or use system message)
+        const systemInstructions =
+          ((requestBody as Record<string, unknown>).system as string) || undefined
+        const instructions =
+          systemInstructions || (await getCodexInstructions(currentModel || 'gpt-5.1'))
+
+        // Transform tools from ChatCompletion API format to Responses API format
+        // ChatCompletion: { type: "function", function: { name, description, parameters } }
+        // Responses API: { type: "function", name, description, parameters }
+        const rawTools = (requestBody as Record<string, unknown>).tools as
+          | Array<{
+              type?: string
+              name?: string
+              description?: string
+              parameters?: unknown
+              input_schema?: unknown
+              function?: {
+                name?: string
+                description?: string
+                parameters?: unknown
+              }
+            }>
+          | undefined
+        const transformedTools = rawTools ? transformToolsForCodex(rawTools) : undefined
+
+        const reasoningField = (requestBody as Record<string, unknown>).reasoning && {
+          reasoning: (requestBody as Record<string, unknown>).reasoning,
+        }
+
+        const codexBody: Record<string, unknown> = {
+          model: currentModel || 'gpt-5.1',
+          instructions,
+          input: (requestBody as Record<string, unknown>).messages,
+          store: false,
+          stream: true,
+        }
+
+        if (transformedTools && transformedTools.length > 0) {
+          codexBody.tools = transformedTools
+        }
+        if (reasoningField) {
+          Object.assign(codexBody, reasoningField)
+        }
+
+        requestBody = codexBody
+        logger.info(
+          {
+            hasInstructions: !!instructions,
+            model: currentModel,
+            toolsCount: transformedTools?.length ?? 0,
+            toolNames: transformedTools?.slice(0, 5).map((t) => t.name) ?? [],
+          },
+          '[streaming] openai-web codex body constructed'
+        )
+      }
+
       if (currentProvider === 'opencode-zen') {
         fixOpencodeZenBody(requestBody)
       }
+
+      // Enhanced logging for debugging
+      const requestBodyToLog = (requestBody.request as Record<string, unknown>) || requestBody
+      const toolsCount = Array.isArray(requestBodyToLog.tools) ? requestBodyToLog.tools.length : 0
+      const bodyToLog = JSON.stringify(requestBody)
+      // Buffer request info for consolidated logging at completion
+      streamContext.requestInfo = {
+        model: String(requestBody.model || 'unknown'),
+        provider: effectiveTargetProvider,
+        endpoint: endpoint.slice(0, 60) + (endpoint.length > 60 ? '...' : ''),
+        toolsCount,
+        bodyLength: bodyToLog.length,
+      }
+
+      // DEBUG: Log request details before sending
+      logger.debug(
+        {
+          reqId,
+          attempt,
+          endpoint,
+          requestHeaders: Object.keys(headers).reduce(
+            (acc, key) => {
+              // Mask sensitive header values
+              const lowerKey = key.toLowerCase()
+              if (
+                lowerKey.includes('auth') ||
+                lowerKey.includes('key') ||
+                lowerKey.includes('token')
+              ) {
+                acc[key] = '[REDACTED]'
+              } else {
+                acc[key] = headers[key] ?? ''
+              }
+              return acc
+            },
+            {} as Record<string, string>
+          ),
+          bodyPreview: bodyToLog.slice(0, 500),
+          bodyLength: bodyToLog.length,
+        },
+        '[streaming] Sending upstream request'
+      )
 
       let upstreamResponse: Response
       try {
@@ -464,494 +862,715 @@ export async function handleStreamingProxy(
           body: JSON.stringify(requestBody),
         })
       } catch (error) {
-        const message = error instanceof Error ? error.message : 'Network error'
-        logger.error({ error: message, endpoint }, 'Upstream fetch failed')
+        streamContext.error = error instanceof Error ? error.message : 'Network error'
+        logger.warn(
+          {
+            reqId,
+            error: streamContext.error,
+            attempt,
+            maxAttempts: MAX_ATTEMPTS,
+          },
+          '[streaming] Upstream fetch failed'
+        )
 
-        if (attempt < maxAttempts) {
-          await new Promise((r) => setTimeout(r, 1000))
+        if (attempt < MAX_ATTEMPTS) {
+          const delay = Math.min(1000 * 2 ** (attempt - 1), 8000)
+          logger.debug(
+            { reqId, attempt, delayMs: delay },
+            '[streaming] Retrying after network error'
+          )
+          await new Promise((r) => setTimeout(r, delay))
           continue
         }
 
-        return new Response(JSON.stringify({ error: message }), {
+        return new Response(JSON.stringify({ error: streamContext.error }), {
           status: 502,
           headers: { 'Content-Type': 'application/json' },
         })
       }
 
-      lastResponse = upstreamResponse
+      // DEBUG: Log response headers
+      logger.debug(
+        {
+          reqId,
+          attempt,
+          status: upstreamResponse.status,
+          responseHeaders: Object.fromEntries(upstreamResponse.headers.entries()),
+        },
+        '[streaming] Received upstream response'
+      )
 
       if (upstreamResponse.status === 429) {
-        const retryAfterHeader =
-          upstreamResponse.headers.get('Retry-After') ||
-          upstreamResponse.headers.get('rating-limit-reset')
-        let retryAfterMs = 0
-        if (retryAfterHeader) {
-          const seconds = parseInt(retryAfterHeader, 10)
-          if (!Number.isNaN(seconds)) retryAfterMs = seconds * 1000
-        }
+        let bodyText = ''
+        try {
+          bodyText = await upstreamResponse.clone().text()
+        } catch {}
+
+        const retryAfterMs = parseRetryAfterMs(upstreamResponse, bodyText)
+
+        accountRotationManager.markRateLimited(currentProvider, accountIndex, retryAfterMs)
+
+        logger.warn(
+          {
+            reqId,
+            attempt,
+            retryAfterMs,
+            provider: currentProvider,
+            model: currentModel,
+            accountIndex,
+          },
+          '[streaming] Rate limited (429)'
+        )
 
         if (options.router && currentModel) {
           options.router.handleRateLimit(currentModel, retryAfterMs || undefined)
-          const original = originalModel || currentModel
-          if (original) {
-            const nextRoute = options.router.resolveModel(original)
-            if (nextRoute.provider !== currentProvider || nextRoute.model !== currentModel) {
-              logger.info(
-                {
-                  from: `${currentProvider}:${currentModel}`,
-                  to: `${nextRoute.provider}:${nextRoute.model}`,
-                  reason: '429 Fallback',
-                },
-                '[streaming] Switching to fallback model'
-              )
-              currentProvider = nextRoute.provider
-              currentModel = nextRoute.model
-              continue
+
+          // Only trigger model fallback if ALL accounts are rate limited
+          if (accountRotationManager.areAllRateLimited(currentProvider, credentials || [])) {
+            const original = originalModel || currentModel
+            if (original) {
+              const nextRoute = options.router.resolveModel(original)
+              if (nextRoute.provider !== currentProvider || nextRoute.model !== currentModel) {
+                logger.info(
+                  {
+                    from: `${currentProvider}:${currentModel}`,
+                    to: `${nextRoute.provider}:${nextRoute.model}`,
+                    reason: '429 Fallback (All Accounts Limited)',
+                  },
+                  '[streaming] Switching to fallback model'
+                )
+                currentProvider = nextRoute.provider
+                currentModel = nextRoute.model
+                continue
+              }
             }
           }
         }
 
-        const delay = Math.min(1000 * 2 ** (attempt - 1), 16000)
+        // Wait based on retryAfterMs (max 5 seconds as requested)
+        const delay = Math.min(retryAfterMs, 5000)
+
+        logger.debug({ reqId, attempt, delayMs: delay }, '[streaming] Waiting before retry')
         await new Promise((r) => setTimeout(r, delay))
 
-        if (authProvider && !options.apiKey && authProvider.rotate) {
+        if (authProvider?.rotate) {
           authProvider.rotate()
         }
         continue
       }
 
-      break
-    } // End retry loop
+      if (!upstreamResponse.ok) {
+        let errorBody = ''
+        try {
+          errorBody = await upstreamResponse.text()
+        } catch {
+          errorBody = 'Failed to read error body'
+        }
 
-    if (!lastResponse) {
-      return new Response(JSON.stringify({ error: 'Request failed' }), {
-        status: 500,
-      })
-    }
+        // Antigravity Project ID Fallback for License Error (#3501)
+        if (
+          currentProvider === 'antigravity' &&
+          (upstreamResponse.status === 403 || upstreamResponse.status === 400) &&
+          attempt < MAX_ATTEMPTS
+        ) {
+          if (
+            errorBody.includes('#3501') ||
+            (errorBody.includes('PERMISSION_DENIED') && errorBody.includes('license'))
+          ) {
+            const currentProject = (requestBody as Record<string, unknown>).project
+            if (currentProject !== ANTIGRAVITY_DEFAULT_PROJECT_ID) {
+              logger.warn(
+                {
+                  attempt,
+                  currentProject,
+                  defaultProject: ANTIGRAVITY_DEFAULT_PROJECT_ID,
+                },
+                '[streaming] License error detected. Switching to default project ID and retrying.'
+              )
+              // Set override flag instead of modifying requestBody directly
+              // This ensures the override is applied after transformRequest() in the next attempt
+              overrideProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
 
-    // Check execution flow - if successful, proceed to streaming logic
-    const upstreamResponse = lastResponse // Used by existing logic below
+              // Wait briefly before retry
+              await new Promise((r) => setTimeout(r, 1000))
+              continue
+            }
+          }
+        }
 
-    // Debug: Log response status
-    logger.info(
-      {
-        status: upstreamResponse.status,
-        statusText: upstreamResponse.statusText,
-        contentType: upstreamResponse.headers.get('content-type'),
-      },
-      'Received upstream response'
-    )
-
-    if (!upstreamResponse.ok) {
-      let errorBody = ''
-      try {
-        errorBody = await upstreamResponse.text()
-      } catch {
-        errorBody = 'Failed to read error body'
-      }
-
-      logger.error(
-        {
-          status: upstreamResponse.status,
-          body: errorBody,
-          responseHeaders: Object.fromEntries(upstreamResponse.headers.entries()),
-          requestHeaders: headers,
-          endpoint,
-          requestBodyPreview: JSON.stringify(requestBody).slice(0, 1000),
-        },
-        'Upstream returned error'
-      )
-
-      return new Response(errorBody, {
-        status: upstreamResponse.status,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    if (!upstreamResponse.body) {
-      return new Response(JSON.stringify({ error: 'No response body' }), {
-        status: 502,
-        headers: { 'Content-Type': 'application/json' },
-      })
-    }
-
-    const sourceFormat = options.sourceFormat
-    const decoder = new TextDecoder()
-    const encoder = new TextEncoder()
-
-    // Decouple response parsing provider from request target provider
-    // This handles hybrid cases like GLM-4.7-free on Opencode Zen which accepts Anthropic input but returns OpenAI chunks
-    const parsingProvider = effectiveTargetProvider
-
-    let buffer = ''
-    let sentMessageStart = false
-    // Block state for thinking/text block management
-    let currentBlockIndex = 0
-    let currentBlockType: 'thinking' | 'text' | 'tool_use' | null = null
-
-    // Signature caching state for Claude thinking models
-    const thoughtBuffer = new Map<number, string>()
-
-    // Helper function to detect block type from transformed SSE output
-    const detectBlockType = (sse: string): 'thinking' | 'text' | 'tool_use' | 'stop' | null => {
-      if (sse.includes('"type":"message_stop"') || sse.includes('"type":"message_delta"')) {
-        return 'stop'
-      }
-
-      // Explicit start events
-      if (sse.includes('"type":"content_block_start"')) {
-        if (sse.includes('"thinking"')) return 'thinking'
-        if (sse.includes('"text"')) return 'text'
-        if (sse.includes('"tool_use"')) return 'tool_use'
-      }
-
-      // Delta events (implicit start)
-      if (sse.includes('"type":"thinking_delta"') || sse.includes('"type":"signature_delta"')) {
-        return 'thinking'
-      }
-      if (sse.includes('"type":"text_delta"')) {
-        return 'text'
-      }
-      if (sse.includes('"type":"input_json_delta"')) {
-        return 'tool_use'
-      }
-      return null
-    }
-
-    // Helper function to send content_block_start event
-    const sendBlockStart = (
-      blockType: 'thinking' | 'text' | 'tool_use' | 'stop',
-      index: number,
-      controller: TransformStreamDefaultController<Uint8Array>
-    ) => {
-      if (blockType === 'thinking') {
-        const event = `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"thinking","thinking":""}}\n\n`
-        logger.debug({ index, blockType }, '[streaming] Sending block start (thinking)')
-        controller.enqueue(encoder.encode(event))
-      } else if (blockType === 'tool_use') {
-        // We cannot synthesize a valid tool_use start without ID/Name.
-        // This implies an upstream protocol error or missing start event.
         logger.error(
-          { index, blockType },
-          '[streaming] CRITICAL: Attempted to start tool_use block implicitly without ID/Name. Stream may be corrupted.'
+          {
+            status: upstreamResponse.status,
+            body: errorBody,
+            responseHeaders: Object.fromEntries(upstreamResponse.headers.entries()),
+            requestHeaders: headers,
+            endpoint,
+            requestBody: JSON.stringify(requestBody), // Log full body for debugging
+            messagesRaw: Array.isArray((requestBody as Record<string, unknown>).messages)
+              ? JSON.stringify((requestBody as Record<string, unknown>).messages).slice(0, 1000)
+              : 'missing',
+          },
+          'Upstream returned error'
         )
-        // We do not enqueue anything, hoping the client handles the orphan delta or we are in a weird state.
-        // Sending a text block here (previous behavior) would guarantee corruption.
-      } else {
-        const event = `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"text","text":""}}\n\n`
-        logger.debug({ index, blockType }, '[streaming] Sending block start (text)')
+
+        return new Response(errorBody, {
+          status: upstreamResponse.status,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      // SUCCESS - Setup Stream Processing
+      if (!upstreamResponse.body) {
+        return new Response(JSON.stringify({ error: 'No response body' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      const decoder = new TextDecoder()
+      const encoder = new TextEncoder()
+
+      let buffer = ''
+      // Anthropic / Flux vars
+      let currentBlockType: 'thinking' | 'text' | 'tool_use' | null = null
+      let currentBlockIndex = 0
+      let sentMessageStart = false
+      const thoughtBuffer = new Map<number, string>()
+
+      // Context Setup for Stream
+      const parsingProvider = effectiveTargetProvider
+      const sourceFormat = options.sourceFormat
+
+      // Helper function to detect block type from transformed SSE output
+      const detectBlockType = (sse: string): 'thinking' | 'text' | 'tool_use' | 'stop' | null => {
+        if (sse.includes('"type":"message_stop"') || sse.includes('"type":"message_delta"')) {
+          return 'stop'
+        }
+
+        // Explicit start events
+        if (sse.includes('"type":"content_block_start"')) {
+          if (sse.includes('"thinking"')) return 'thinking'
+          if (sse.includes('"text"')) return 'text'
+          if (sse.includes('"tool_use"')) return 'tool_use'
+        }
+
+        // Delta events (implicit start)
+        if (
+          sse.includes('"type":"thinking_delta"') ||
+          sse.includes('"type":"signature_delta"') ||
+          sse.includes('"type":"thinking"')
+        ) {
+          return 'thinking'
+        }
+        if (sse.includes('"type":"text_delta"') || sse.includes('"type":"text"')) {
+          return 'text'
+        }
+        if (sse.includes('"type":"input_json_delta"') || sse.includes('"type":"tool_use"')) {
+          return 'tool_use'
+        }
+        return null
+      }
+
+      // Helper function to send content_block_start event
+      const sendBlockStart = (
+        blockType: 'thinking' | 'text' | 'tool_use' | 'stop',
+        index: number,
+        controller: TransformStreamDefaultController<Uint8Array>
+      ) => {
+        if (blockType === 'thinking') {
+          const event = `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"thinking","thinking":""}}\n\n`
+          controller.enqueue(encoder.encode(event))
+        } else if (blockType === 'tool_use') {
+          // We cannot synthesize a valid tool_use start without ID/Name.
+          // This implies an upstream protocol error or missing start event.
+          logger.error(
+            { index, blockType },
+            '[streaming] CRITICAL: Attempted to start tool_use block implicitly without ID/Name. Stream may be corrupted.'
+          )
+          // We do not enqueue anything, hoping the client handles the orphan delta or we are in a weird state.
+          // Sending a text block here (previous behavior) would guarantee corruption.
+        } else {
+          const event = `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"text","text":""}}\n\n`
+          controller.enqueue(encoder.encode(event))
+        }
+      }
+
+      // Helper function to send content_block_stop event
+      const sendBlockStop = (
+        index: number,
+        controller: TransformStreamDefaultController<Uint8Array>
+      ) => {
+        const event = `event: content_block_stop\ndata: {"type":"content_block_stop","index":${index}}\n\n`
+        logger.debug({ index }, '[streaming] Sending block stop')
         controller.enqueue(encoder.encode(event))
       }
-    }
 
-    // Helper function to send content_block_stop event
-    const sendBlockStop = (
-      index: number,
-      controller: TransformStreamDefaultController<Uint8Array>
-    ) => {
-      const event = `event: content_block_stop\ndata: {"type":"content_block_stop","index":${index}}\n\n`
-      logger.debug({ index }, '[streaming] Sending block stop')
-      controller.enqueue(encoder.encode(event))
-    }
+      const transformStream = new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          const text = decoder.decode(chunk, { stream: true })
+          streamContext.totalBytes += text.length
+          buffer += text
 
-    // Process transformed chunks with block type tracking
-    const processChunk = (
-      chunk: string,
-      controller: TransformStreamDefaultController<Uint8Array>
-    ) => {
-      if (!chunk.trim()) return
+          // Process complete SSE events
+          let rawEvents: string[]
 
-      const chunkBlockType = detectBlockType(chunk)
-      const isBlockStart = chunk.includes('"type":"content_block_start"')
-      const isBlockStop = chunk.includes('"type":"content_block_stop"')
+          if (parsingProvider === 'antigravity' || parsingProvider === 'gemini') {
+            // Antigravity/Gemini: split by newline, look for "data:" lines
+            const lines = buffer.split('\n')
+            rawEvents = []
 
-      if (sourceFormat === 'anthropic') {
-        // 1. Handle message end events
-        // 1. Handle message end events
-        if (chunkBlockType === 'stop') {
-          let finalChunk = chunk
-          if (currentBlockType !== null) {
-            // If we are closing a tool_use block, we MUST ensure the stop_reason is "tool_use".
-            // Gemini (Antigravity) may send "STOP" -> "end_turn" even for tool calls.
-            if (currentBlockType === 'tool_use') {
-              logger.debug(
-                '[streaming] Patching stop_reason: end_turn -> tool_use for tool_use block'
-              )
-              finalChunk = finalChunk.replace(
-                /"stop_reason":"end_turn"/g,
-                '"stop_reason":"tool_use"'
-              )
-            }
-            sendBlockStop(currentBlockIndex, controller)
-            currentBlockType = null
-          }
-          controller.enqueue(encoder.encode(finalChunk))
-          return
-        }
+            // If buffer doesn't end with newline, the last line might be incomplete
+            const lastLineIncomplete = !text.endsWith('\n')
 
-        // 2. Handle Block Start / Transitions
-        if (isBlockStart) {
-          // Explicit start: Close current if exists, then START NEW
-          if (currentBlockType !== null) {
-            sendBlockStop(currentBlockIndex, controller)
-            currentBlockIndex++ // Increment for the new block
-          }
-          // Set currentBlockType to the type of the new explicit block
-          if (chunkBlockType) currentBlockType = chunkBlockType
-        } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
-          // Implicit switch (e.g., thinking_delta after text_delta)
-          if (currentBlockType !== null) {
-            sendBlockStop(currentBlockIndex, controller)
-            currentBlockIndex++
-          }
-          sendBlockStart(chunkBlockType, currentBlockIndex, controller)
-          currentBlockType = chunkBlockType
-        } else if (currentBlockType === null && chunkBlockType) {
-          // Implicit start from null (first delta event)
-          sendBlockStart(chunkBlockType, currentBlockIndex, controller)
-          currentBlockType = chunkBlockType
-        }
-      } // End anthropic logic setup
+            // Process all complete lines
+            const linesToProcess = lastLineIncomplete ? lines.slice(0, -1) : lines
+            const remainingLine = lastLineIncomplete ? (lines[lines.length - 1] ?? '') : ''
 
-      // Log text content for debugging
-      if (chunkBlockType === 'text') {
-        const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/)
-        if (textMatch?.[1]) {
-          logger.debug(
-            { textContent: textMatch[1].slice(0, 100) },
-            '[streaming] Text chunk content'
-          )
-        }
-      }
-
-      // Cache signatures
-      if (
-        shouldCacheSignaturesForModel &&
-        signatureSessionKey &&
-        (chunkBlockType === 'thinking' || currentBlockType === 'thinking')
-      ) {
-        const thinkingMatch = chunk.match(/"thinking":"([^"]*)"/)?.[1]
-        const signatureMatch = chunk.match(/"signature":"([^"]*)"/)?.[1]
-        if (thinkingMatch || signatureMatch) {
-          cacheSignatureFromChunk(
-            signatureSessionKey,
-            {
-              thinking: {
-                text: thinkingMatch,
-                signature: signatureMatch,
-              },
-            },
-            thoughtBuffer,
-            currentBlockIndex
-          )
-        }
-      }
-
-      // 4. Update index and send
-      const updatedChunk = chunk.replace(/"index":\s*\d+/g, `"index":${currentBlockIndex}`)
-
-      logger.debug(
-        {
-          updatedIndex: currentBlockIndex,
-          chunkLength: updatedChunk.length,
-          type: chunkBlockType,
-          isStart: isBlockStart,
-          isStop: isBlockStop,
-        },
-        '[streaming] Sending updated chunk'
-      )
-      controller.enqueue(encoder.encode(updatedChunk))
-
-      // Post-process state updates
-      if (sourceFormat === 'anthropic' && isBlockStop) {
-        currentBlockType = null // Reset current block type as this block is now stopped
-        currentBlockIndex++ // Prepare index for next block
-      }
-    }
-
-    const transformStream = new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        logger.debug({ chunkSize: chunk.length }, '[streaming] Received chunk')
-        const text = decoder.decode(chunk, { stream: true })
-        logger.debug(
-          {
-            service: 'streaming-handler',
-            textPreview: text.slice(0, 200),
-          },
-          '[streaming] Chunk content'
-        )
-        buffer += text
-
-        // Process complete SSE events
-        let rawEvents: string[]
-
-        if (parsingProvider === 'antigravity' || parsingProvider === 'gemini') {
-          // Antigravity/Gemini: split by newline, look for "data:" lines
-          const lines = buffer.split('\n')
-          rawEvents = []
-
-          // If buffer doesn't end with newline, the last line might be incomplete
-          const lastLineIncomplete = !text.endsWith('\n')
-
-          // Process all complete lines
-          const linesToProcess = lastLineIncomplete ? lines.slice(0, -1) : lines
-          const remainingLine = lastLineIncomplete ? (lines[lines.length - 1] ?? '') : ''
-
-          for (const line of linesToProcess) {
-            if (line.startsWith('data:')) {
-              rawEvents.push(line)
-            }
-          }
-          buffer = remainingLine
-        } else {
-          // Standard SSE: split by double newline
-          rawEvents = buffer.split('\n\n')
-
-          // Keep the last incomplete line in buffer
-          if (!buffer.endsWith('\n\n')) {
-            buffer = rawEvents.pop() || ''
-          } else {
-            buffer = ''
-          }
-        }
-
-        // Process all complete events
-        logger.debug(
-          {
-            rawEventsCount: rawEvents.length,
-            parsingProvider,
-            sourceFormat,
-          },
-          '[streaming] Processing events'
-        )
-
-        for (const rawEvent of rawEvents) {
-          if (!rawEvent.trim()) continue
-
-          logger.debug({ rawEvent: rawEvent.slice(0, 300) }, '[streaming] Processing raw event')
-
-          const eventWithNewline = `${rawEvent}\n\n`
-
-          // console.error(`[streaming] Event ${eventCount}: from=${targetProvider}, to=${sourceFormat}, chunk_len=${eventWithNewline.length}`)
-
-          try {
-            // For Anthropic format, we need to ensure message_start is sent first
-            if (sourceFormat === 'anthropic' && !sentMessageStart) {
-              sentMessageStart = true
-              const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
-              const messageStart = `event: message_start\ndata: {"type":"message_start","message":{"id":"${msgId}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
-              controller.enqueue(encoder.encode(messageStart))
-              logger.debug('Sent message_start event')
-            }
-
-            const transformed = transformStreamChunk(
-              eventWithNewline,
-              parsingProvider,
-              sourceFormat
-            )
-
-            if (Array.isArray(transformed)) {
-              for (const t of transformed) {
-                processChunk(t, controller)
+            for (const line of linesToProcess) {
+              if (line.startsWith('data:')) {
+                rawEvents.push(line)
               }
-            } else if (transformed) {
-              processChunk(transformed, controller)
+            }
+            buffer = remainingLine
+          } else {
+            // Standard SSE: split by double newline
+            rawEvents = buffer.split('\n\n')
+
+            // Keep the last incomplete line in buffer
+            if (!buffer.endsWith('\n\n')) {
+              buffer = rawEvents.pop() || ''
+            } else {
+              buffer = ''
+            }
+          }
+
+          for (const rawEvent of rawEvents) {
+            if (!rawEvent.trim()) continue
+            // Demoted log
+            // logger.debug({ event: rawEvent.slice(0,50) }, 'Event')
+
+            const eventWithNewline = `${rawEvent}\n\n`
+            try {
+              // Anthropic message_start injection
+              if (sourceFormat === 'anthropic' && !sentMessageStart) {
+                sentMessageStart = true
+                const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
+                const messageStart = `event: message_start\ndata: {"type":"message_start","message":{"id":"${msgId}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
+                controller.enqueue(encoder.encode(messageStart))
+              }
+
+              const transformed = transformStreamChunk(
+                eventWithNewline,
+                parsingProvider,
+                sourceFormat
+              )
+
+              // Helper to process chunk
+              const processChunk = (
+                chunk: string,
+                controller: TransformStreamDefaultController<Uint8Array>
+              ) => {
+                if (!chunk.trim()) return
+
+                const chunkBlockType = detectBlockType(chunk)
+                const isBlockStart = chunk.includes('"type":"content_block_start"')
+                const isBlockStop = chunk.includes('"type":"content_block_stop"')
+
+                if (sourceFormat === 'anthropic') {
+                  // 1. Handle message end events
+                  // 1. Handle message end events
+                  if (chunkBlockType === 'stop') {
+                    let finalChunk = chunk
+                    if (currentBlockType !== null) {
+                      // If we are closing a tool_use block, we MUST ensure the stop_reason is "tool_use".
+                      // Gemini (Antigravity) may send "STOP" -> "end_turn" even for tool calls.
+                      if (currentBlockType === 'tool_use') {
+                        logger.debug(
+                          '[streaming] Patching stop_reason: end_turn -> tool_use for tool_use block'
+                        )
+                        finalChunk = finalChunk.replace(
+                          /"stop_reason":"end_turn"/g,
+                          '"stop_reason":"tool_use"'
+                        )
+                      }
+                      sendBlockStop(currentBlockIndex, controller)
+                      currentBlockType = null
+                    }
+                    controller.enqueue(encoder.encode(finalChunk))
+                    return
+                  }
+
+                  // 2. Handle Block Start / Transitions
+                  if (isBlockStart) {
+                    // Explicit start: Close current if exists, then START NEW
+                    if (currentBlockType !== null) {
+                      sendBlockStop(currentBlockIndex, controller)
+                      currentBlockIndex++ // Increment for the new block
+                    }
+                    // Set currentBlockType to the type of the new explicit block
+                    if (chunkBlockType) currentBlockType = chunkBlockType
+                  } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
+                    // Implicit switch (e.g., thinking_delta after text_delta)
+                    if (currentBlockType !== null) {
+                      sendBlockStop(currentBlockIndex, controller)
+                      currentBlockIndex++
+                    }
+                    sendBlockStart(chunkBlockType, currentBlockIndex, controller)
+                    currentBlockType = chunkBlockType
+                  } else if (currentBlockType === null && chunkBlockType) {
+                    // Implicit start from null (first delta event)
+                    sendBlockStart(chunkBlockType, currentBlockIndex, controller)
+                    currentBlockType = chunkBlockType
+                  }
+                } // End anthropic logic setup
+
+                // Filter out empty text blocks - these come from Gemini after tool_use and cause client errors
+                if (chunkBlockType === 'text') {
+                  const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                  // Check if ALL text values in this chunk are empty
+                  const allEmpty = textMatch?.every((m) => m === '"text":""' || m === '"text": ""')
+                  if (allEmpty) {
+                    logger.debug('[streaming] Filtering out empty text block')
+                    // Don't send this chunk - it would create an empty text block
+                    // If we were tracking this as a text block, close it
+                    if (currentBlockType === 'text') {
+                      sendBlockStop(currentBlockIndex, controller)
+                      currentBlockType = null
+                      currentBlockIndex++ // CRITICAL: Increment index after manual stop in filter
+                    }
+                    return
+                  }
+                }
+
+                // Cache signatures
+                if (
+                  shouldCacheSignaturesForModel &&
+                  signatureSessionKey &&
+                  (chunkBlockType === 'thinking' || currentBlockType === 'thinking')
+                ) {
+                  const thinkingMatch = chunk.match(/"thinking":"([^"]*)"/)?.[1]
+                  const signatureMatch = chunk.match(/"signature":"([^"]*)"/)?.[1]
+                  if (thinkingMatch || signatureMatch) {
+                    cacheSignatureFromChunk(
+                      signatureSessionKey,
+                      {
+                        thinking: {
+                          text: thinkingMatch,
+                          signature: signatureMatch,
+                        },
+                      },
+                      thoughtBuffer,
+                      currentBlockIndex
+                    )
+                  }
+                }
+
+                // 4. Update index and send
+                let updatedChunk = chunk
+
+                // Safer index update using JSON parsing to avoid corrupting user data
+                // (The previous regex `/"index":\s*\d+/g` could match "index": 123 inside a string)
+                try {
+                  const lines = chunk.trim().split('\n')
+                  const dataLineIndex = lines.findIndex((line) => line.startsWith('data: '))
+                  if (dataLineIndex !== -1) {
+                    const line = lines[dataLineIndex]
+                    if (line) {
+                      const dataContent = line.slice(6) // Remove "data: "
+                      const json = JSON.parse(dataContent)
+                      if (typeof json === 'object' && json !== null && 'index' in json) {
+                        json.index = currentBlockIndex
+                        lines[dataLineIndex] = `data: ${JSON.stringify(json)}`
+                        updatedChunk = `${lines.join('\n')}\n\n`
+                      }
+                    }
+                  }
+                } catch (e) {
+                  logger.warn(
+                    { chunk: chunk.slice(0, 100), error: e },
+                    '[streaming] Failed to parse/update chunk index safely, falling back to original chunk'
+                  )
+                }
+
+                streamContext.chunkCount++
+                controller.enqueue(encoder.encode(updatedChunk))
+
+                // Post-process state updates
+                if (sourceFormat === 'anthropic' && (isBlockStop || chunkBlockType === 'stop')) {
+                  currentBlockType = null // Reset current block type as this block is now stopped
+                  currentBlockIndex++ // Prepare index for next block
+                  logger.debug(
+                    { newIndex: currentBlockIndex },
+                    '[streaming] Incrementing index after block stop'
+                  )
+                }
+              }
+
+              if (Array.isArray(transformed)) {
+                transformed.forEach((t) => {
+                  processChunk(t, controller)
+                })
+              } else if (transformed) {
+                processChunk(transformed, controller)
+              }
+            } catch (error) {
+              logger.error(
+                {
+                  error: error instanceof Error ? error.message : String(error),
+                },
+                'Stream chunk transform error'
+              )
+              throw error
+            }
+          }
+        },
+        flush(controller) {
+          try {
+            // Process any remaining buffered data
+            if (buffer.trim()) {
+              // Split remaining buffer into events (may have multiple events without \n\n at end)
+              const events = buffer.split('\n\n').filter((e) => e.trim())
+
+              for (const event of events) {
+                const eventWithNewline = `${event}\n\n`
+
+                try {
+                  if (sourceFormat === 'anthropic' && !sentMessageStart) {
+                    sentMessageStart = true
+                    const messageStart = `event: message_start\ndata: {"type":"message_start","message":{"id":"msg_${Math.random()
+                      .toString(36)
+                      .slice(
+                        2,
+                        11
+                      )}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
+                    controller.enqueue(encoder.encode(messageStart))
+                  }
+
+                  const transformed = transformStreamChunk(
+                    eventWithNewline,
+                    parsingProvider,
+                    sourceFormat
+                  )
+
+                  const processChunk = (
+                    chunk: string,
+                    controller: TransformStreamDefaultController<Uint8Array>
+                  ) => {
+                    if (!chunk.trim()) return
+
+                    const chunkBlockType = detectBlockType(chunk)
+                    const isBlockStart = chunk.includes('"type":"content_block_start"')
+                    const isBlockStop = chunk.includes('"type":"content_block_stop"')
+
+                    if (sourceFormat === 'anthropic') {
+                      if (chunkBlockType === 'stop') {
+                        let finalChunk = chunk
+                        if (currentBlockType !== null) {
+                          if (currentBlockType === 'tool_use') {
+                            finalChunk = finalChunk.replace(
+                              /"stop_reason":"end_turn"/g,
+                              '"stop_reason":"tool_use"'
+                            )
+                          }
+                          sendBlockStop(currentBlockIndex, controller)
+                          currentBlockType = null
+                        }
+                        controller.enqueue(encoder.encode(finalChunk))
+                        return
+                      }
+
+                      if (isBlockStart) {
+                        if (currentBlockType !== null) {
+                          sendBlockStop(currentBlockIndex, controller)
+                          currentBlockIndex++
+                        }
+                        if (chunkBlockType) currentBlockType = chunkBlockType
+                      } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
+                        if (currentBlockType !== null) {
+                          sendBlockStop(currentBlockIndex, controller)
+                          currentBlockIndex++
+                        }
+                        sendBlockStart(chunkBlockType, currentBlockIndex, controller)
+                        currentBlockType = chunkBlockType
+                      } else if (currentBlockType === null && chunkBlockType) {
+                        sendBlockStart(chunkBlockType, currentBlockIndex, controller)
+                        currentBlockType = chunkBlockType
+                      }
+                    }
+
+                    if (chunkBlockType === 'text') {
+                      const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                      const allEmpty = textMatch?.every(
+                        (m) => m === '"text":""' || m === '"text": ""'
+                      )
+                      if (allEmpty) {
+                        if (currentBlockType === 'text') {
+                          sendBlockStop(currentBlockIndex, controller)
+                          currentBlockType = null
+                          currentBlockIndex++
+                        }
+                        return
+                      }
+                    }
+
+                    if (
+                      shouldCacheSignaturesForModel &&
+                      signatureSessionKey &&
+                      (chunkBlockType === 'thinking' || currentBlockType === 'thinking')
+                    ) {
+                      const thinkingMatch = chunk.match(/"thinking":"([^"]*)"/)?.[1]
+                      const signatureMatch = chunk.match(/"signature":"([^"]*)"/)?.[1]
+                      if (thinkingMatch || signatureMatch) {
+                        cacheSignatureFromChunk(
+                          signatureSessionKey,
+                          {
+                            thinking: {
+                              text: thinkingMatch,
+                              signature: signatureMatch,
+                            },
+                          },
+                          thoughtBuffer,
+                          currentBlockIndex
+                        )
+                      }
+                    }
+
+                    let updatedChunk = chunk
+                    try {
+                      const lines = chunk.trim().split('\n')
+                      const dataLineIndex = lines.findIndex((line) => line.startsWith('data: '))
+                      if (dataLineIndex !== -1) {
+                        const line = lines[dataLineIndex]
+                        if (line) {
+                          const dataContent = line.slice(6)
+                          const json = JSON.parse(dataContent)
+                          if (typeof json === 'object' && json !== null && 'index' in json) {
+                            json.index = currentBlockIndex
+                            lines[dataLineIndex] = `data: ${JSON.stringify(json)}`
+                            updatedChunk = `${lines.join('\n')}\n\n`
+                          }
+                        }
+                      }
+                    } catch (e) {
+                      logger.warn(
+                        { chunk: chunk.slice(0, 100), error: e },
+                        '[streaming] Failed to parse/update chunk index safely during flush, falling back to original chunk'
+                      )
+                    }
+                    streamContext.chunkCount++
+                    controller.enqueue(encoder.encode(updatedChunk))
+
+                    if (
+                      sourceFormat === 'anthropic' &&
+                      (isBlockStop || chunkBlockType === 'stop')
+                    ) {
+                      currentBlockType = null
+                      currentBlockIndex++
+                    }
+                  }
+
+                  if (Array.isArray(transformed)) {
+                    for (const t of transformed) {
+                      processChunk(t, controller)
+                    }
+                  } else if (transformed) {
+                    processChunk(transformed, controller)
+                  }
+                } catch (error) {
+                  logger.error(
+                    {
+                      error: error instanceof Error ? error.message : String(error),
+                    },
+                    'Stream flush transform error'
+                  )
+                }
+              }
             }
           } catch (error) {
             logger.error(
-              {
-                error: error instanceof Error ? error.message : String(error),
-              },
-              'Stream chunk transform error'
+              { error: error instanceof Error ? error.message : String(error) },
+              'Stream flush error'
             )
             throw error
           }
-        }
-      },
-      flush(controller) {
-        try {
-          // console.error(`[streaming] Flush called, buffer=${buffer.length} bytes, sentMessageStart=${sentMessageStart}`)
 
-          // Process any remaining buffered data
-          if (buffer.trim()) {
-            // Split remaining buffer into events (may have multiple events without \n\n at end)
-            const events = buffer.split('\n\n').filter((e) => e.trim())
-            // console.error(`[streaming] Flush: found ${events.length} events in buffer`)
-
-            for (const event of events) {
-              const eventWithNewline = `${event}\n\n`
-
-              try {
-                if (sourceFormat === 'anthropic' && !sentMessageStart) {
-                  sentMessageStart = true
-                  const messageStart = `event: message_start\ndata: {"type":"message_start","message":{"id":"msg_${Math.random()
-                    .toString(36)
-                    .slice(
-                      2,
-                      11
-                    )}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
-                  controller.enqueue(encoder.encode(messageStart))
-                }
-
-                const transformed = transformStreamChunk(
-                  eventWithNewline,
-                  parsingProvider,
-                  sourceFormat
-                )
-
-                if (Array.isArray(transformed)) {
-                  for (const t of transformed) {
-                    processChunk(t, controller)
-                  }
-                } else if (transformed) {
-                  processChunk(transformed, controller)
-                }
-              } catch (error) {
-                logger.error(
-                  {
-                    error: error instanceof Error ? error.message : String(error),
-                  },
-                  'Stream flush transform error'
-                )
-              }
-            }
+          streamContext.duration = Date.now() - startTime
+          // Helper: sanitize to single line
+          const sanitize = (s: string) =>
+            s
+              .replace(/[\r\n]+/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+          const ri = streamContext.requestInfo || {
+            model: 'unknown',
+            provider: 'unknown',
+            endpoint: '',
+            toolsCount: 0,
+            bodyLength: 0,
           }
-        } catch (error) {
-          logger.error(
-            { error: error instanceof Error ? error.message : String(error) },
-            'Stream flush error'
-          )
-          throw error
-        }
-      },
-    })
-
-    // console.error(`[streaming] Piping response body to transform stream`)
-    logger.info('Starting stream pipe to transform')
-    upstreamResponse.body.pipeTo(transformStream.writable).catch((error) => {
-      logger.error(
-        {
-          error: error instanceof Error ? error.message : String(error),
-          errorType: typeof error,
-          errorName: error instanceof Error ? error.name : undefined,
-          errorStack: error instanceof Error ? error.stack : undefined,
-          errorObject: error,
+          // SINGLE CONSOLIDATED LOG LINE (Request + Response combined)
+          const logMsg = `[Streaming] ${streamContext.reqId} | ${ri.model} (${
+            ri.provider
+          }) | Tools:${ri.toolsCount} | ReqLen:${ri.bodyLength} | ${
+            streamContext.duration
+          }ms | Chunks:${streamContext.chunkCount} | Bytes:${streamContext.totalBytes}${
+            streamContext.error ? ` | Error: ${sanitize(streamContext.error)}` : ''
+          }`
+          logger.info(logMsg)
         },
-        'Stream pipeTo error'
-      )
-    })
+      })
 
-    // console.error(`[streaming] Returning response with readable stream`)
-    return new Response(transformStream.readable, {
-      status: 200,
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-      },
-    })
+      // Start pipe (debug only)
+      logger.debug(`[Streaming] ${streamContext.reqId} Pipe started`)
+      upstreamResponse.body.pipeTo(transformStream.writable).catch((error) => {
+        streamContext.error = error instanceof Error ? error.message : String(error)
+        logger.error(
+          {
+            reqId,
+            error: streamContext.error,
+            stack: error instanceof Error ? error.stack : undefined,
+          },
+          '[Streaming] Pipe Error - Stream terminated abruptly'
+        )
+      })
+
+      return new Response(transformStream.readable, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache',
+          Connection: 'keep-alive',
+        },
+      })
+    } // End While
+
+    throw new Error('Max attempts reached')
   } catch (error) {
+    const duration = Date.now() - startTime
     const message = error instanceof Error ? error.message : 'Unknown error'
+    streamContext.error = message
+    // Helper: sanitize to single line
+    const sanitize = (s: string) =>
+      s
+        .replace(/[\r\n]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+
+    // ERROR LOG (Consolidated)
+    const ri = streamContext.requestInfo || {
+      model: 'unknown',
+      provider: 'unknown',
+      endpoint: '',
+      toolsCount: 0,
+      bodyLength: 0,
+    }
+    const logMsg = `[Streaming] ${streamContext.reqId} | ${ri.model} (${
+      ri.provider
+    }) | Tools:${ri.toolsCount} | ReqLen:${
+      ri.bodyLength
+    } | ${duration}ms | ERROR: ${sanitize(message)}`
+
+    logger.error(logMsg)
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

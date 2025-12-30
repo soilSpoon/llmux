@@ -111,6 +111,13 @@ export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
       path: '/api/provider/:provider/v1beta/models/*action',
       handler: geminiHandler,
     })
+
+    // Vertex AI style path: /api/provider/:provider/v1beta1/publishers/google/models/*action
+    routes.push({
+      method: 'POST',
+      path: '/api/provider/:provider/v1beta1/publishers/google/models/*action',
+      handler: geminiHandler,
+    })
   }
 
   return routes

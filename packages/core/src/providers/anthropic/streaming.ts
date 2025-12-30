@@ -284,6 +284,11 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
       const toolCall = chunk.delta?.toolCall
       if (!toolCall) return ''
 
+      // Debug logging for tool call transformation
+      console.error(
+        `[DIAG] tool_call transform: id=${toolCall.id}, name=${toolCall.name}, hasArgs=${!!toolCall.arguments}`
+      )
+
       const events: string[] = []
 
       // 1. Start event (if ID provided) - this signals a new tool call
@@ -316,20 +321,29 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           jsonString = ''
         }
 
+        console.error(`[DIAG] tool_call arguments: ${jsonString.slice(0, 100)}`)
+
         if (jsonString.length > 0) {
-          events.push(
-            formatSSE('content_block_delta', {
-              type: 'content_block_delta',
-              index: 0, // Placeholder
-              delta: {
-                type: 'input_json_delta',
-                partial_json: jsonString,
-              },
-            })
-          )
+          // Chunking implementation for better compatibility with strict Anthropic clients (e.g. Ampcode)
+          // Anthropic normally streams tokens (small chunks), sending a huge JSON string at once can cause parser buffers to overflow.
+          const CHUNK_SIZE = 50
+          for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
+            const chunk = jsonString.slice(i, i + CHUNK_SIZE)
+            events.push(
+              formatSSE('content_block_delta', {
+                type: 'content_block_delta',
+                index: 0, // Placeholder
+                delta: {
+                  type: 'input_json_delta',
+                  partial_json: chunk,
+                },
+              })
+            )
+          }
         }
       }
 
+      console.error(`[DIAG] tool_call events count: ${events.length}`)
       if (events.length === 0) return ''
       if (events.length === 1) return events[0] ?? ''
       return events
@@ -384,6 +398,10 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           type: 'message_stop',
         })
       )
+
+      // Add [DONE] signal for compatibility with clients expecting OpenAI-style termination (or strict proxies)
+      // This matches the behavior of the Go-based CLIProxyAPI implementation
+      doneEvents.push('data: [DONE]\n\n')
 
       return doneEvents
     }

@@ -1,3 +1,4 @@
+import { createLogger } from '@llmux/core'
 export type RouteParams = Record<string, string>
 
 export interface Route {
@@ -107,11 +108,14 @@ function getRoutePriority(parsed: ParsedRoute): number {
 
 export function createRouter(routes: Route[]): (request: Request) => Promise<Response> {
   const parsedRoutes = routes.map(parseRoute)
+  const logger = createLogger({ service: 'router' })
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url)
     const method = request.method as 'GET' | 'POST'
     const pathname = url.pathname
+
+    logger.trace({ method, pathname }, '[Router] Incoming request')
 
     const methodRoutes = parsedRoutes.filter((p) => p.route.method === method)
 
@@ -133,12 +137,14 @@ export function createRouter(routes: Route[]): (request: Request) => Promise<Res
       const anyPathMatch = parsedRoutes.some((p) => matchPath(p, pathname).matched)
 
       if (anyPathMatch) {
+        logger.warn({ method, pathname }, '[Router] Method not allowed')
         return new Response(JSON.stringify({ error: 'Method not allowed' }), {
           status: 405,
           headers: { 'Content-Type': 'application/json' },
         })
       }
 
+      logger.warn({ method, pathname }, '[Router] No match found')
       return new Response(JSON.stringify({ error: 'Not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },
@@ -148,10 +154,13 @@ export function createRouter(routes: Route[]): (request: Request) => Promise<Res
     matches.sort((a, b) => b.priority - a.priority)
     const best = matches[0] as (typeof matches)[0]
 
+    logger.trace({ method, pathname, route: best.parsed.route.path }, '[Router] Matched route')
+
     try {
       return await best.parsed.route.handler(request, best.params)
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error'
+      logger.error({ method, pathname, error: message }, '[Router] Handler error')
       return new Response(JSON.stringify({ error: message }), {
         status: 500,
         headers: { 'Content-Type': 'application/json' },

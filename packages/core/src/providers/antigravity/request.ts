@@ -135,7 +135,7 @@ export function transform(request: UnifiedRequest): AntigravityRequest {
 
   if (tools && tools.length > 0) {
     transformedTools = transformTools(tools)
-    // Antigravity always uses VALIDATED mode
+    // Use VALIDATED mode for strict function calling
     toolConfig = {
       functionCallingConfig: {
         mode: 'VALIDATED',
@@ -402,16 +402,28 @@ function parseThinkingConfig(thinkingConfig?: AntigravityThinkingConfig) {
  * Transform UnifiedMessages to Gemini contents
  */
 function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
+  // Build a map of toolCallId -> toolName from all messages in the request
+  const toolNameMap = new Map<string, string>()
+  for (const message of messages) {
+    if (message.parts) {
+      for (const part of message.parts) {
+        if (part.type === 'tool_call' && part.toolCall) {
+          toolNameMap.set(part.toolCall.id, part.toolCall.name)
+        }
+      }
+    }
+  }
+
   return messages.map((message) => ({
     role: message.role === 'assistant' ? 'model' : 'user',
-    parts: message.parts.map(transformPart),
+    parts: message.parts.map((part) => transformPart(part, toolNameMap)),
   }))
 }
 
 /**
  * Transform a ContentPart to Gemini part
  */
-function transformPart(part: ContentPart): GeminiPart {
+function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): GeminiPart {
   switch (part.type) {
     case 'thinking':
       return {
@@ -436,17 +448,28 @@ function transformPart(part: ContentPart): GeminiPart {
       // Parse content back to object if it's a JSON string
       let response: Record<string, unknown>
       try {
-        response =
+        const parsed =
           typeof part.toolResult?.content === 'string'
             ? JSON.parse(part.toolResult?.content)
             : { result: part.toolResult?.content }
+
+        // Upstream API requires a Struct (JSON object), ensuring it's not an Array or null
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          response = parsed as Record<string, unknown>
+        } else {
+          response = { result: parsed }
+        }
       } catch {
         response = { result: part.toolResult?.content }
       }
 
+      // Resolve original tool name from the map using toolCallId
+      const toolCallId = part.toolResult?.toolCallId ?? ''
+      const originalName = toolNameMap?.get(toolCallId) || 'tool'
+
       return {
         functionResponse: {
-          name: 'tool', // Will be matched by ID
+          name: encodeAntigravityToolName(originalName),
           response,
           id: part.toolResult?.toolCallId,
         },

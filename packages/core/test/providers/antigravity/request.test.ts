@@ -669,6 +669,31 @@ describe("Antigravity Request Transformations", () => {
           "call-123"
         );
       });
+
+      it("should wrap array tool result content in an object", () => {
+        const unifiedRequest = createUnifiedRequest({
+          messages: [
+            {
+              role: "tool",
+              parts: [
+                {
+                  type: "tool_result",
+                  toolResult: {
+                    toolCallId: "call-123",
+                    content: "[1, 2, 3]", // Array content
+                  },
+                },
+              ],
+            },
+          ],
+        });
+
+        const result = transform(unifiedRequest) as AntigravityRequest;
+
+        expect(
+          result.request.contents[0]!.parts[0]!.functionResponse?.response
+        ).toEqual({ result: [1, 2, 3] });
+      });
     });
 
     describe("thinking blocks transformation", () => {

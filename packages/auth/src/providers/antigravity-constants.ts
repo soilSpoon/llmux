@@ -17,15 +17,13 @@ export const ANTIGRAVITY_ENDPOINT_PROD: string = 'https://cloudcode-pa.googleapi
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID: string = 'rising-fact-p41fc'
 export const ANTIGRAVITY_API_PATH_GENERATE: string = '/v1internal:generateContent'
 export const ANTIGRAVITY_API_PATH_STREAM: string = '/v1internal:streamGenerateContent?alt=sse'
-export const ANTIGRAVITY_ENDPOINT_FALLBACKS: readonly [string, string, string] = [
+export const ANTIGRAVITY_ENDPOINT_FALLBACKS: readonly [string, string] = [
   ANTIGRAVITY_ENDPOINT_DAILY,
-  ANTIGRAVITY_ENDPOINT_AUTOPUSH,
   ANTIGRAVITY_ENDPOINT_PROD,
 ] as const
-export const ANTIGRAVITY_LOAD_ENDPOINTS: readonly [string, string, string] = [
+export const ANTIGRAVITY_LOAD_ENDPOINTS: readonly [string, string] = [
   ANTIGRAVITY_ENDPOINT_PROD,
   ANTIGRAVITY_ENDPOINT_DAILY,
-  ANTIGRAVITY_ENDPOINT_AUTOPUSH,
 ] as const
 export const ANTIGRAVITY_HEADERS = {
   'User-Agent': 'antigravity/1.11.5 windows/amd64',

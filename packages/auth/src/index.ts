@@ -14,6 +14,7 @@ export {
   pollForToken,
   requestDeviceCode,
 } from './providers/github-copilot'
+export { OpenAIWebProvider } from './providers/openai-web'
 export { OpencodeZenProvider } from './providers/opencode-zen'
 export { AuthProviderRegistry } from './providers/registry'
 export { TokenRefresh } from './refresh'

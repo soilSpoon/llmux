@@ -210,14 +210,28 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
     // Function call chunk - decode tool name
     if (part.functionCall) {
       const fc = part.functionCall as Record<string, unknown>
+      const name = decodeAntigravityToolName(fc.name as string)
+      let args = fc.args as Record<string, unknown>
+
+      // Bash compatibility: Copy 'command' to 'cmd' if needed (matching Go implementation)
+      if (
+        (name.toLowerCase() === 'bash' || name === 'bash_20241022') &&
+        args &&
+        typeof args === 'object'
+      ) {
+        if ('command' in args && !('cmd' in args)) {
+          args = { ...args, cmd: args.command }
+        }
+      }
+
       return {
         type: 'tool_call',
         delta: {
           type: 'tool_call',
           toolCall: {
             id: (fc.id as string) || `${fc.name}-${randomUUID()}`,
-            name: decodeAntigravityToolName(fc.name as string),
-            arguments: fc.args as Record<string, unknown>,
+            name: name,
+            arguments: args,
           },
         },
       }

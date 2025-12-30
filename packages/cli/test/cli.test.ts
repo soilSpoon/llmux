@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
-import { CredentialStorage } from '@llmux/auth'
+import { AuthProviderRegistry, CredentialStorage, OpenAIWebProvider } from '@llmux/auth'
 import { ConfigLoader } from '@llmux/server'
 import { mkdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -121,6 +121,68 @@ describe('CLI', () => {
       const routing = await ConfigLoader.get('routing')
       expect(routing.fallbackOrder).toContain('anthropic')
       expect(routing.rotateOn429).toBe(true)
+    })
+  })
+
+  describe('openai-web provider', () => {
+    const testDir = join(tmpdir(), 'llmux-cli-openai-web-test')
+    const originalHome = process.env.HOME
+
+    beforeEach(async () => {
+      await mkdir(testDir, { recursive: true })
+      process.env.HOME = testDir
+      AuthProviderRegistry.register(OpenAIWebProvider)
+    })
+
+    afterEach(async () => {
+      process.env.HOME = originalHome
+      await rm(testDir, { recursive: true, force: true })
+      AuthProviderRegistry.clear()
+    })
+
+    it('openai-web provider is registered', () => {
+      const provider = AuthProviderRegistry.get('openai-web')
+      expect(provider).toBeDefined()
+      expect(provider?.id).toBe('openai-web')
+      expect(provider?.name).toBe('OpenAI (Web)')
+    })
+
+    it('openai-web provider has oauth method', () => {
+      const provider = AuthProviderRegistry.get('openai-web')
+      expect(provider?.methods).toHaveLength(1)
+      expect(provider?.methods[0]?.type).toBe('oauth')
+      expect(provider?.methods[0]?.label).toBe('ChatGPT Plus/Pro (Web Login)')
+    })
+
+    it('should store openai-web OAuth credential', async () => {
+      await CredentialStorage.add('openai-web', {
+        type: 'oauth',
+        accessToken: 'test-access-token',
+        refreshToken: 'test-refresh-token',
+        expiresAt: Date.now() + 3600000,
+        accountId: 'user_123',
+      })
+
+      const credentials = await CredentialStorage.get('openai-web')
+      expect(credentials).toHaveLength(1)
+      expect(credentials[0]?.type).toBe('oauth')
+      if (credentials[0]?.type === 'oauth') {
+        expect(credentials[0].accessToken).toBe('test-access-token')
+        expect(credentials[0].accountId).toBe('user_123')
+      }
+    })
+
+    it('should remove openai-web credential on logout', async () => {
+      await CredentialStorage.add('openai-web', {
+        type: 'oauth',
+        accessToken: 'test-token',
+        refreshToken: 'test-refresh',
+        expiresAt: Date.now() + 3600000,
+      })
+
+      await CredentialStorage.remove('openai-web')
+      const credentials = await CredentialStorage.get('openai-web')
+      expect(credentials).toEqual([])
     })
   })
 })

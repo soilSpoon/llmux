@@ -4,12 +4,16 @@ export interface EndpointOptions {
   streaming?: boolean
 }
 
+export interface HeaderOptions {
+  model?: string
+}
+
 export interface AuthProvider {
   id: ProviderID
   name: string
   methods: AuthMethod[]
   getCredential(): Promise<Credential | undefined>
-  getHeaders(credential: Credential): Promise<Record<string, string>>
+  getHeaders(credential: Credential, options?: HeaderOptions): Promise<Record<string, string>>
   getEndpoint(model: string, options?: EndpointOptions): string
   refresh?(credential: Credential): Promise<Credential>
   rotate?(): void

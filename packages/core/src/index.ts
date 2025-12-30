@@ -31,6 +31,7 @@ export {
   getModelFamily,
   SignatureCache,
 } from './cache/signature'
+export { SQLiteStorage } from './cache/storage'
 // AI SDK Provider
 export { AiSdkProvider } from './providers/ai-sdk'
 export {
@@ -85,13 +86,20 @@ export type {
 } from './providers/gemini/types'
 // Provider implementations
 export { OpenAIProvider } from './providers/openai'
-// Provider-specific types
+export type { OpenAIApiFormat } from './providers/openai/format-detector'
+// OpenAI API format detection
+export {
+  detectOpenAIApiFormat,
+  isChatCompletionsRequest,
+  isResponsesApiRequest,
+} from './providers/openai/format-detector'
 export type {
   OpenAIMessage,
   OpenAIRequest,
   OpenAIResponse,
   OpenAITool,
 } from './providers/openai/types'
+export { OpenAIWebProvider } from './providers/openai-web'
 export { OpencodeZenProvider } from './providers/opencode-zen'
 // Provider registry
 export {

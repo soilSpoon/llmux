@@ -14,7 +14,7 @@ import {
   transformStreamChunk as transformStream,
 } from './streaming'
 import type { AnthropicRequest, AnthropicResponse } from './types'
-import { isAnthropicRequest, isAnthropicResponse } from './types'
+import { isAnthropicResponse } from './types'
 
 /**
  * Anthropic Provider implementation
@@ -39,11 +39,7 @@ export class AnthropicProvider extends BaseProvider {
    * Parse Anthropic request format into UnifiedRequest
    */
   parse(request: unknown): UnifiedRequest {
-    if (!isAnthropicRequest(request)) {
-      throw new Error(
-        'Invalid Anthropic request: missing required fields (model, messages, max_tokens)'
-      )
-    }
+    // Validation is handled inside parse() to allow for normalization first
     return parse(request)
   }
 

@@ -8,6 +8,9 @@ export interface OAuthCredential {
   expiresAt: number
   projectId?: string
   email?: string
+  idToken?: string
+  accountId?: string
+  lastRefresh?: string
 }
 
 export interface ApiKeyCredential {

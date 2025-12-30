@@ -35,21 +35,48 @@ export const OpencodeZenProvider: AuthProvider = {
     return credentials[0]
   },
 
-  async getHeaders(credential: Credential): Promise<Record<string, string>> {
-    console.log('[OpencodeZen] Getting headers for credential type:', credential.type)
-    const baseHeaders = {
+  async getHeaders(
+    credential: Credential,
+    options?: { model?: string }
+  ): Promise<Record<string, string>> {
+    const model = options?.model || ''
+    console.log(
+      '[OpencodeZen] Getting headers for credential type:',
+      credential.type,
+      'model:',
+      model
+    )
+
+    // GPT-5 series uses OpenAI format (Authorization: Bearer)
+    const isOpenAIFormat = model.startsWith('gpt-5') || model.startsWith('gpt-4')
+
+    if (isOpenAIFormat) {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      }
+
+      if (isApiKeyCredential(credential)) {
+        headers.Authorization = `Bearer ${credential.key}`
+      } else if (isOAuthCredential(credential)) {
+        headers.Authorization = `Bearer ${credential.accessToken}`
+      }
+
+      return headers
+    }
+
+    // Anthropic/Claude format (x-api-key)
+    const baseHeaders: Record<string, string> = {
       'Content-Type': 'application/json',
-      'anthropic-version': '2023-06-01', // Required for Anthropic-compatible endpoints
+      'anthropic-version': '2023-06-01',
     }
 
     if (isApiKeyCredential(credential)) {
       return {
         ...baseHeaders,
-        'x-api-key': credential.key, // Use x-api-key for Anthropic format
+        'x-api-key': credential.key,
       }
     }
 
-    // Fallback if somehow oauth credential is used (though methods say api only)
     if (isOAuthCredential(credential)) {
       return {
         ...baseHeaders,

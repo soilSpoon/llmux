@@ -3,6 +3,7 @@ import {
   AntigravityProvider,
   AuthProviderRegistry,
   GithubCopilotProvider,
+  OpenAIWebProvider,
   OpencodeZenProvider,
 } from '@llmux/auth'
 import yargs from 'yargs'
@@ -18,6 +19,7 @@ import { CancelledError } from './errors'
 AuthProviderRegistry.register(OpencodeZenProvider)
 AuthProviderRegistry.register(GithubCopilotProvider)
 AuthProviderRegistry.register(AntigravityProvider)
+AuthProviderRegistry.register(OpenAIWebProvider)
 
 const cli = yargs(hideBin(process.argv))
   .scriptName('llmux')

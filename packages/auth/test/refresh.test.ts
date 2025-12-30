@@ -269,4 +269,78 @@ describe("TokenRefresh", () => {
       AuthProviderRegistry.unregister?.("multi-provider");
     });
   });
+
+  describe("openai-web integration", () => {
+    test("refreshes openai-web OAuth credential", async () => {
+      const { OpenAIWebProvider } = await import("../src/providers/openai-web");
+      
+      const expiringSoon: OAuthCredential = {
+        type: "oauth",
+        accessToken: "old-codex-token",
+        refreshToken: "old-codex-refresh",
+        expiresAt: Date.now() + 60 * 1000, // 1 minute (within buffer)
+        accountId: "user_123",
+        email: "codex@example.com",
+      };
+
+      const mockRefreshResponse = {
+        access_token: "new-codex-token",
+        refresh_token: "new-codex-refresh",
+        expires_in: 3600,
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(async () => {
+        return new Response(JSON.stringify(mockRefreshResponse), { status: 200 });
+      }) as any;
+
+      try {
+        AuthProviderRegistry.register(OpenAIWebProvider);
+        await CredentialStorage.add("openai-web", expiringSoon);
+
+        const result = await TokenRefresh.ensureFresh("openai-web");
+
+        expect(result).toHaveLength(1);
+        const refreshed = result[0] as OAuthCredential;
+        expect(refreshed.accessToken).toBe("new-codex-token");
+        expect(refreshed.refreshToken).toBe("new-codex-refresh");
+        expect(refreshed.expiresAt).toBeGreaterThan(Date.now());
+        // Should preserve accountId
+        expect(refreshed.accountId).toBe("user_123");
+      } finally {
+        globalThis.fetch = originalFetch;
+        AuthProviderRegistry.unregister?.("openai-web");
+      }
+    });
+
+    test("openai-web refresh handles failure gracefully", async () => {
+      const { OpenAIWebProvider } = await import("../src/providers/openai-web");
+      
+      const expiringSoon: OAuthCredential = {
+        type: "oauth",
+        accessToken: "old-token",
+        refreshToken: "invalid-refresh",
+        expiresAt: Date.now() + 60 * 1000,
+      };
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = mock(async () => {
+        return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
+      }) as any;
+
+      try {
+        AuthProviderRegistry.register(OpenAIWebProvider);
+        await CredentialStorage.add("openai-web", expiringSoon);
+
+        const result = await TokenRefresh.ensureFresh("openai-web");
+
+        // Should keep old credential on failure
+        expect(result).toHaveLength(1);
+        expect((result[0] as OAuthCredential).accessToken).toBe("old-token");
+      } finally {
+        globalThis.fetch = originalFetch;
+        AuthProviderRegistry.unregister?.("openai-web");
+      }
+    });
+  });
 });

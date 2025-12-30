@@ -7,18 +7,93 @@
  */
 
 import crypto from 'node:crypto'
-import { type CacheKey, createLogger, createTextHash, SignatureCache } from '@llmux/core'
+import {
+  type CacheKey,
+  createLogger,
+  createTextHash,
+  SignatureCache,
+  SQLiteStorage,
+} from '@llmux/core'
+import {
+  analyzeConversationState,
+  closeToolLoopForThinking,
+  needsThinkingRecovery,
+} from './thinking-recovery'
 
 const logger = createLogger({ service: 'signature-integration' })
 
 // Singleton cache instance for the server
+// Uses persistent SQLite storage in ~/.llmux/signatures.db
 const signatureCache = new SignatureCache({
-  ttl: 60 * 60 * 1000, // 1 hour
+  ttl: 60 * 60 * 1000, // 1 hour memory TTL
   maxEntriesPerSession: 100,
+  storage: new SQLiteStorage(), // Layer 3: Persistent Storage
 })
 
 // Fallback: Last signed thinking per session key (for tool use cases)
 const lastSignedThinkingBySessionKey = new Map<string, { text: string; signature: string }>()
+
+// ============================================================================
+// LAYER 2: Global Signature Store (Antigravity method)
+// ============================================================================
+// Captures the most recent valid thoughtSignature globally.
+// Used as fallback when session-specific cache misses.
+const globalThoughtSignatureStore: {
+  signature: string | null
+  timestamp: number
+} = {
+  signature: null,
+  timestamp: 0,
+}
+
+/**
+ * Store a signature in the global store (overwrites previous).
+ * Used to capture signatures from streaming responses.
+ */
+export function storeGlobalThoughtSignature(signature: string): void {
+  if (signature && signature.length >= MIN_SIGNATURE_LENGTH) {
+    globalThoughtSignatureStore.signature = signature
+    globalThoughtSignatureStore.timestamp = Date.now()
+    logger.debug(
+      {
+        signatureLength: signature.length,
+        timestamp: globalThoughtSignatureStore.timestamp,
+      },
+      'Stored signature in global store (Layer 2 fallback)'
+    )
+  }
+}
+
+/**
+ * Get the most recent global thought signature.
+ * Returns undefined if signature is older than 10 minutes.
+ */
+export function getGlobalThoughtSignature(): string | undefined {
+  const { signature, timestamp } = globalThoughtSignatureStore
+  if (!signature) return undefined
+
+  const age = Date.now() - timestamp
+  const MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
+
+  if (age > MAX_AGE_MS) {
+    logger.debug(
+      { ageSeconds: Math.floor(age / 1000) },
+      'Global signature expired (Layer 2 fallback timeout)'
+    )
+    return undefined
+  }
+
+  return signature
+}
+
+/**
+ * Clear the global signature store.
+ */
+export function clearGlobalThoughtSignature(): void {
+  globalThoughtSignatureStore.signature = null
+  globalThoughtSignatureStore.timestamp = 0
+  logger.debug({}, 'Cleared global signature store')
+}
 
 const MIN_SIGNATURE_LENGTH = 50
 
@@ -254,13 +329,17 @@ export function cacheSignatureFromChunk(
         signature,
       })
 
+      // 🔧 LAYER 2: Store in global signature store (Antigravity method)
+      // This is used as fallback when session-specific cache misses on subsequent requests
+      storeGlobalThoughtSignature(signature)
+
       logger.debug(
         {
           sessionKey,
           textLength: fullText.length,
           signatureLength: signature.length,
         },
-        'Cached thinking signature'
+        'Cached thinking signature (Layer 1 session + Layer 2 global)'
       )
     }
   }
@@ -272,25 +351,60 @@ export function cacheSignatureFromChunk(
 
 /**
  * Ensure thinking blocks in the request have proper signatures.
+ * Follows OpenCode v2.0 strategy with 3-layer defense:
+ * 1. Strip ALL thinking blocks first (prevents corruption)
+ * 2. Selectively inject cached thinking (Layer 1: session, Layer 2: global)
+ * 3. If still no thinking in tool loop, separate turn (Layer 3/4)
+ *
  * Modifies the request body in place.
  */
 export function ensureThinkingSignatures(
   requestBody: Record<string, unknown>,
-  sessionKey: string
+  sessionKey: string,
+  model?: string
 ): void {
   const typedBody = requestBody as UnifiedRequestBody
 
-  // Handle Gemini-style contents
+  // Only process Claude thinking models
+  if (!model || !shouldCacheSignatures(model)) {
+    return
+  }
+
+  // STEP 1: Strip ALL thinking blocks to prevent corruption
+  // (Deep recursive filter to handle nested structures)
+  if (Array.isArray(typedBody.contents)) {
+    typedBody.contents = stripAllThinkingFromContents(typedBody.contents, sessionKey)
+  }
+  if (Array.isArray(typedBody.messages)) {
+    typedBody.messages = stripAllThinkingFromMessages(typedBody.messages, sessionKey)
+  }
+
+  // Handle wrapped request format
+  if (typedBody.request && typeof typedBody.request === 'object') {
+    if (Array.isArray(typedBody.request.contents)) {
+      typedBody.request.contents = stripAllThinkingFromContents(
+        typedBody.request.contents,
+        sessionKey
+      )
+    }
+    if (Array.isArray(typedBody.request.messages)) {
+      typedBody.request.messages = stripAllThinkingFromMessages(
+        typedBody.request.messages,
+        sessionKey
+      )
+    }
+  }
+
+  // STEP 2: Inject cached thinking only for tool-use cases
+  // (Only inject before tool_use blocks to prevent invalid signatures)
   if (Array.isArray(typedBody.contents)) {
     typedBody.contents = ensureSignaturesInContents(typedBody.contents, sessionKey)
   }
-
-  // Handle Anthropic-style messages
   if (Array.isArray(typedBody.messages)) {
     typedBody.messages = ensureSignaturesInMessages(typedBody.messages, sessionKey)
   }
 
-  // Handle wrapped request format
+  // Handle wrapped request format (step 2)
   if (typedBody.request && typeof typedBody.request === 'object') {
     if (Array.isArray(typedBody.request.contents)) {
       typedBody.request.contents = ensureSignaturesInContents(
@@ -298,11 +412,152 @@ export function ensureThinkingSignatures(
         sessionKey
       )
     }
+    if (Array.isArray(typedBody.request.messages)) {
+      typedBody.request.messages = ensureSignaturesInMessages(
+        typedBody.request.messages,
+        sessionKey
+      )
+    }
+  }
+
+  // ============================================================================
+  // STEP 3: Apply Layer 3/4 recovery if needed
+  // Last resort: separate turn if we're in tool loop without thinking
+  // ============================================================================
+
+  // Helper to check if a content array has thinking blocks (Layer 2 success indicator)
+  const hasThinkingBlocks = (items: Array<Content | Message>): boolean => {
+    return items.some((item) => {
+      // Check Gemini parts
+      if ('parts' in item && Array.isArray(item.parts)) {
+        return item.parts.some(isThinkingPart)
+      }
+      // Check Anthropic blocks
+      if ('content' in item && Array.isArray(item.content)) {
+        return item.content.some((block): block is Block => isThinkingPart(block as Part))
+      }
+      return false
+    })
+  }
+
+  // Apply Layer 3 recovery if no thinking present in tool loop
+  if (Array.isArray(typedBody.contents)) {
+    const state = analyzeConversationState(typedBody.contents)
+    if (needsThinkingRecovery(state) && !hasThinkingBlocks(typedBody.contents)) {
+      typedBody.contents = closeToolLoopForThinking(typedBody.contents)
+      logger.info(
+        { sessionKey },
+        'Applied Layer 4 recovery: separated tool loop for thinking generation'
+      )
+    }
+  }
+
+  if (Array.isArray(typedBody.messages)) {
+    const state = analyzeConversationState(typedBody.messages)
+    if (needsThinkingRecovery(state) && !hasThinkingBlocks(typedBody.messages)) {
+      typedBody.messages = closeToolLoopForThinking(typedBody.messages)
+      logger.info(
+        { sessionKey },
+        'Applied Layer 4 recovery: separated tool loop for thinking generation (messages)'
+      )
+    }
+  }
+
+  if (typedBody.request && typeof typedBody.request === 'object') {
+    const req = typedBody.request as UnifiedRequestBody
+    if (Array.isArray(req.contents)) {
+      const state = analyzeConversationState(req.contents)
+      if (needsThinkingRecovery(state) && !hasThinkingBlocks(req.contents)) {
+        req.contents = closeToolLoopForThinking(req.contents)
+        logger.info(
+          { sessionKey },
+          'Applied Layer 4 recovery: separated tool loop for thinking generation (wrapped request)'
+        )
+      }
+    }
+    if (Array.isArray(req.messages)) {
+      const state = analyzeConversationState(req.messages)
+      if (needsThinkingRecovery(state) && !hasThinkingBlocks(req.messages)) {
+        req.messages = closeToolLoopForThinking(req.messages)
+        logger.info(
+          { sessionKey },
+          'Applied Layer 4 recovery: separated tool loop for thinking generation (wrapped messages)'
+        )
+      }
+    }
   }
 }
 
-function ensureSignaturesInContents(contents: Content[], sessionKey: string): Content[] {
+/**
+ * STEP 1: Strip all thinking blocks from contents array.
+ * Recursively removes thinking/reasoning parts to prevent corruption.
+ */
+function stripAllThinkingFromContents(contents: Content[], _sessionKey: string): Content[] {
   return contents.map((content) => {
+    if (!content || typeof content !== 'object') {
+      return content
+    }
+
+    if (!Array.isArray(content.parts)) {
+      return content
+    }
+
+    // Filter out all thinking parts
+    const nonThinkingParts = content.parts.filter((part) => {
+      if (!part || typeof part !== 'object') {
+        return true
+      }
+      const p = part as Part
+      // Remove if it's a thinking part
+      if (p.thought === true || p.type === 'thinking' || p.type === 'reasoning') {
+        return false
+      }
+      return true
+    })
+
+    return { ...content, parts: nonThinkingParts }
+  })
+}
+
+/**
+ * STEP 1: Strip all thinking blocks from messages array.
+ * Recursively removes thinking/reasoning blocks to prevent corruption.
+ */
+function stripAllThinkingFromMessages(messages: Message[], _sessionKey: string): Message[] {
+  return messages.map((message) => {
+    if (!message || typeof message !== 'object') {
+      return message
+    }
+
+    if (!Array.isArray(message.content)) {
+      return message
+    }
+
+    // Filter out all thinking blocks
+    const nonThinkingContent = (message.content as Block[]).filter((block) => {
+      if (!block || typeof block !== 'object') {
+        return true
+      }
+      const b = block as Block
+      // Remove if it's a thinking block
+      if (b.type === 'thinking' || b.type === 'redacted_thinking') {
+        return false
+      }
+      return true
+    })
+
+    return { ...message, content: nonThinkingContent }
+  })
+}
+
+function ensureSignaturesInContents(contents: Content[], sessionKey: string): Content[] {
+  // Find the last model/assistant message index
+  const lastModelIndex = findLastIndex(
+    contents,
+    (c: Content) => c?.role === 'model' || c?.role === 'assistant'
+  )
+
+  return contents.map((content, index) => {
     if (!content || typeof content !== 'object' || !Array.isArray(content.parts)) {
       return content
     }
@@ -314,44 +569,69 @@ function ensureSignaturesInContents(contents: Content[], sessionKey: string): Co
 
     const parts = content.parts
     const hasToolUse = parts.some(isToolUsePart)
-    if (!hasToolUse) {
+    const isLastModelMessage = index === lastModelIndex
+
+    // Process if tool_use is present OR if this is the last model message
+    // Claude API requires: thinking before tool_use AND final assistant must start with thinking
+    if (!hasToolUse && !isLastModelMessage) {
       return content
     }
 
-    // Process thinking parts
+    // Process existing thinking parts (restore signatures if cached)
     const thinkingParts = parts
       .filter(isThinkingPart)
       .map((p) => ensurePartSignature(p, sessionKey))
     const otherParts = parts.filter((p) => !isThinkingPart(p))
     const hasSignedThinking = thinkingParts.some(hasValidSignature)
 
+    // If existing thinking has valid signatures, use them
     if (hasSignedThinking) {
       return { ...content, parts: [...thinkingParts, ...otherParts] }
     }
 
-    // Fallback: inject last signed thinking
+    // STEP 2: Inject cached thinking for tool-use case
+    // After Step 1 (stripping), re-inject cached thinking if available.
+    // This is necessary because Claude API requires thinking before tool_use blocks.
+    // Since we stripped all thinking in Step 1, we need to re-inject the last signed thinking.
+
+    // 🔧 LAYER 1: Try session-specific cache first (highest priority)
     const lastThinking = lastSignedThinkingBySessionKey.get(sessionKey)
-    if (!lastThinking) {
-      return content
+    if (lastThinking) {
+      const injected: Part = {
+        thought: true,
+        text: lastThinking.text,
+        thoughtSignature: lastThinking.signature,
+      }
+
+      return { ...content, parts: [injected, ...otherParts] }
     }
 
-    const injected: Part = {
-      thought: true,
-      text: lastThinking.text,
-      thoughtSignature: lastThinking.signature,
+    // 🔧 LAYER 2: Try global signature store (Antigravity fallback)
+    // Uses the most recent valid signature from any session
+    // Must apply to BOTH tool_use cases AND the last model message
+    // (Claude API requires: thinking before tool_use AND final assistant must start with thinking)
+    const globalSig = getGlobalThoughtSignature()
+    if (globalSig && (hasToolUse || isLastModelMessage)) {
+      const injected: Part = {
+        thought: true,
+        text: '[Resuming analysis...]', // Generic placeholder text
+        thoughtSignature: globalSig,
+      }
+
+      return { ...content, parts: [injected, ...otherParts] }
     }
 
-    logger.debug(
-      { sessionKey, textLength: lastThinking.text.length },
-      'Injected fallback thinking signature'
-    )
-
-    return { ...content, parts: [injected, ...otherParts] }
+    // No cached thinking available - return content as-is
+    // Claude will generate fresh thinking when needed
+    return content
   })
 }
 
 function ensureSignaturesInMessages(messages: Message[], sessionKey: string): Message[] {
-  return messages.map((message) => {
+  // Find the last assistant message index
+  const lastAssistantIndex = findLastIndex(messages, (m: Message) => m?.role === 'assistant')
+
+  return messages.map((message, index) => {
     if (!message || typeof message !== 'object' || !Array.isArray(message.content)) {
       return message
     }
@@ -362,10 +642,15 @@ function ensureSignaturesInMessages(messages: Message[], sessionKey: string): Me
 
     const blocks = message.content as Block[]
     const hasToolUse = blocks.some((b) => b?.type === 'tool_use' || b?.type === 'tool_result')
-    if (!hasToolUse) {
+    const isLastAssistantMessage = index === lastAssistantIndex
+
+    // Process if tool_use is present OR if this is the last assistant message
+    // Claude API requires: thinking before tool_use AND final assistant must start with thinking
+    if (!hasToolUse && !isLastAssistantMessage) {
       return message
     }
 
+    // Process existing thinking blocks (restore signatures if cached)
     const thinkingBlocks = blocks
       .filter((b) => b?.type === 'thinking' || b?.type === 'redacted_thinking')
       .map((b) => ensureBlockSignature(b, sessionKey))
@@ -376,23 +661,43 @@ function ensureSignaturesInMessages(messages: Message[], sessionKey: string): Me
       (b) => typeof b.signature === 'string' && b.signature.length >= MIN_SIGNATURE_LENGTH
     )
 
+    // If existing thinking has valid signatures, use them
     if (hasSignedThinking) {
       return { ...message, content: [...thinkingBlocks, ...otherBlocks] }
     }
 
-    // Fallback
+    // STEP 2: Inject cached thinking for tool-use case
+    // After Step 1 (stripping), re-inject cached thinking if available.
+    // This is necessary because Claude API requires thinking before tool_use blocks.
+
+    // 🔧 LAYER 1: Try session-specific cache first (highest priority)
     const lastThinking = lastSignedThinkingBySessionKey.get(sessionKey)
-    if (!lastThinking) {
-      return message
+    if (lastThinking) {
+      const injected: Block = {
+        type: 'thinking',
+        thinking: lastThinking.text,
+        signature: lastThinking.signature,
+      }
+
+      return { ...message, content: [injected, ...otherBlocks] }
     }
 
-    const injected: Block = {
-      type: 'thinking',
-      thinking: lastThinking.text,
-      signature: lastThinking.signature,
+    // 🔧 LAYER 2: Try global signature store (Antigravity fallback)
+    // Uses the most recent valid signature from any session
+    const globalSig = getGlobalThoughtSignature()
+    if (globalSig && hasToolUse) {
+      const injected: Block = {
+        type: 'thinking',
+        thinking: '[Resuming analysis...]', // Generic placeholder text
+        signature: globalSig,
+      }
+
+      return { ...message, content: [injected, ...otherBlocks] }
     }
 
-    return { ...message, content: [injected, ...otherBlocks] }
+    // No cached thinking available - return message as-is
+    // Claude will generate fresh thinking when needed
+    return message
   })
 }
 
@@ -496,3 +801,15 @@ function restoreSignature(sessionKey: string, text: string): string | undefined 
 
 // Export the cache for testing
 export { signatureCache }
+
+/**
+ * Polyfill-like helper for findLastIndex
+ */
+function findLastIndex<T>(array: T[], predicate: (item: T, index: number) => boolean): number {
+  for (let i = array.length - 1; i >= 0; i--) {
+    if (predicate(array[i] as T, i)) {
+      return i
+    }
+  }
+  return -1
+}
