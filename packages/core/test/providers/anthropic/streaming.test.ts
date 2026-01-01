@@ -84,7 +84,7 @@ data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use"
       expect(result?.delta?.toolCall?.name).toBe("get_weather");
     });
 
-    it("should parse input_json_delta event", () => {
+    it("should parse input_json_delta event to partialJson", () => {
       const sseData = `event: content_block_delta
 data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"location\\": \\"NYC"}}`;
 
@@ -92,7 +92,7 @@ data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta"
 
       expect(result).not.toBeNull();
       expect(result?.type).toBe("tool_call");
-      // partial_json is accumulated, we just pass it through
+      expect(result?.delta?.partialJson).toBe('{"location": "NYC');
     });
 
     it("should parse content_block_stop event", () => {
@@ -354,6 +354,38 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
       expect(deltaResult).toContain("input_json_delta");
       expect(deltaResult).toContain('{\\"location\\": \\"Seoul\\"}');
     });
+
+    it("should transform partialJson chunk to chunked input_json_delta SSE", () => {
+      // Simulating a chunk with partialJson (as would come from parseStreamChunk)
+      const partialJsonChunk: StreamChunk = {
+        type: "tool_call",
+        delta: {
+          partialJson: '{"title": "Hello", "count": 42}', // Complete JSON string
+        },
+      };
+
+      const result = transformStreamChunk(partialJsonChunk);
+      const output = Array.isArray(result)
+        ? result.join("")
+        : result;
+
+      // Should produce multiple input_json_delta events (chunked at 50 chars)
+      expect(output).toContain("content_block_delta");
+      expect(output).toContain("input_json_delta");
+      expect(output).toContain('{\\"title\\": \\"Hello\\", \\"count\\": 42}');
+    });
+
+    it("should handle empty partialJson gracefully", () => {
+      const emptyChunk: StreamChunk = {
+        type: "tool_call",
+        delta: {
+          partialJson: "", // Empty JSON
+        },
+      };
+
+      const result = transformStreamChunk(emptyChunk);
+      expect(result).toBe("");
+    });
   });
 
   describe("Stream parsing integration", () => {
@@ -451,6 +483,164 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
       // Check stop reason
       const usageChunk = chunks.find((c) => c.stopReason === "tool_use");
       expect(usageChunk).toBeDefined();
-    });
-  });
+      });
+
+     it("should accumulate partialJson chunks to complete JSON", () => {
+       const sseChunks = [
+         `event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_123","name":"calculate","input":{}}}`,
+         `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"x\\": 10"}}`,
+         `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":","}}`,
+         `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":" \\"y\\": 20}"}}`,
+       ];
+
+       const chunks: StreamChunk[] = [];
+       for (const sseData of sseChunks) {
+         const chunk = parseStreamChunk(sseData);
+         if (chunk) {
+           chunks.push(chunk);
+         }
+       }
+
+       // Should have: 1 tool_call with toolCall (from content_block_start)
+       // + 3 tool_call chunks with partialJson
+       const toolChunks = chunks.filter((c) => c.type === "tool_call");
+       expect(toolChunks.length).toBe(4);
+
+       // Accumulate partialJson
+       let accumulated = "";
+       for (const chunk of toolChunks) {
+         if (chunk.delta?.partialJson) {
+           accumulated += chunk.delta.partialJson;
+         }
+       }
+       expect(accumulated).toBe('{"x": 10, "y": 20}');
+     });
+
+     it("should round-trip partialJson through unified format", () => {
+       // 1. Parse Anthropic input_json_delta to unified partialJson
+       const parseResult = parseStreamChunk(
+         `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"key\\": \\"val"}}`
+       );
+       expect(parseResult?.delta?.partialJson).toBe('{"key": "val');
+
+       // 2. Transform unified partialJson back to Anthropic input_json_delta
+       const transformResult = transformStreamChunk({
+         type: "tool_call",
+         delta: {
+           partialJson: '{"key": "val',
+         },
+       });
+
+       const output = Array.isArray(transformResult)
+         ? transformResult.join("")
+         : transformResult;
+       expect(output).toContain("input_json_delta");
+       expect(output).toContain('{\\"key\\": \\"val');
+     });
+
+     it("should transform partialJson + toolCall to content_block_start + input_json_delta SSE", () => {
+       // Bug fix: partialJson with toolCall metadata must send content_block_start first
+       // This happens when OpenAI format is converted to Anthropic (e.g., OpenAI → Anthropic)
+       const chunk: StreamChunk = {
+         type: "tool_call",
+         delta: {
+           partialJson: '{"title": "Set Thread Title"}',
+           toolCall: {
+             id: "call_abc123xyz",
+             name: "set_title",
+             arguments: '{"title": "Set Thread Title"}',
+           },
+         },
+       };
+
+       const transformResult = transformStreamChunk(chunk);
+       const output = Array.isArray(transformResult)
+         ? transformResult.join("\n\n")
+         : transformResult;
+
+       // 1. Must include content_block_start with ID/Name
+       expect(output).toContain("content_block_start");
+       expect(output).toContain("tool_use");
+       expect(output).toContain("call_abc123xyz");
+       expect(output).toContain("set_title");
+
+       // 2. Must also include input_json_delta with the partial JSON
+       expect(output).toContain("input_json_delta");
+       expect(output).toContain('{\\"title\\": \\"Set Thread Title\\"}');
+
+       // 3. Verify it's an array (multiple events)
+       expect(Array.isArray(transformResult)).toBe(true);
+       if (Array.isArray(transformResult)) {
+         // Should have at least: content_block_start + input_json_delta
+         expect(transformResult.length).toBeGreaterThanOrEqual(2);
+         // First event should be content_block_start
+         expect(transformResult[0]).toContain("content_block_start");
+       }
+     });
+
+     it("should handle large partialJson + toolCall properly chunked", () => {
+       // Large JSON should be chunked into multiple input_json_delta events
+       // while maintaining content_block_start first
+       const largeJson = JSON.stringify({
+         items: Array.from({ length: 10 }, (_, i) => ({
+           id: `item_${i}`,
+           name: `Item ${i}`,
+           value: i * 100,
+         })),
+       });
+
+       const chunk: StreamChunk = {
+         type: "tool_call",
+         delta: {
+           partialJson: largeJson,
+           toolCall: {
+             id: "call_large_123",
+             name: "process_items",
+             arguments: largeJson,
+           },
+         },
+       };
+
+       const transformResult = transformStreamChunk(chunk);
+       const events = Array.isArray(transformResult) ? transformResult : [transformResult];
+
+       // First event must be content_block_start
+       expect(events[0]).toContain("content_block_start");
+       expect(events[0]).toContain("call_large_123");
+       expect(events[0]).toContain("process_items");
+
+       // Should have multiple events (content_block_start + multiple input_json_delta)
+       expect(events.length).toBeGreaterThan(1);
+
+       // Remaining events should all be input_json_delta
+       for (let i = 1; i < events.length; i++) {
+         expect(events[i]).toContain("input_json_delta");
+       }
+     });
+
+     it("should handle toolCall without partialJson (fallback to normal mode)", () => {
+       // When toolCall exists but partialJson is absent, use the normal tool_call path
+       const chunk: StreamChunk = {
+         type: "tool_call",
+         delta: {
+           toolCall: {
+             id: "call_normal",
+             name: "normal_tool",
+             arguments: '{"key": "value"}',
+           },
+         },
+       };
+
+       const transformResult = transformStreamChunk(chunk);
+       const output = Array.isArray(transformResult)
+         ? transformResult.join("\n\n")
+         : transformResult;
+
+       // Should still have content_block_start + input_json_delta
+       expect(output).toContain("content_block_start");
+       expect(output).toContain("call_normal");
+       expect(output).toContain("normal_tool");
+       expect(output).toContain("input_json_delta");
+     });
+   });
 });

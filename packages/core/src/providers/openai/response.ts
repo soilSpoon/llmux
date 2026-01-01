@@ -102,8 +102,8 @@ export function transformResponse(response: UnifiedResponse): OpenAIResponse {
 function parseMessageContent(message: OpenAIResponseMessage): ContentPart[] {
   const parts: ContentPart[] = []
 
-  // Add text content
-  if (message.content) {
+  // Add text content (skip if empty or whitespace-only)
+  if (message.content && message.content.trim() !== '') {
     parts.push({
       type: 'text',
       text: message.content,
@@ -230,9 +230,9 @@ function transformStopReason(reason: StopReason): OpenAIFinishReason {
 
 function parseUsage(usage: OpenAIUsage): UsageInfo {
   const result: UsageInfo = {
-    inputTokens: usage.prompt_tokens,
-    outputTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? 0,
   }
 
   // Extract cached tokens

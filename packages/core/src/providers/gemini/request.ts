@@ -382,12 +382,18 @@ function transformGenerationConfig(
   }
 
   // Transform thinking config
-  if (thinking?.enabled) {
-    result.thinkingConfig = {
-      includeThoughts: true,
-    }
-    if (thinking.budget !== undefined) {
-      result.thinkingConfig.thinkingBudget = thinking.budget
+  if (thinking) {
+    if (thinking.enabled) {
+      result.thinkingConfig = {
+        includeThoughts: true,
+      }
+      if (thinking.budget !== undefined) {
+        result.thinkingConfig.thinkingBudget = thinking.budget
+      }
+    } else {
+      result.thinkingConfig = {
+        thinkingBudget: 0,
+      }
     }
   }
 

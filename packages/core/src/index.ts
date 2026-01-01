@@ -157,3 +157,5 @@ export type {
 } from './types'
 // Logging
 export { createLogger, logger } from './util/logger'
+// Utilities
+export { stripSignaturesFromContents, stripThoughtSignatures } from './utils'

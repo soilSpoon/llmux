@@ -1,14 +1,19 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, test } from "bun:test";
 import "../../../test/setup";
 import {
-  cacheSignatureFromChunk,
-  ensureThinkingSignatures,
-  extractConversationKey,
-  type UnifiedRequestBody,
+	cacheSignatureFromChunk,
+	clearGlobalThoughtSignature,
+	ensureThinkingSignatures,
+	extractConversationKey,
+	type UnifiedRequestBody,
 } from "../signature-integration";
 
 describe("signature-integration - Enhanced Multi-Turn Tests", () => {
-  const TEST_SIGNATURE = "a".repeat(60);
+	const TEST_SIGNATURE = "a".repeat(60);
+
+	beforeEach(() => {
+		clearGlobalThoughtSignature();
+	});
 
   describe("STEP 1: stripAllThinkingFromContents - Gemini Format", () => {
     test("strips thinking blocks from contents[].parts[] when not last model message", () => {
@@ -134,8 +139,8 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
       expect(parts.length).toBe(2); // Only the two text parts remain
     });
 
-    test("does NOT strip thinking blocks for non-Claude models", () => {
-      const sessionKey = "test-gemini-keep-thinking";
+    test("also strips thinking blocks for Gemini models (unified behavior)", () => {
+      const sessionKey = "test-gemini-strip-thinking";
       const requestBody: UnifiedRequestBody = {
         contents: [
           {
@@ -150,10 +155,11 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
 
       ensureThinkingSignatures(requestBody, sessionKey, "gemini-2.5-flash");
 
-      const parts = requestBody.contents?.[0]?.parts as any[];
+      const parts = requestBody.contents?.[0]?.parts as { thought?: boolean; text?: string }[];
 
-      // For Gemini, thinking should NOT be stripped
-      expect(parts.some((p: any) => p.thought === true)).toBe(true);
+      // For Gemini, thinking IS now stripped (unified stripping behavior)
+      // but may be re-injected if there's tool_use with cached signature
+      expect(parts.some((p) => p.thought === true)).toBe(false);
     });
   });
 

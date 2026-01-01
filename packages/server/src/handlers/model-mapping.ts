@@ -6,6 +6,7 @@ import type { AmpModelMapping } from '../config'
 export interface ParsedModelMapping {
   model: string
   provider?: string
+  thinking?: boolean
 }
 
 /**
@@ -55,7 +56,11 @@ export function applyModelMappingV2(
   const to = mapping.to
   const targetString = Array.isArray(to) ? (to[0] ?? model) : to
 
-  return parseModelMapping(targetString)
+  const parsed = parseModelMapping(targetString)
+  return {
+    ...parsed,
+    thinking: mapping.thinking,
+  }
 }
 
 /**

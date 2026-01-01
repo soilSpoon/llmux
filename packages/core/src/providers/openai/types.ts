@@ -43,8 +43,19 @@ export interface OpenAIRequest {
   stream_options?: { include_usage: boolean }
 
   // Reasoning (o1/o3 models)
-  reasoning_effort?: 'low' | 'medium' | 'high'
+  reasoning_effort?: 'none' | 'low' | 'medium' | 'high'
   max_completion_tokens?: number
+
+  // Thinking (GLM models)
+  thinking?: OpenAIThinkingConfig
+}
+
+/**
+ * GLM thinking configuration
+ */
+export interface OpenAIThinkingConfig {
+  type?: 'enabled' | 'disabled'
+  clear_thinking?: boolean
 }
 
 /**
@@ -161,6 +172,17 @@ export interface OpenAIToolCall {
     name: string
     arguments: string // JSON string
   }
+}
+
+/**
+ * Flattened tool call format (from Responses API)
+ * When tool calls are flattened into the message array
+ */
+export interface OpenAIFlattenedToolCall {
+  type: 'function'
+  name: string
+  call_id: string
+  arguments: string // JSON string
 }
 
 /**

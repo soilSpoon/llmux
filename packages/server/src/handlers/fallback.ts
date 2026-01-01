@@ -3,8 +3,10 @@ import type { AmpModelMapping } from '../config'
 import { detectFormat } from '../middleware/format'
 import type { ModelLookup } from '../models/lookup'
 import type { RouteParams } from '../router'
+import type { Router } from '../routing'
 import type { UpstreamProxy } from '../upstream/proxy'
 import { applyModelMappingV2 } from './model-mapping'
+import { handleProxy } from './proxy'
 import { handleStreamingProxy } from './streaming'
 
 export type RouteHandler = (request: Request, params?: RouteParams) => Promise<Response>
@@ -63,17 +65,20 @@ export class FallbackHandler {
   private hasLocalProvider: ProviderChecker
   private modelMappings?: AmpModelMapping[]
   private modelLookup?: ModelLookup
+  private router?: Router
 
   constructor(
     getProxy: () => UpstreamProxy | null,
     providerChecker?: ProviderChecker,
     modelMappings?: AmpModelMapping[],
-    modelLookup?: ModelLookup
+    modelLookup?: ModelLookup,
+    router?: Router
   ) {
     this.getProxy = getProxy
     this.hasLocalProvider = providerChecker ?? (() => false)
     this.modelMappings = modelMappings
     this.modelLookup = modelLookup
+    this.router = router
   }
 
   wrap(handler: RouteHandler): RouteHandler {
@@ -226,16 +231,37 @@ export class FallbackHandler {
             }
           }
 
+          const bodyJson = JSON.parse(finalBodyText)
+          const isStreaming = bodyJson.stream === true
+
+          if (isStreaming) {
+            logger.info(
+              { model, provider: detectedProvider, sourceFormat },
+              'Routing to streaming handler'
+            )
+
+            return handleStreamingProxy(restoredRequest, {
+              sourceFormat,
+              targetProvider: detectedProvider,
+              targetModel: model,
+              thinking: mappingResult.thinking,
+              modelMappings: this.modelMappings,
+              router: this.router,
+            })
+          }
+
+          // Non-streaming: use handleProxy with alias and signature handling
           logger.info(
             { model, provider: detectedProvider, sourceFormat },
-            'Routing to streaming handler for detected provider'
+            'Routing to non-streaming handler'
           )
-
-          return handleStreamingProxy(restoredRequest, {
+          return handleProxy(restoredRequest, {
             sourceFormat,
             targetProvider: detectedProvider,
             targetModel: model,
+            thinking: mappingResult.thinking,
             modelMappings: this.modelMappings,
+            router: this.router,
           })
         }
 

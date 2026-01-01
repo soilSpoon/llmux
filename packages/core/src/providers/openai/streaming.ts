@@ -5,7 +5,10 @@
  */
 
 import type { StopReason, StreamChunk, UsageInfo } from '../../types/unified'
+import { createLogger } from '../../util/logger'
 import type { OpenAIDelta, OpenAIDeltaToolCall, OpenAIFinishReason, OpenAIUsage } from './types'
+
+const logger = createLogger({ service: 'openai-streaming' })
 
 /**
  * Parse an OpenAI SSE chunk into a StreamChunk.
@@ -255,10 +258,52 @@ export function transformStreamChunk(chunk: StreamChunk): string {
 // =============================================================================
 
 function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
-  // For streaming, arguments come as incremental strings
-  // We store the raw string for accumulation at the consumer level
+  // For streaming, arguments come as incremental JSON strings
+  // We store them in partialJson for proper cross-provider accumulation
   const args = toolCall.function?.arguments || ''
 
+  // Debug logging for tool call parsing
+  logger.debug(
+    {
+      toolId: toolCall.id,
+      toolName: toolCall.function?.name,
+      argsPreview: args.slice(0, 100),
+      hasArgs: !!args,
+    },
+    '[OPENAI] parseToolCallDelta'
+  )
+
+  // If we have an ID and name, emit a complete tool_call with the partial JSON
+  if ((toolCall.id || toolCall.function?.name) && args) {
+    return {
+      type: 'tool_call',
+      delta: {
+        type: 'tool_call',
+        partialJson: args,
+        toolCall:
+          toolCall.id || toolCall.function?.name
+            ? {
+                id: toolCall.id || '',
+                name: toolCall.function?.name || '',
+                arguments: args,
+              }
+            : undefined,
+      },
+    }
+  }
+
+  // Emit just the incremental JSON without full tool call info
+  if (args) {
+    return {
+      type: 'tool_call',
+      delta: {
+        type: 'tool_call',
+        partialJson: args,
+      },
+    }
+  }
+
+  // Fallback for tool call header (ID and name only, no arguments yet)
   return {
     type: 'tool_call',
     delta: {
@@ -266,20 +311,44 @@ function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
       toolCall: {
         id: toolCall.id || '',
         name: toolCall.function?.name || '',
-        // Store raw string in a wrapper - consumer will accumulate and parse
-        arguments: args,
+        arguments: '',
       },
     },
   }
 }
 
 function transformToolCallDelta(chunk: StreamChunk): OpenAIDeltaToolCall {
+  const partialJson = chunk.delta?.partialJson
   const toolCall = chunk.delta?.toolCall
 
   const result: OpenAIDeltaToolCall = {
     index: 0,
   }
 
+  // Handle partialJson streaming (incremental JSON arguments)
+  if (partialJson) {
+    logger.debug(
+      { partialJsonPreview: partialJson.slice(0, 100) },
+      '[OPENAI] transform partialJson'
+    )
+    result.function = {
+      arguments: partialJson,
+    }
+
+    // If we have toolCall info, add it to the result
+    if (toolCall?.id) {
+      result.id = toolCall.id
+      result.type = 'function'
+    }
+
+    if (toolCall?.name) {
+      result.function.name = toolCall.name
+    }
+
+    return result
+  }
+
+  // Handle full tool call transformation (non-streaming or initial emit)
   if (toolCall?.id) {
     result.id = toolCall.id
     result.type = 'function'
@@ -352,9 +421,9 @@ function transformStopReason(reason: StopReason): OpenAIFinishReason {
 
 function parseUsage(usage: OpenAIUsage): UsageInfo {
   return {
-    inputTokens: usage.prompt_tokens,
-    outputTokens: usage.completion_tokens,
-    totalTokens: usage.total_tokens,
+    inputTokens: usage.prompt_tokens ?? 0,
+    outputTokens: usage.completion_tokens ?? 0,
+    totalTokens: usage.total_tokens ?? 0,
   }
 }
 

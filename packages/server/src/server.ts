@@ -24,6 +24,7 @@ import type { RoutingConfig } from './config'
 import { CooldownManager } from './cooldown'
 import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
+import { parseModelMapping } from './handlers/model-mapping' // Import mapping parser
 import { handleModels } from './handlers/models'
 import { handleProxy, type ProxyOptions } from './handlers/proxy'
 import { handleResponses, type ResponsesOptions } from './handlers/responses'
@@ -111,6 +112,36 @@ interface BuildProxyOptionsParams {
 }
 
 function inferProvider(model: string): ProviderName {
+  // Check for explicit provider suffix first (just in case passed here, though mostly handled by caller)
+  if (model.includes(':')) {
+    const parts = model.split(':')
+    const providerCandidate = parts[parts.length - 1] ?? ''
+    if (
+      ['openai', 'anthropic', 'gemini', 'antigravity', 'opencode-zen', 'openai-web'].includes(
+        providerCandidate
+      )
+    ) {
+      return providerCandidate as ProviderName
+    }
+  }
+
+  // Antigravity specific definitions
+  if (model.startsWith('gemini-claude-') || model.includes('antigravity')) {
+    return 'antigravity'
+  }
+
+  // Opencode Zen specific definitions
+  if (
+    model === 'glm-4.7-free' ||
+    model.startsWith('glm-') || // Generally GLM models are Opencode Zen/OpenAI compatible but usually Zen provided
+    model === 'big-pickle' ||
+    model.startsWith('qwen-') ||
+    model.startsWith('kimi-') ||
+    model.startsWith('grok-')
+  ) {
+    return 'opencode-zen'
+  }
+
   if (model.includes('claude')) return 'anthropic'
   // Check openai-web models FIRST (more specific patterns)
   if (model.startsWith('gpt-5') || model.includes('codex')) return 'openai-web'
@@ -119,12 +150,7 @@ function inferProvider(model: string): ProviderName {
     model.startsWith('gpt-') ||
     model.startsWith('o1') ||
     model.startsWith('o3') ||
-    model.startsWith('o4') ||
-    model.startsWith('glm-') ||
-    model.startsWith('qwen') ||
-    model.startsWith('kimi') ||
-    model.startsWith('grok') ||
-    model === 'big-pickle'
+    model.startsWith('o4')
   )
     return 'openai'
   if (model.startsWith('gemini')) return 'gemini'
@@ -572,29 +598,52 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
 
     for (const mapping of modelMappings) {
       const targets = Array.isArray(mapping.to) ? mapping.to : [mapping.to]
-      const primaryModel = targets[0]
-      if (!primaryModel) continue
+      if (targets.length === 0) continue
 
-      // Infer provider for primary mapping
-      // Basic inference logic - extend logic if needed or use full map capabilities
-      const provider = inferProvider(primaryModel)
+      // Process primary model
+      const primaryTarget = targets[0]
+      if (!primaryTarget) continue
+      const primaryParsed = parseModelMapping(primaryTarget)
+      const primaryProvider =
+        (primaryParsed.provider as ProviderName) || inferProvider(primaryParsed.model || '')
 
+      // Process fallbacks
       const fallbacks = targets.slice(1)
+      const fallbackModels: string[] = []
+
+      for (const fallback of fallbacks) {
+        const fallbackParsed = parseModelMapping(fallback)
+        // Store only the model name in the fallback list, but register the mapping
+        fallbackModels.push(fallbackParsed.model)
+      }
 
       if (routingConfig.modelMapping) {
+        // Register primary mapping
         routingConfig.modelMapping[mapping.from] = {
-          provider,
-          model: primaryModel,
-          fallbacks,
+          provider: primaryProvider,
+          model: primaryParsed.model,
+          fallbacks: fallbackModels,
         }
 
-        // Also register fallbacks as direct mappings if they aren't already?
-        // This ensures Router can resolve them and find their provider/cooldown status
+        // Also register primary target model itself so it can be resolved/rate-limited by name
+        if (!routingConfig.modelMapping[primaryParsed.model]) {
+          routingConfig.modelMapping[primaryParsed.model] = {
+            provider: primaryProvider,
+            model: primaryParsed.model,
+            fallbacks: fallbackModels,
+          }
+        }
+
+        // Register mappings for fallbacks so Router can resolve their providers
         for (const fallback of fallbacks) {
-          if (!routingConfig.modelMapping[fallback]) {
-            routingConfig.modelMapping[fallback] = {
-              provider: inferProvider(fallback),
-              model: fallback,
+          const fallbackParsed = parseModelMapping(fallback)
+          const fallbackProvider =
+            (fallbackParsed.provider as ProviderName) || inferProvider(fallbackParsed.model || '')
+
+          if (!routingConfig.modelMapping[fallbackParsed.model]) {
+            routingConfig.modelMapping[fallbackParsed.model] = {
+              provider: fallbackProvider,
+              model: fallbackParsed.model,
             }
           }
         }
@@ -634,7 +683,8 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
         () => upstreamProxy,
         providerChecker,
         modelMappings,
-        modelLookup
+        modelLookup,
+        modelRouter
       )
     }
 

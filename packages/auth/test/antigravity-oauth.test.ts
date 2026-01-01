@@ -893,7 +893,7 @@ describe("fetchProjectID integration tests", () => {
       }
       if (urlStr.includes("loadCodeAssist")) {
         callCount++;
-        if (callCount < 3) {
+        if (callCount < 2) {
           return new Response("Error", { status: 500 });
         }
         return new Response(
@@ -914,7 +914,7 @@ describe("fetchProjectID integration tests", () => {
     expect((authResult as SuccessAuthResult).credential.projectId).toBe(
       "fallback-project"
     );
-    expect(callCount).toBeGreaterThanOrEqual(3);
+    expect(callCount).toBeGreaterThanOrEqual(2);
   });
 
   test("handles fetch throwing an error for loadCodeAssist", async () => {

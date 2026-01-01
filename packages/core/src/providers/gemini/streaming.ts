@@ -119,6 +119,29 @@ function parseFunctionCallChunk(
   _finishReason?: GeminiFinishReason,
   usageMetadata?: GeminiUsageMetadata
 ): StreamChunk {
+  const args = part.functionCall?.args ?? {}
+
+  // Detect if args is partial JSON (string fragment) vs complete object
+  const isStringArgs = typeof args === 'string'
+  const isPartialJson =
+    isStringArgs &&
+    (args.length === 0 ||
+      (typeof args === 'string' && !args.startsWith('{')) ||
+      (typeof args === 'string' && !args.endsWith('}')))
+
+  // Determine partialJson value
+  let partialJson: string | undefined
+  if (isPartialJson && typeof args === 'string') {
+    partialJson = args
+  } else if (isStringArgs && typeof args === 'string') {
+    // For complete JSON strings, also emit as partialJson for consistency
+    partialJson = args
+  } else if (typeof args === 'object' && Object.keys(args).length > 0) {
+    // For complete object args, serialize to partialJson for cross-provider compatibility
+    partialJson = JSON.stringify(args)
+  }
+
+  // Create the result with original args preserved
   const result: StreamChunk = {
     type: 'tool_call',
     delta: {
@@ -126,8 +149,9 @@ function parseFunctionCallChunk(
       toolCall: {
         id: part.functionCall?.id || generateId(),
         name: part.functionCall?.name ?? '',
-        arguments: part.functionCall?.args ?? {},
+        arguments: args,
       },
+      ...(partialJson !== undefined && { partialJson }),
     },
   }
 
@@ -283,14 +307,47 @@ function transformContentChunk(chunk: StreamChunk): GeminiStreamChunk {
 function transformToolCallChunk(chunk: StreamChunk): GeminiStreamChunk {
   const parts: GeminiPart[] = []
 
-  if (chunk.delta?.toolCall) {
+  // Handle partialJson streaming (incremental JSON arguments)
+  const partialJson = chunk.delta?.partialJson
+  const toolCall = chunk.delta?.toolCall
+
+  if (partialJson !== undefined) {
+    // Try to parse as JSON, otherwise treat as string fragment
+    let args: Record<string, unknown> | string = partialJson
+    try {
+      args = JSON.parse(partialJson)
+    } catch {
+      // Keep as string if not valid JSON yet
+      args = partialJson
+    }
+
     parts.push({
       functionCall: {
-        name: chunk.delta.toolCall.name,
-        args:
-          typeof chunk.delta.toolCall.arguments === 'string'
-            ? { value: chunk.delta.toolCall.arguments }
-            : chunk.delta.toolCall.arguments,
+        name: toolCall?.name ?? '',
+        args,
+        id: toolCall?.id,
+      },
+    })
+  } else if (toolCall) {
+    // Handle full tool call transformation
+    let args: Record<string, unknown> | string = {}
+    if (toolCall.arguments) {
+      if (typeof toolCall.arguments === 'string') {
+        try {
+          args = JSON.parse(toolCall.arguments)
+        } catch {
+          args = { value: toolCall.arguments }
+        }
+      } else {
+        args = toolCall.arguments
+      }
+    }
+
+    parts.push({
+      functionCall: {
+        name: toolCall.name,
+        args,
+        id: toolCall.id,
       },
     })
   }

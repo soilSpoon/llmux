@@ -13,6 +13,7 @@ import type {
   UnifiedMessage,
   UnifiedRequest,
   UnifiedTool,
+  UnifiedToolChoice,
 } from '../../types/unified'
 import type {
   AnthropicContentBlock,
@@ -23,6 +24,7 @@ import type {
   AnthropicTextBlock,
   AnthropicThinkingBlock,
   AnthropicTool,
+  AnthropicToolChoice,
   AnthropicToolResultBlock,
   AnthropicToolResultContent,
   AnthropicToolUseBlock,
@@ -48,6 +50,7 @@ export function parse(request: unknown): UnifiedRequest {
     system: parseSystem(anthropic.system),
     systemBlocks: parseSystemBlocks(anthropic.system),
     tools: parseTools(anthropic.tools),
+    toolChoice: parseToolChoice(anthropic.tool_choice),
     config: parseConfig(anthropic),
     thinking: parseThinking(anthropic.thinking),
     stream: anthropic.stream,
@@ -91,6 +94,12 @@ export function transform(request: UnifiedRequest): AnthropicRequest {
     result.tools = transformTools(request.tools)
   }
 
+  // Add tool_choice if present
+  const toolChoice = transformToolChoice(request.toolChoice)
+  if (toolChoice) {
+    result.tool_choice = toolChoice
+  }
+
   // Add generation config
   if (request.config?.temperature !== undefined) {
     result.temperature = request.config.temperature
@@ -105,11 +114,15 @@ export function transform(request: UnifiedRequest): AnthropicRequest {
     result.stop_sequences = request.config.stopSequences
   }
 
-  // Add thinking config if enabled
-  if (request.thinking?.enabled) {
-    result.thinking = {
-      type: 'enabled',
-      budget_tokens: request.thinking.budget ?? 8000,
+  // Add thinking config
+  if (request.thinking) {
+    if (request.thinking.enabled) {
+      result.thinking = {
+        type: 'enabled',
+        budget_tokens: request.thinking.budget ?? 8000,
+      }
+    } else {
+      result.thinking = { type: 'disabled' }
     }
   }
 
@@ -292,11 +305,14 @@ function parseConfig(anthropic: AnthropicRequest): GenerationConfig {
   }
 }
 
-function parseThinking(thinking?: {
-  type: 'enabled'
-  budget_tokens: number
-}): ThinkingConfig | undefined {
+function parseThinking(
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'disabled' }
+): ThinkingConfig | undefined {
   if (!thinking) return undefined
+
+  if (thinking.type === 'disabled') {
+    return { enabled: false }
+  }
 
   return {
     enabled: true,
@@ -309,6 +325,26 @@ function parseMetadata(metadata?: { user_id?: string }): { userId?: string } | u
 
   return {
     userId: metadata.user_id,
+  }
+}
+
+function parseToolChoice(toolChoice?: AnthropicToolChoice): UnifiedToolChoice | undefined {
+  if (!toolChoice) return undefined
+
+  switch (toolChoice.type) {
+    case 'auto':
+      return 'auto'
+    case 'none':
+      return 'none'
+    case 'any':
+      return 'required'
+    case 'tool':
+      if (toolChoice.name) {
+        return { type: 'tool', name: toolChoice.name }
+      }
+      return 'required'
+    default:
+      return undefined
   }
 }
 
@@ -416,4 +452,27 @@ function transformTools(tools: UnifiedTool[]): AnthropicTool[] {
       required: tool.parameters.required,
     },
   }))
+}
+
+function transformToolChoice(toolChoice?: UnifiedToolChoice): AnthropicToolChoice | undefined {
+  if (!toolChoice) return undefined
+
+  if (typeof toolChoice === 'string') {
+    switch (toolChoice) {
+      case 'auto':
+        return { type: 'auto' }
+      case 'none':
+        return { type: 'none' }
+      case 'required':
+        return { type: 'any' }
+      default:
+        return undefined
+    }
+  }
+
+  if (toolChoice.type === 'tool' && toolChoice.name) {
+    return { type: 'tool', name: toolChoice.name }
+  }
+
+  return undefined
 }

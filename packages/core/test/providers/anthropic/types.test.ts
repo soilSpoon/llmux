@@ -56,7 +56,9 @@ describe("Anthropic Types", () => {
         },
       };
       expect(request.thinking?.type).toBe("enabled");
-      expect(request.thinking?.budget_tokens).toBe(8000);
+      if (request.thinking?.type === "enabled") {
+        expect(request.thinking.budget_tokens).toBe(8000);
+      }
     });
   });
 

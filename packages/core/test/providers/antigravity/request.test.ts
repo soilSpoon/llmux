@@ -716,7 +716,9 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, {
+          stripSignatures: false,
+        }) as AntigravityRequest;
 
         expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
         expect(result.request.contents[0]!.parts[0]!.text).toBe(
@@ -831,6 +833,202 @@ describe("Antigravity Request Transformations", () => {
       expect(parsedBack.system).toBe("Be helpful");
       expect(parsedBack.config?.temperature).toBe(0.7);
       expect(parsedBack.config?.maxTokens).toBe(1000);
+    });
+  });
+
+  describe("stripSignatures option", () => {
+    it("should strip thoughtSignature when stripSignatures is true", () => {
+      const unifiedRequest = createUnifiedRequest({
+        messages: [
+          createUnifiedMessage("user", "What is 2+2?"),
+          {
+            role: "assistant",
+            parts: [
+              {
+                type: "thinking",
+                thinking: {
+                  text: "I need to calculate 2+2",
+                  signature: "claude-signature-12345",
+                },
+              },
+              {
+                type: "text",
+                text: "The answer is 4",
+              },
+            ],
+          },
+        ],
+        metadata: { model: "gemini-2.0-flash" },
+      });
+
+      const antigravityRequest = transform(unifiedRequest, {
+        stripSignatures: true,
+      });
+
+      const contents = antigravityRequest.request.contents;
+      const secondContent = contents[1];
+      const thinkingPart = secondContent?.parts.find((p) => p.thought);
+
+      // Signature should be removed
+      expect(thinkingPart).toBeDefined();
+      expect(thinkingPart?.thought).toBe(true);
+      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
+      expect(thinkingPart?.thoughtSignature).toBeUndefined();
+    });
+
+    it("should preserve thoughtSignature when stripSignatures is false", () => {
+      const unifiedRequest = createUnifiedRequest({
+        messages: [
+          createUnifiedMessage("user", "What is 2+2?"),
+          {
+            role: "assistant",
+            parts: [
+              {
+                type: "thinking",
+                thinking: {
+                  text: "I need to calculate 2+2",
+                  signature: "claude-signature-12345",
+                },
+              },
+              {
+                type: "text",
+                text: "The answer is 4",
+              },
+            ],
+          },
+        ],
+        metadata: { model: "gemini-2.0-flash" },
+      });
+
+      const antigravityRequest = transform(unifiedRequest, {
+        stripSignatures: false,
+      });
+
+      const contents = antigravityRequest.request.contents;
+      const secondContent = contents[1];
+      const thinkingPart = secondContent?.parts.find((p) => p.thought);
+
+      // Signature should be preserved
+      expect(thinkingPart).toBeDefined();
+      expect(thinkingPart?.thought).toBe(true);
+      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
+      expect(thinkingPart?.thoughtSignature).toBe("claude-signature-12345");
+    });
+
+    it("should strip signatures by default when not specified", () => {
+      const unifiedRequest = createUnifiedRequest({
+        messages: [
+          createUnifiedMessage("user", "What is 2+2?"),
+          {
+            role: "assistant",
+            parts: [
+              {
+                type: "thinking",
+                thinking: {
+                  text: "I need to calculate 2+2",
+                  signature: "claude-signature-12345",
+                },
+              },
+              {
+                type: "text",
+                text: "The answer is 4",
+              },
+            ],
+          },
+        ],
+        metadata: { model: "gemini-2.0-flash" },
+      });
+
+      const antigravityRequest = transform(unifiedRequest);
+
+      const contents = antigravityRequest.request.contents;
+      const secondContent = contents[1];
+      const thinkingPart = secondContent?.parts.find((p) => p.thought);
+
+      // Signature should be removed by default
+      expect(thinkingPart).toBeDefined();
+      expect(thinkingPart?.thought).toBe(true);
+      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
+      expect(thinkingPart?.thoughtSignature).toBeUndefined();
+    });
+
+    it("should only strip signatures when different model fallback", () => {
+      const unifiedRequest = createUnifiedRequest({
+        messages: [
+          createUnifiedMessage("user", "What is 2+2?"),
+          {
+            role: "assistant",
+            parts: [
+              {
+                type: "thinking",
+                thinking: {
+                  text: "I need to calculate 2+2",
+                  signature: "claude-signature-12345",
+                },
+              },
+              {
+                type: "text",
+                text: "The answer is 4",
+              },
+            ],
+          },
+        ],
+        metadata: { model: "gemini-2.0-flash" },
+      });
+
+      // When falling back from claude-opus to gemini
+      const antigravityRequest = transform(unifiedRequest, {
+        stripSignatures: true,
+        sourceModel: "claude-opus-4-5-thinking",
+      });
+
+      const contents = antigravityRequest.request.contents;
+      const secondContent = contents[1];
+      const thinkingPart = secondContent?.parts.find((p) => p.thought);
+
+      expect(thinkingPart?.thoughtSignature).toBeUndefined();
+      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
+    });
+
+    it("should preserve other part properties when stripping signatures", () => {
+      const unifiedRequest = createUnifiedRequest({
+        messages: [
+          createUnifiedMessage("user", "Test"),
+          {
+            role: "assistant",
+            parts: [
+              {
+                type: "thinking",
+                thinking: {
+                  text: "Thinking...",
+                  signature: "sig123",
+                },
+              },
+              {
+                type: "text",
+                text: "Response",
+              },
+            ],
+          },
+        ],
+        metadata: { model: "gemini-2.0-flash" },
+      });
+
+      const antigravityRequest = transform(unifiedRequest, {
+        stripSignatures: true,
+      });
+
+      const contents = antigravityRequest.request.contents;
+      const parts = contents[1]?.parts;
+
+      // Both parts should exist
+      expect(parts).toHaveLength(2);
+      // Text part should be unchanged
+      expect(parts?.[1]?.text).toBe("Response");
+      // Thinking part should have thought and text but no signature
+      expect(parts?.[0]?.thought).toBe(true);
+      expect(parts?.[0]?.text).toBe("Thinking...");
+      expect(parts?.[0]?.thoughtSignature).toBeUndefined();
     });
   });
 });

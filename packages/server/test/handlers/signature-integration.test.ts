@@ -86,13 +86,13 @@ describe("signature-integration", () => {
       expect(shouldCacheSignatures("claude-opus-4-5-thinking")).toBe(true);
     });
 
-    test("should return false for non-thinking claude models", () => {
-      expect(shouldCacheSignatures("claude-sonnet-4-5")).toBe(false);
-      expect(shouldCacheSignatures("claude-3-opus")).toBe(false);
+    test("should return true for non-thinking claude models (relaxed policy)", () => {
+      expect(shouldCacheSignatures("claude-sonnet-4-5")).toBe(true);
+      expect(shouldCacheSignatures("claude-3-opus")).toBe(true);
     });
 
-    test("should return false for non-claude models", () => {
-      expect(shouldCacheSignatures("gemini-2.5-flash")).toBe(false);
+    test("should return true for Gemini models but false for OpenAI", () => {
+      expect(shouldCacheSignatures("gemini-2.5-flash")).toBe(true);
       expect(shouldCacheSignatures("gpt-4")).toBe(false);
     });
 

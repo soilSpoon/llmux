@@ -27,6 +27,7 @@ export class OpencodeZenProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
+      defaultStreamParser: 'sse-line-delimited',
     }
     this.anthropic = new AnthropicProvider()
     this.openai = new OpenAIProvider()

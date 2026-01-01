@@ -188,7 +188,7 @@ describe('OpenAI Streaming', () => {
       })
     })
 
-    it('parses incremental tool call arguments', () => {
+    it('parses incremental tool call arguments to partialJson', () => {
       const chunk = JSON.stringify({
         id: 'chatcmpl-123',
         object: 'chat.completion.chunk',
@@ -214,16 +214,12 @@ describe('OpenAI Streaming', () => {
 
       const result = parseStreamChunk(`data: ${chunk}`)
 
-      // For incremental arguments, we return partial data
+      // For incremental arguments, we return partialJson for proper accumulation
       expect(result).toEqual({
         type: 'tool_call',
         delta: {
           type: 'tool_call',
-          toolCall: {
-            id: '',
-            name: '',
-            arguments: '{"lo', // raw string for accumulation
-          },
+          partialJson: '{"lo',
         },
       })
     })
@@ -433,6 +429,215 @@ describe('OpenAI Streaming', () => {
       // For OpenAI, thinking would go to reasoning_content in the delta
       // But streaming format may vary - for now just ensure it doesn't crash
       expect(result).toMatch(/^data: /)
+    })
+  })
+
+  describe('reasoning_content streaming', () => {
+    it('parses reasoning_content delta', () => {
+      const chunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'o1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'Let me analyze this step by step...' },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const result = parseStreamChunk(`data: ${chunk}`)
+
+      expect(result).toEqual({
+        type: 'thinking',
+        delta: {
+          type: 'thinking',
+          thinking: {
+            text: 'Let me analyze this step by step...',
+          },
+        },
+      })
+    })
+
+    it('parses multiple reasoning_content chunks', () => {
+      const chunk1 = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'o1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'First' },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const chunk2 = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'o1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: ' step' },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const result1 = parseStreamChunk(`data: ${chunk1}`)
+      const result2 = parseStreamChunk(`data: ${chunk2}`)
+
+      expect(result1?.type).toBe('thinking')
+      expect(result1?.delta?.thinking?.text).toBe('First')
+
+      expect(result2?.type).toBe('thinking')
+      expect(result2?.delta?.thinking?.text).toBe(' step')
+    })
+
+    it('parses mixed content and reasoning_content stream', () => {
+      const reasoningChunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'o1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: 'Thinking...' },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const contentChunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'o1',
+        choices: [
+          {
+            index: 0,
+            delta: { content: 'Answer' },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const reasoningResult = parseStreamChunk(`data: ${reasoningChunk}`)
+      const contentResult = parseStreamChunk(`data: ${contentChunk}`)
+
+      expect(reasoningResult?.type).toBe('thinking')
+      expect(reasoningResult?.delta?.thinking?.text).toBe('Thinking...')
+
+      expect(contentResult?.type).toBe('content')
+      expect(contentResult?.delta?.text).toBe('Answer')
+    })
+
+    it('handles empty reasoning_content gracefully', () => {
+      const chunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'o1',
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: '' },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const result = parseStreamChunk(`data: ${chunk}`)
+
+      // Empty reasoning_content should still be treated as thinking type
+      expect(result?.type).toBe('thinking')
+      expect(result?.delta?.thinking?.text).toBe('')
+    })
+  })
+
+  describe('partialJson streaming', () => {
+    it('transforms partialJson chunk to OpenAI function arguments', () => {
+      const chunk: StreamChunk = {
+        type: 'tool_call',
+        delta: {
+          type: 'tool_call',
+          partialJson: '{"location": "NYC',
+        },
+      }
+
+      const result = transformStreamChunk(chunk)
+      const data = JSON.parse(result.replace('data: ', ''))
+
+      expect(data.choices[0].delta.tool_calls).toBeDefined()
+      expect(data.choices[0].delta.tool_calls[0].function.arguments).toBe('{"location": "NYC')
+    })
+
+    it('accumulates partialJson chunks across multiple events', () => {
+      const chunks: StreamChunk[] = [
+        {
+          type: 'tool_call',
+          delta: { type: 'tool_call', partialJson: '{"x": ' },
+        },
+        {
+          type: 'tool_call',
+          delta: { type: 'tool_call', partialJson: '10, "y": ' },
+        },
+        {
+          type: 'tool_call',
+          delta: { type: 'tool_call', partialJson: '20}' },
+        },
+      ]
+
+      let accumulated = ''
+      for (const chunk of chunks) {
+        if (chunk.delta?.partialJson) {
+          accumulated += chunk.delta.partialJson
+        }
+      }
+
+      expect(accumulated).toBe('{"x": 10, "y": 20}')
+    })
+
+    it('round-trips partialJson through unified format', () => {
+      // Parse OpenAI function_call_arguments_delta
+      const openaiChunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'gpt-4',
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  function: {
+                    arguments: '{"key":',
+                  },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      })
+
+      const parseResult = parseStreamChunk(`data: ${openaiChunk}`)
+      expect(parseResult?.delta?.partialJson).toBe('{"key":')
+
+      // Transform back to OpenAI format
+      const transformResult = transformStreamChunk(parseResult!)
+      const data = JSON.parse(transformResult.replace('data: ', ''))
+
+      expect(data.choices[0].delta.tool_calls[0].function.arguments).toBe('{"key":')
     })
   })
 })

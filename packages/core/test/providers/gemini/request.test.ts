@@ -186,14 +186,16 @@ describe("Gemini Request Transformations", () => {
         );
       });
 
-      it("should NOT include thinkingConfig if thinking is disabled", () => {
+      it("should set thinkingBudget to 0 if thinking is disabled", () => {
         const unified = createUnifiedRequest({
           thinking: { enabled: false },
         });
 
         const result = transform(unified);
 
-        expect(result.generationConfig?.thinkingConfig).toBeUndefined();
+        expect(result.generationConfig?.thinkingConfig).toEqual({
+          thinkingBudget: 0,
+        });
       });
     });
 

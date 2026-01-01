@@ -298,7 +298,7 @@ describe("Anthropic Request Transformations", () => {
       });
     });
 
-    it("should not include thinking if disabled", () => {
+    it("should include thinking as disabled when explicitly disabled", () => {
       const unified = createUnifiedRequest({
         thinking: {
           enabled: false,
@@ -307,7 +307,7 @@ describe("Anthropic Request Transformations", () => {
 
       const result = transform(unified) as AnthropicRequest;
 
-      expect(result.thinking).toBeUndefined();
+      expect(result.thinking).toEqual({ type: "disabled" });
     });
 
     it("should transform thinking parts in assistant messages", () => {

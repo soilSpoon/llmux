@@ -5,6 +5,7 @@
  */
 
 import type { StopReason, StreamChunk } from '../../types/unified'
+import { createLogger } from '../../util/logger'
 import type {
   AnthropicContentBlockDeltaEvent,
   AnthropicContentBlockStartEvent,
@@ -14,6 +15,8 @@ import type {
   AnthropicStreamEvent,
 } from './types'
 import { isAnthropicStreamEvent } from './types'
+
+const logger = createLogger({ service: 'anthropic-streaming' })
 
 /**
  * Parse an Anthropic SSE chunk into a unified StreamChunk
@@ -179,11 +182,11 @@ function handleContentBlockDelta(event: AnthropicContentBlockDeltaEvent): Stream
       }
 
     case 'input_json_delta':
-      // Tool input is being streamed
+      // Tool input is being streamed as partial JSON
       return {
         type: 'tool_call',
         delta: {
-          text: delta.partial_json,
+          partialJson: delta.partial_json,
         },
       }
 
@@ -281,30 +284,137 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
     }
 
     case 'tool_call': {
+      // Check if we have partialJson in delta (streaming mode)
+      const partialJson = chunk.delta?.partialJson
       const toolCall = chunk.delta?.toolCall
+
+      // Handle partialJson streaming with toolCall metadata (e.g., from OpenAI → Anthropic conversion)
+      // This case occurs when upstream provider sends tool ID/Name + incremental arguments
+      // Example: OpenAI function_call_arguments_delta gets parsed as partialJson + toolCall
+      if (partialJson && toolCall?.id) {
+        logger.debug(
+          {
+            partialJsonPreview: partialJson.slice(0, 100),
+            toolId: toolCall.id,
+            toolName: toolCall.name,
+          },
+          '[ANTHROPIC] Received tool_call with partialJson + metadata'
+        )
+
+        if (partialJson.length === 0) return ''
+
+        const events: string[] = []
+
+        // 1. CRITICAL: Send content_block_start FIRST to establish tool_use block ID/Name
+        //    Anthropic streaming protocol requires this before sending input_json_delta
+        //    Without this, clients cannot correlate partial JSON with tool call identity
+        if (toolCall.id) {
+          const startEvent = {
+            type: 'content_block_start',
+            index: 0, // Placeholder, updated by server/streaming.ts
+            content_block: {
+              type: 'tool_use',
+              id: toolCall.id,
+              name: toolCall.name || '',
+              input: {}, // Input is built via deltas
+            },
+          }
+          logger.debug(
+            { startEvent },
+            '[ANTHROPIC] tool_use content_block_start (from partialJson path)'
+          )
+          events.push(formatSSE('content_block_start', startEvent))
+        }
+
+        // 2. Chunk the partialJson for compatibility with strict clients
+        //    Anthropic normally streams tokens, huge JSON at once can cause parser buffer overflow
+        const CHUNK_SIZE = 50
+        for (let i = 0; i < partialJson.length; i += CHUNK_SIZE) {
+          const chunk = partialJson.slice(i, i + CHUNK_SIZE)
+          events.push(
+            formatSSE('content_block_delta', {
+              type: 'content_block_delta',
+              index: 0,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: chunk,
+              },
+            })
+          )
+        }
+
+        logger.debug({ eventsCount: events.length }, '[ANTHROPIC] partialJson chunks with metadata')
+        if (events.length === 1) return events[0] ?? ''
+        return events
+      }
+
+      // Handle partialJson-only streaming (no toolCall metadata)
+      // This occurs when upstream partial JSON arrives without tool identification
+      // Server streaming handler will create implicit block start if needed
+      if (partialJson) {
+        logger.debug(
+          { partialJsonPreview: partialJson.slice(0, 100) },
+          '[ANTHROPIC] Received tool_call with partialJson (no metadata)'
+        )
+
+        if (partialJson.length === 0) return ''
+
+        // Chunk the partialJson for compatibility with strict clients
+        const CHUNK_SIZE = 50
+        const events: string[] = []
+
+        for (let i = 0; i < partialJson.length; i += CHUNK_SIZE) {
+          const chunk = partialJson.slice(i, i + CHUNK_SIZE)
+          events.push(
+            formatSSE('content_block_delta', {
+              type: 'content_block_delta',
+              index: 0,
+              delta: {
+                type: 'input_json_delta',
+                partial_json: chunk,
+              },
+            })
+          )
+        }
+
+        logger.debug({ eventsCount: events.length }, '[ANTHROPIC] partialJson chunks (no metadata)')
+        if (events.length === 1) return events[0] ?? ''
+        return events
+      }
+
+      // Handle full tool call with arguments (initial emit mode)
+      logger.debug(
+        { toolCallData: JSON.stringify(chunk).slice(0, 500) },
+        '[ANTHROPIC] Received tool_call chunk'
+      )
       if (!toolCall) return ''
 
       // Debug logging for tool call transformation
-      console.error(
-        `[DIAG] tool_call transform: id=${toolCall.id}, name=${toolCall.name}, hasArgs=${!!toolCall.arguments}`
+      logger.debug(
+        {
+          toolId: toolCall.id,
+          toolName: toolCall.name,
+          hasArgs: !!toolCall.arguments,
+        },
+        '[ANTHROPIC] tool_call transform'
       )
 
       const events: string[] = []
 
       // 1. Start event (if ID provided) - this signals a new tool call
       if (toolCall.id) {
-        events.push(
-          formatSSE('content_block_start', {
-            type: 'content_block_start',
-            index: 0, // Placeholder, updated by server/streaming.ts
-            content_block: {
-              type: 'tool_use',
-              id: toolCall.id,
-              name: toolCall.name,
-              input: {}, // Input is built via deltas
-            },
-          })
-        )
+        const startEvent = {
+          type: 'content_block_start',
+          index: 0, // Placeholder, updated by server/streaming.ts
+          content_block: {
+            type: 'tool_use',
+            id: toolCall.id,
+            name: toolCall.name,
+            input: {}, // Input is built via deltas
+          },
+        }
+        logger.debug({ startEvent }, '[ANTHROPIC] tool_use content_block_start')
+        events.push(formatSSE('content_block_start', startEvent))
       }
 
       // 2. Delta event (if arguments provided) - this accumulates the JSON
@@ -321,7 +431,7 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           jsonString = ''
         }
 
-        console.error(`[DIAG] tool_call arguments: ${jsonString.slice(0, 100)}`)
+        logger.debug({ argsPreview: jsonString.slice(0, 100) }, '[ANTHROPIC] tool_call arguments')
 
         if (jsonString.length > 0) {
           // Chunking implementation for better compatibility with strict Anthropic clients (e.g. Ampcode)
@@ -343,7 +453,7 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
         }
       }
 
-      console.error(`[DIAG] tool_call events count: ${events.length}`)
+      logger.debug({ eventsCount: events.length }, '[ANTHROPIC] tool_call events count')
       if (events.length === 0) return ''
       if (events.length === 1) return events[0] ?? ''
       return events
@@ -398,10 +508,6 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           type: 'message_stop',
         })
       )
-
-      // Add [DONE] signal for compatibility with clients expecting OpenAI-style termination (or strict proxies)
-      // This matches the behavior of the Go-based CLIProxyAPI implementation
-      doneEvents.push('data: [DONE]\n\n')
 
       return doneEvents
     }

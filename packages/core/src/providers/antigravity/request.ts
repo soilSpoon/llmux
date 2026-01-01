@@ -14,7 +14,9 @@ import type {
   UnifiedMessage,
   UnifiedRequest,
   UnifiedTool,
+  UnifiedToolChoice,
 } from '../../types/unified'
+import { stripSignaturesFromContents } from '../../utils/signature-strip'
 import type {
   GeminiContent,
   GeminiFunctionDeclaration,
@@ -31,6 +33,11 @@ import type {
   AntigravityThinkingConfig,
 } from './types'
 import { isAntigravityRequest } from './types'
+
+type TransformOptions = {
+  stripSignatures?: boolean
+  sourceModel?: string
+}
 
 /**
  * Parse an Antigravity request into UnifiedRequest format.
@@ -94,8 +101,8 @@ export function parse(request: unknown): UnifiedRequest {
  * Transform a UnifiedRequest into Antigravity request format.
  * Wraps the Gemini-style request in an Antigravity envelope.
  */
-export function transform(request: UnifiedRequest): AntigravityRequest {
-  const { messages, system, tools, config, thinking, metadata } = request
+export function transform(request: UnifiedRequest, options?: TransformOptions): AntigravityRequest {
+  const { messages, system, tools, toolChoice, config, thinking, metadata } = request
 
   // Extract wrapper fields from metadata
   // Project ID should be from credentials or use the default Antigravity project
@@ -122,7 +129,21 @@ export function transform(request: UnifiedRequest): AntigravityRequest {
   const isThinkingModel = model?.toLowerCase().includes('thinking') ?? false
 
   // Transform messages to contents
-  const contents = transformMessages(messages)
+  let contents = transformMessages(messages)
+
+  // Strip thoughtSignature by default (unless explicitly set to false)
+  // This is important for cross-model fallback scenarios
+  const shouldStripSignatures = options?.stripSignatures !== false
+  if (shouldStripSignatures) {
+    // Cast to compatible types for signature stripping
+    type ContentWithOptionalSignature = {
+      role: string
+      parts: Array<{ thoughtSignature?: string; [key: string]: unknown }>
+    }
+    const contentsForStripping = contents as ContentWithOptionalSignature[]
+    const strippedContents = stripSignaturesFromContents(contentsForStripping)
+    contents = strippedContents as GeminiContent[]
+  }
 
   // Transform system instruction
   const systemInstruction: GeminiSystemInstruction | undefined = system
@@ -135,10 +156,12 @@ export function transform(request: UnifiedRequest): AntigravityRequest {
 
   if (tools && tools.length > 0) {
     transformedTools = transformTools(tools)
-    // Use VALIDATED mode for strict function calling
+    // Transform toolChoice to toolConfig
+    toolConfig = transformToolConfig(toolChoice, tools)
+  } else if (toolChoice === 'none') {
     toolConfig = {
       functionCallingConfig: {
-        mode: 'VALIDATED',
+        mode: 'NONE',
       },
     }
   }
@@ -645,4 +668,55 @@ function transformGenerationConfig(
   }
 
   return Object.keys(result).length > 0 ? result : undefined
+}
+
+/**
+ * Transform UnifiedToolChoice to GeminiToolConfig
+ */
+function transformToolConfig(
+  toolChoice: UnifiedToolChoice | undefined,
+  _tools: UnifiedTool[]
+): GeminiToolConfig | undefined {
+  if (!toolChoice) {
+    return {
+      functionCallingConfig: {
+        mode: 'AUTO',
+      },
+    }
+  }
+
+  if (typeof toolChoice === 'string') {
+    switch (toolChoice) {
+      case 'auto':
+        return {
+          functionCallingConfig: {
+            mode: 'AUTO',
+          },
+        }
+      case 'none':
+        return {
+          functionCallingConfig: {
+            mode: 'NONE',
+          },
+        }
+      case 'required':
+        return {
+          functionCallingConfig: {
+            mode: 'ANY',
+          },
+        }
+    }
+  }
+
+  if (toolChoice.type === 'tool' && toolChoice.name) {
+    const encodedName = encodeAntigravityToolName(toolChoice.name)
+    return {
+      functionCallingConfig: {
+        mode: 'ANY',
+        allowedFunctionNames: [encodedName],
+      },
+    }
+  }
+
+  return undefined
 }

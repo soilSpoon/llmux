@@ -165,7 +165,9 @@ describe("AnthropicProvider", () => {
       const result = provider.transform(unified) as AnthropicRequest;
 
       expect(result.thinking?.type).toBe("enabled");
-      expect(result.thinking?.budget_tokens).toBe(8000);
+      if (result.thinking?.type === "enabled") {
+        expect(result.thinking.budget_tokens).toBe(8000);
+      }
     });
   });
 

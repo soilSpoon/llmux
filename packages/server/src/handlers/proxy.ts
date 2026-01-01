@@ -1,9 +1,6 @@
 import {
-  ANTIGRAVITY_API_PATH_GENERATE,
   ANTIGRAVITY_API_PATH_STREAM,
-  ANTIGRAVITY_DEFAULT_PROJECT_ID,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
-  ANTIGRAVITY_HEADERS,
   AuthProviderRegistry,
   TokenRefresh,
 } from '@llmux/auth'
@@ -16,9 +13,21 @@ import {
 } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
+import {
+  ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  applyAntigravityAlias,
+  fixOpencodeZenBody,
+  resolveOpencodeZenProtocol,
+  shouldFallbackToDefaultProject,
+} from '../providers'
+import { buildUpstreamHeaders, getDefaultEndpoint, parseRetryAfterMs } from '../upstream'
 import { accountRotationManager } from './account-rotation'
 import { applyModelMappingV2 } from './model-mapping'
-import { parseRetryAfterMs } from './streaming'
+import {
+  buildSignatureSessionKey,
+  ensureThinkingSignatures,
+  extractConversationKey,
+} from './signature-integration'
 
 const logger = createLogger({ service: 'proxy-handler' })
 
@@ -29,16 +38,9 @@ export interface ProxyOptions {
   targetProvider: string
   targetModel?: string
   apiKey?: string
+  thinking?: boolean
   modelMappings?: AmpModelMapping[]
   router?: Router
-}
-
-const PROVIDER_ENDPOINTS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1/chat/completions',
-  anthropic: 'https://api.anthropic.com/v1/messages',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
-  antigravity: 'https://Daily-Cloudcode-Pa.Sandbox.Googleapis.Com/V1internal',
-  'opencode-zen': 'https://opencode.ai/zen/v1/messages',
 }
 
 function formatToProvider(format: RequestFormat): ProviderName {
@@ -46,45 +48,6 @@ function formatToProvider(format: RequestFormat): ProviderName {
     throw new Error(`Invalid source format: ${format}`)
   }
   return format
-}
-
-function buildHeaders(
-  targetProvider: string,
-  apiKey?: string,
-  fromProtocol?: string
-): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-
-  if (!apiKey) return headers
-
-  switch (targetProvider) {
-    case 'anthropic':
-      headers['x-api-key'] = apiKey
-      headers['anthropic-version'] = '2023-06-01'
-      break
-    case 'openai':
-      headers.Authorization = `Bearer ${apiKey}`
-      break
-    case 'gemini':
-      headers['x-goog-api-key'] = apiKey
-      break
-    case 'antigravity':
-      headers.Authorization = `Bearer ${apiKey}`
-      Object.assign(headers, ANTIGRAVITY_HEADERS)
-      break
-    case 'opencode-zen':
-      if (fromProtocol === 'openai') {
-        headers.Authorization = `Bearer ${apiKey}`
-      } else {
-        headers['x-api-key'] = apiKey
-        headers['anthropic-version'] = '2023-06-01'
-      }
-      break
-  }
-
-  return headers
 }
 
 export async function handleProxy(request: Request, options: ProxyOptions): Promise<Response> {
@@ -99,59 +62,64 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
   let targetProvider: ProviderName = targetProviderInput
 
   try {
-    const body = (await request.json()) as { model?: string; stream?: boolean }
+    const body = (await request.json()) as {
+      model?: string
+      stream?: boolean
+      thinking?: { type: string; budget_tokens?: number }
+    }
     const originalModel = body.model
+    const hasThinkingInRequest = body.thinking !== undefined
+
+    // Apply model mapping first to get thinking config
+    let mappedModel: string | undefined = originalModel
+    // Default: use thinking only if explicitly requested in the original request
+    let isThinkingEnabled: boolean | undefined = hasThinkingInRequest
+      ? body.thinking?.type === 'enabled'
+      : undefined
+
+    if (originalModel) {
+      const mappingResult = applyModelMappingV2(originalModel, options.modelMappings)
+      mappedModel = mappingResult.model
+      // Priority: options.thinking > mappingResult.thinking > original request thinking
+      if (options.thinking !== undefined) {
+        isThinkingEnabled = options.thinking
+      } else if (mappingResult.thinking !== undefined) {
+        isThinkingEnabled = mappingResult.thinking
+      }
+      // If still undefined after mapping, keep original request's thinking setting
+
+      if (mappingResult.provider) {
+        if (isValidProviderName(mappingResult.provider)) {
+          targetProvider = mappingResult.provider
+        } else {
+          logger.warn({ provider: mappingResult.provider }, 'Invalid provider in model mapping')
+        }
+      }
+    }
 
     // Resolve effective provider for opencode-zen
     let effectiveTargetProvider = targetProvider
-    if (targetProvider === 'opencode-zen' && originalModel) {
-      if (originalModel.includes('claude')) {
-        // Claude models use Anthropic format (v1/messages)
-        effectiveTargetProvider = 'anthropic' as ProviderName
-      } else if (
-        originalModel.startsWith('gpt-5') ||
-        originalModel.startsWith('glm-') ||
-        originalModel.startsWith('qwen') ||
-        originalModel.startsWith('kimi') ||
-        originalModel.startsWith('grok') ||
-        originalModel === 'big-pickle'
-      ) {
-        // OpenAI-compatible models use chat completions format (including GLM-4.6, GLM-4.7-free)
-        effectiveTargetProvider = 'openai' as ProviderName
-      } else if (originalModel.startsWith('gemini')) {
-        effectiveTargetProvider = 'gemini' as ProviderName
+    if (targetProvider === 'opencode-zen' && (mappedModel || originalModel)) {
+      const protocol = resolveOpencodeZenProtocol(mappedModel || originalModel || '')
+      if (protocol) {
+        effectiveTargetProvider = protocol as ProviderName
       }
     }
 
     const transformedRequest = transformRequest(body, {
       from: formatToProvider(options.sourceFormat),
       to: effectiveTargetProvider,
+      // Disable thinking if not explicitly enabled (false or undefined means no thinking)
+      thinkingOverride: isThinkingEnabled !== true ? { enabled: false } : undefined,
     }) as { model?: string }
 
-    let mappedModel: string | undefined = originalModel
-
     if (originalModel) {
-      const mappingResult = applyModelMappingV2(originalModel, options.modelMappings)
-      const appliedMapping = mappingResult.model
-
-      if (mappingResult.provider) {
-        if (isValidProviderName(mappingResult.provider)) {
-          targetProvider = mappingResult.provider
-          // Also update effectiveTargetProvider if we switched provider?
-          // The code below recalculates things inside the retry loop based on `currentProvider`.
-          // `currentProvider` is initialized to `targetProvider`.
-          // So updating `targetProvider` here is correct for the loop.
-        } else {
-          logger.warn({ provider: mappingResult.provider }, 'Invalid provider in model mapping')
-        }
-      }
-
-      if (appliedMapping !== originalModel) {
+      if (mappedModel !== originalModel) {
         logger.info(
           {
             originalModel,
-            mappedModel: appliedMapping,
-            targetProvider, // Log the (possibly updated) provider
+            mappedModel,
+            targetProvider,
             mappings:
               options.modelMappings?.map(
                 (m) => `${m.from}->${Array.isArray(m.to) ? m.to.join(',') : m.to}`
@@ -168,8 +136,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           'No model mapping found, using original model'
         )
       }
-      transformedRequest.model = appliedMapping
-      mappedModel = appliedMapping
+      transformedRequest.model = mappedModel
     }
 
     if (options.targetModel) {
@@ -246,19 +213,9 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       // Re-determine effective target provider for transformation logic
       let currentEffectiveProvider = currentProvider
       if (currentProvider === 'opencode-zen' && currentModel) {
-        if (currentModel.includes('claude')) {
-          currentEffectiveProvider = 'anthropic' as ProviderName
-        } else if (
-          currentModel.startsWith('gpt-5') ||
-          currentModel.startsWith('glm-') ||
-          currentModel.startsWith('qwen') ||
-          currentModel.startsWith('kimi') ||
-          currentModel.startsWith('grok') ||
-          currentModel === 'big-pickle'
-        ) {
-          currentEffectiveProvider = 'openai' as ProviderName
-        } else if (currentModel.startsWith('gemini')) {
-          currentEffectiveProvider = 'gemini' as ProviderName
+        const protocol = resolveOpencodeZenProtocol(currentModel)
+        if (protocol) {
+          currentEffectiveProvider = protocol as ProviderName
         }
       }
 
@@ -266,6 +223,8 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       const transformedRequest = transformRequest(body, {
         from: formatToProvider(options.sourceFormat),
         to: currentEffectiveProvider,
+        // Disable thinking if not explicitly enabled (false or undefined means no thinking)
+        thinkingOverride: isThinkingEnabled !== true ? { enabled: false } : undefined,
       }) as { model?: string; tools?: unknown[] }
 
       if (currentModel) {
@@ -338,7 +297,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           model: currentModel || 'gemini-pro',
         })
       } else {
-        let url = PROVIDER_ENDPOINTS[currentProvider]
+        let url = getDefaultEndpoint(currentProvider, { streaming: false })
 
         // Special case for Opencode Zen
         if (currentProvider === 'opencode-zen' && effectiveTargetProvider === 'openai') {
@@ -352,15 +311,19 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           })
         }
         endpoint = url
-        headers = buildHeaders(currentProvider, options.apiKey, effectiveTargetProvider)
+        headers = buildUpstreamHeaders(currentProvider, options.apiKey, {
+          fromProtocol: effectiveTargetProvider,
+        })
       }
 
       // Antigravity Endpoint Fallback Logic
+      // Always use streaming endpoint - generateContent doesn't support Claude models
       if (currentProvider === 'antigravity') {
         const fallbackIndex = (attempt - 1) % ANTIGRAVITY_ENDPOINT_FALLBACKS.length
         const baseEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[fallbackIndex]
-        const apiPath = body.stream ? ANTIGRAVITY_API_PATH_STREAM : ANTIGRAVITY_API_PATH_GENERATE
-        endpoint = `${baseEndpoint}${apiPath}`
+        // Always use streaming endpoint, even for non-streaming requests
+        // We'll buffer the SSE response and convert to JSON for non-streaming
+        endpoint = `${baseEndpoint}${ANTIGRAVITY_API_PATH_STREAM}`
 
         logger.debug(
           {
@@ -368,9 +331,10 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
             endpoint,
             fallbackIndex,
             baseEndpoint,
-            isStreaming: !!body.stream,
+            originalStreaming: !!body.stream,
+            usingStreamEndpoint: true,
           },
-          '[proxy] Using Antigravity fallback endpoint'
+          '[proxy] Using Antigravity streaming endpoint (always)'
         )
       }
 
@@ -399,9 +363,46 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         transformedRequest.model = currentModel
       }
 
+      // Apply model alias for Antigravity (e.g., gemini-claude-opus-4-5-thinking -> claude-opus-4-5-thinking)
+      if (currentProvider === 'antigravity' && transformedRequest.model) {
+        const aliasedModel = applyAntigravityAlias(transformedRequest.model)
+        if (aliasedModel !== transformedRequest.model) {
+          logger.debug(
+            { originalModel: transformedRequest.model, aliasedModel },
+            '[proxy] Applied Antigravity model alias'
+          )
+          transformedRequest.model = aliasedModel
+        }
+      }
+
+      // Apply thinking signature restoration for Claude thinking models
+      // (Same logic as streaming.ts to ensure signatures are properly handled)
+      if (
+        currentProvider === 'antigravity' &&
+        currentModel &&
+        (currentModel.includes('thinking') || currentModel.includes('claude'))
+      ) {
+        const conversationKey = extractConversationKey(body)
+        const signatureSessionKey = buildSignatureSessionKey(conversationKey)
+        logger.debug(
+          {
+            model: currentModel,
+            provider: currentProvider,
+            conversationKey,
+            sessionKey: signatureSessionKey?.slice(0, 50),
+          },
+          '[proxy] Preparing signature restoration for thinking model'
+        )
+        ensureThinkingSignatures(transformedRequest, signatureSessionKey, currentModel)
+        logger.debug(
+          { sessionKey: signatureSessionKey?.slice(0, 50) },
+          '[proxy] ensureThinkingSignatures completed'
+        )
+      }
+
       // Strip unsupported beta fields for Opencode-Zen
       if (currentProvider === 'opencode-zen') {
-        fixOpencodeZenBody(transformedRequest)
+        fixOpencodeZenBody(transformedRequest, { thinkingEnabled: isThinkingEnabled })
       }
 
       // DEBUG: Log request details before sending
@@ -479,7 +480,8 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           bodyText = await upstreamResponse.clone().text()
         } catch {}
 
-        const retryAfterMs = parseRetryAfterMs(upstreamResponse, bodyText)
+        const parsedRetryAfter = parseRetryAfterMs(upstreamResponse, bodyText)
+        const retryAfterMs = parsedRetryAfter || 30000
 
         accountRotationManager.markRateLimited(currentProvider, accountIndex, retryAfterMs)
 
@@ -498,7 +500,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         if (options.router && currentModel) {
           options.router.handleRateLimit(currentModel, retryAfterMs || undefined)
 
-          // Only trigger model fallback if ALL accounts are rate limited
+          // Trigger model fallback if ALL accounts are rate limited
           if (
             accountRotationManager.areAllRateLimited(currentProvider, effectiveCredentials || [])
           ) {
@@ -524,8 +526,14 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           }
         }
 
-        // Wait based on retryAfterMs (max 5 seconds as requested)
-        const delay = Math.min(retryAfterMs, 5000)
+        // If not all accounts are limited, we can rotate immediately (delay=0).
+        // If all ARE limited but we couldn't fallback (end of chain), we must wait.
+        // Cap wait at 30s (default cooldown) to avoid hanging forever.
+        const isAllLimited = accountRotationManager.areAllRateLimited(
+          currentProvider,
+          effectiveCredentials || []
+        )
+        const delay = isAllLimited ? Math.min(retryAfterMs, 30000) : 0
 
         logger.debug({ attempt, delayMs: delay }, '[proxy] Waiting before retry')
         await new Promise((r) => setTimeout(r, delay))
@@ -547,27 +555,28 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           errorBody = ''
         }
 
+        const currentProject = (transformedRequest as Record<string, unknown>).project as
+          | string
+          | undefined
         if (
-          errorBody.includes('#3501') ||
-          (errorBody.includes('PERMISSION_DENIED') && errorBody.includes('license'))
+          shouldFallbackToDefaultProject({
+            errorBody,
+            status: upstreamResponse.status,
+            currentProject,
+          })
         ) {
-          const currentProject = (transformedRequest as Record<string, unknown>).project
-          if (currentProject !== ANTIGRAVITY_DEFAULT_PROJECT_ID) {
-            logger.warn(
-              {
-                attempt,
-                currentProject,
-                defaultProject: ANTIGRAVITY_DEFAULT_PROJECT_ID,
-              },
-              '[proxy] License error detected. Switching to default project ID and retrying.'
-            )
-            // Set override flag instead of modifying transformedRequest directly
-            overrideProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
+          logger.warn(
+            {
+              attempt,
+              currentProject,
+              defaultProject: ANTIGRAVITY_DEFAULT_PROJECT_ID,
+            },
+            '[proxy] License error detected. Switching to default project ID and retrying.'
+          )
+          overrideProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
 
-            // Wait briefly before retry
-            await new Promise((r) => setTimeout(r, 1000))
-            continue
-          }
+          await new Promise((r) => setTimeout(r, 1000))
+          continue
         }
       }
 
@@ -596,6 +605,110 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     }
 
     const contentType = lastResponse.headers.get('content-type') || ''
+
+    // Handle SSE response for Antigravity non-streaming requests
+    // We always use streaming endpoint, so need to buffer SSE and convert to JSON
+    if (contentType.includes('text/event-stream') && !body.stream) {
+      logger.debug('[proxy] Buffering SSE response for non-streaming request')
+
+      const reader = lastResponse.body?.getReader()
+      if (!reader) {
+        return new Response(JSON.stringify({ error: 'No response body' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let finalResponse: Record<string, unknown> | null = null
+      let accumulatedParts: unknown[] = []
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6).trim()
+          if (data === '[DONE]') continue
+
+          try {
+            const parsed = JSON.parse(data) as { response?: Record<string, unknown> }
+            const chunk = (parsed.response || parsed) as Record<string, unknown>
+
+            if (!finalResponse) {
+              finalResponse = chunk
+              const candidates = chunk.candidates as
+                | Array<{ content?: { parts?: unknown[] } }>
+                | undefined
+              if (candidates?.[0]?.content?.parts) {
+                accumulatedParts = [...candidates[0].content.parts]
+              }
+            } else {
+              const candidates = chunk.candidates as
+                | Array<{
+                    content?: { parts?: unknown[] }
+                    finishReason?: string
+                  }>
+                | undefined
+              if (candidates?.[0]?.content?.parts) {
+                accumulatedParts = [...accumulatedParts, ...candidates[0].content.parts]
+              }
+              if (candidates?.[0]?.finishReason) {
+                const finalCandidates = finalResponse.candidates as
+                  | Array<{ finishReason?: string }>
+                  | undefined
+                if (finalCandidates?.[0]) {
+                  finalCandidates[0].finishReason = candidates[0].finishReason
+                }
+              }
+              if (chunk.usageMetadata) {
+                finalResponse.usageMetadata = chunk.usageMetadata
+              }
+            }
+          } catch {
+            // Ignore parse errors for partial chunks
+          }
+        }
+      }
+
+      if (finalResponse && accumulatedParts.length > 0) {
+        const candidates = finalResponse.candidates as
+          | Array<{ content?: { parts?: unknown[] } }>
+          | undefined
+        if (candidates?.[0]?.content) {
+          candidates[0].content.parts = accumulatedParts
+        }
+      }
+
+      if (!finalResponse) {
+        return new Response(JSON.stringify({ error: 'Failed to parse SSE response' }), {
+          status: 502,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+
+      logger.debug({ responseKeys: Object.keys(finalResponse) }, '[proxy] SSE buffered to JSON')
+
+      // Wrap response for Antigravity format (transform expects {response: {...}})
+      const wrappedResponse = { response: finalResponse }
+
+      const transformedResponse = transformResponse(wrappedResponse, {
+        from: targetProvider,
+        to: formatToProvider(options.sourceFormat),
+      })
+
+      return new Response(JSON.stringify(transformedResponse), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     if (!contentType.includes('application/json')) {
       const text = await lastResponse.text()
       return new Response(JSON.stringify({ error: text || 'Non-JSON response from upstream' }), {
@@ -710,73 +823,5 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       status: 500,
       headers: { 'Content-Type': 'application/json' },
     })
-  }
-}
-
-// Helper types for Opencode Zen modifications
-interface OpencodeZenTool {
-  input_schema?: Record<string, unknown>
-  function?: Record<string, unknown>
-  type?: string
-  name?: string // Add name and description for easier access
-  description?: string
-}
-
-function fixOpencodeZenBody(body: Record<string, unknown>) {
-  if (!body || typeof body !== 'object') return
-
-  // 1. Remove unsupported fields
-  // stripBetaFields will handle cache_control recursively now?
-  // Or do we keep explicit logic?
-  // Let's reuse stripBetaFields logic if possible or just implement robustly here.
-
-  // Recursively strip fields
-  stripBetaFields(body)
-
-  // 2. Fix tools format (Anthropic input_schema -> OpenAI function)
-  // Check if tools exist and if they look like Anthropic tools (have input_schema)
-  const tools = body.tools as unknown[]
-
-  if (Array.isArray(tools) && tools.length > 0) {
-    const firstTool = tools[0] as OpencodeZenTool
-    if (firstTool.input_schema) {
-      // Convert Anthropic tools to OpenAI format
-      body.tools = tools.map((t) => {
-        const tool = t as OpencodeZenTool
-        return {
-          type: 'function',
-          function: {
-            name: tool.name, // Name usually exists on both?
-            description: tool.description,
-            parameters: tool.input_schema,
-          },
-        }
-      })
-    }
-  }
-}
-
-function stripBetaFields(body: Record<string, unknown> | unknown[]) {
-  if (!body || typeof body !== 'object') return
-
-  if (!Array.isArray(body) && 'cache_control' in body) {
-    delete body.cache_control
-  }
-
-  if (Array.isArray(body)) {
-    body.forEach((item) => {
-      if (typeof item === 'object' && item !== null) {
-        stripBetaFields(item as Record<string, unknown>)
-      }
-    })
-  } else {
-    for (const key in body) {
-      if (Object.hasOwn(body, key)) {
-        const value = (body as Record<string, unknown>)[key]
-        if (typeof value === 'object' && value !== null) {
-          stripBetaFields(value as Record<string, unknown>)
-        }
-      }
-    }
   }
 }

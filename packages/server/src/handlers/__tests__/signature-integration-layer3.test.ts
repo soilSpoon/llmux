@@ -18,24 +18,30 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
   describe("Global Signature Store (Layer 2)", () => {
     it("should store and retrieve global thought signature", () => {
       const testSig = "x".repeat(100);
+      const testText = "some text";
 
-      storeGlobalThoughtSignature(testSig);
-      expect(getGlobalThoughtSignature()).toBe(testSig);
+      storeGlobalThoughtSignature(testSig, testText);
+      const result = getGlobalThoughtSignature();
+      expect(result).toBeDefined();
+      expect(result?.signature).toBe(testSig);
+      expect(result?.text).toBe(testText);
     });
 
     it("should ignore signatures shorter than MIN_SIGNATURE_LENGTH", () => {
       const shortSig = "too_short";
+      const testText = "some text";
 
-      storeGlobalThoughtSignature(shortSig);
+      storeGlobalThoughtSignature(shortSig, testText);
       expect(getGlobalThoughtSignature()).toBeUndefined();
     });
 
     it("should expire signatures older than 10 minutes", async () => {
       const testSig = "x".repeat(100);
-      storeGlobalThoughtSignature(testSig);
+      const testText = "some text";
+      storeGlobalThoughtSignature(testSig, testText);
 
       // Verify it's stored
-      expect(getGlobalThoughtSignature()).toBe(testSig);
+      expect(getGlobalThoughtSignature()?.signature).toBe(testSig);
 
       // Simulate time passage (10 minutes + 1 second)
       // Note: In real tests, we'd use a time mock library
@@ -126,7 +132,7 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       );
 
       // First, simulate a response that cached thinking
-      storeGlobalThoughtSignature("x".repeat(100));
+      storeGlobalThoughtSignature("x".repeat(100), "Thinking about this...");
 
       const requestBody = {
         contents: [
@@ -226,7 +232,8 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
 
       const originalLength = requestBody.contents.length;
 
-      ensureThinkingSignatures(requestBody, sessionKey, "claude-3-5-sonnet");
+      // Use an OpenAI model to ensure logic is skipped (Blacklist policy)
+      ensureThinkingSignatures(requestBody, sessionKey, "gpt-4");
 
       // Should not separate because thinking is not enabled
       expect(requestBody.contents.length).toBe(originalLength);
@@ -241,7 +248,8 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
 
       // Pre-populate global signature store
       const globalSig = "global_sig_" + "x".repeat(90);
-      storeGlobalThoughtSignature(globalSig);
+      const globalText = "[Thinking from global store]";
+      storeGlobalThoughtSignature(globalSig, globalText);
 
       const requestBody = {
         contents: [
@@ -397,12 +405,74 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
   });
 
   describe("Model filtering", () => {
-    it("should cache signatures only for Claude thinking models", () => {
+    it("should allow signatures for Claude and Gemini, but block OpenAI", () => {
+      // Claude thinking - allow
       expect(shouldCacheSignatures("claude-3-5-sonnet-thinking")).toBe(true);
       expect(shouldCacheSignatures("claude-opus-thinking")).toBe(true);
-      expect(shouldCacheSignatures("claude-3-5-sonnet")).toBe(false);
+
+      // Claude non-thinking (relaxed policy) - allow
+      expect(shouldCacheSignatures("claude-3-5-sonnet")).toBe(true);
+
+      // Gemini - allow
+      expect(shouldCacheSignatures("gemini-1.5-pro")).toBe(true);
+      expect(shouldCacheSignatures("gemini-3-pro-high")).toBe(true);
+
+      // OpenAI - BLOCK (Blacklist)
       expect(shouldCacheSignatures("gpt-4")).toBe(false);
-      expect(shouldCacheSignatures("gemini-2-flash")).toBe(false);
+      expect(shouldCacheSignatures("gpt-3.5-turbo")).toBe(false);
+      expect(shouldCacheSignatures("o1-preview")).toBe(false); // Assuming o1 maps to openai family
+    });
+
+    it("should strip signatures for Gemini and restore with tool_use present", () => {
+      const sessionKey = buildSignatureSessionKey(
+        "gemini-1.5-pro",
+        "test-conv-gemini",
+        "proj-1"
+      );
+
+      // Setup global signature - must be at least 50 characters to be stored
+      const globalSig = "a".repeat(60); // 60 characters > MIN_SIGNATURE_LENGTH (50)
+      storeGlobalThoughtSignature(globalSig, "Some thinking text", "gemini-1.5-pro");
+
+      const requestBody = {
+        contents: [
+          {
+            role: "model",
+            parts: [
+              {
+                thought: true,
+                text: "Some thinking text",
+                thoughtSignature: "bad-signature-to-strip",
+              },
+              {
+                functionCall: {
+                  name: "some_tool",
+                  args: {},
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      // Run ensureThinkingSignatures
+      ensureThinkingSignatures(requestBody, sessionKey, "gemini-1.5-pro");
+
+      // Verify:
+      // 1. Thinking part is RESTORED when tool_use is present
+      // 2. It should have the global signature we stored
+
+      const parts = requestBody.contents?.[0]?.parts;
+      expect(parts).toBeDefined();
+      if (!parts) return;
+
+      expect(parts.length).toBeGreaterThan(0);
+      const thinkingPart = parts[0] as {
+        thought: boolean;
+        thoughtSignature: string;
+      };
+      expect(thinkingPart.thought).toBe(true);
+      expect(thinkingPart.thoughtSignature).toBe(globalSig);
     });
   });
 });

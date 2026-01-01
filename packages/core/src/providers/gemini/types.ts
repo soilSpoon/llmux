@@ -73,7 +73,7 @@ export interface GeminiPart {
  */
 export interface GeminiFunctionCall {
   name: string
-  args: Record<string, unknown>
+  args: Record<string, unknown> | string // Support both complete objects and partial JSON strings for streaming
   id?: string // Optional ID for Antigravity
 }
 

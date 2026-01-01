@@ -1,1 +1,5 @@
-export { createUpstreamProxy, type UpstreamProxy, type UpstreamProxyConfig } from './proxy'
+export * from './client'
+export * from './endpoints'
+export * from './headers'
+export * from './retry'
+export * from './types'

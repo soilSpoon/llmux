@@ -283,6 +283,10 @@ return new Response(stream, {
 
 - **Workspaces**: Bun workspaces in root `package.json`
 - **Build tool**: `bunup` for each package
-- **Lint/Format**: Biome (shared config in root `biome.json`)
+- **Lint/Format**: Biome (shared config in root `biome.json`
 - **TypeScript**: Project references, shared config in root `tsconfig.json`
 - **Git hooks**: Husky + lint-staged for pre-commit checks
+
+## Provider-Specific Documentation
+
+- [opencode-zen GLM 4.7 Thinking Control](docs/OPENCODE_ZEN_THINKING.md) - GLM/Kimi thinking 비활성화 방법

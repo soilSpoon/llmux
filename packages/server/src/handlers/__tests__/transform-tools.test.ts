@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { transformToolsForCodex } from "../streaming";
+import { transformToolsForCodex } from "../../providers";
 
 describe("transformToolsForCodex", () => {
   test("transforms ChatCompletion API format (function wrapper) to Responses API format", () => {
@@ -181,10 +181,10 @@ describe("transformToolsForCodex", () => {
     expect(result[2]!.name).toBe("tool_c");
 
     // All should have type: "function"
-    expect(result.every((t) => t.type === "function")).toBe(true);
+    expect(result.every((t: { type: string }) => t.type === "function")).toBe(true);
 
     // All should have name at top level (not nested in function)
-    expect(result.every((t) => typeof t.name === "string")).toBe(true);
+    expect(result.every((t: { name: string }) => typeof t.name === "string")).toBe(true);
   });
 
   test("handles empty tools array", () => {
@@ -325,7 +325,7 @@ describe("transformToolsForCodex", () => {
     const result = transformToolsForCodex(ampTools);
 
     expect(result).toHaveLength(3);
-    expect(result.map((t) => t.name)).toEqual(["Read", "Grep", "glob"]);
+    expect(result.map((t: { name: string }) => t.name)).toEqual(["Read", "Grep", "glob"]);
 
     // Verify structure is flat (Responses API format)
     for (const tool of result) {

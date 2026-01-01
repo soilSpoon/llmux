@@ -31,10 +31,7 @@ export interface AnthropicRequest {
   tool_choice?: AnthropicToolChoice
 
   // Extended Thinking
-  thinking?: {
-    type: 'enabled'
-    budget_tokens: number
-  }
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'disabled' }
 }
 
 /**

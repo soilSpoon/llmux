@@ -1,10 +1,16 @@
 import type { ProviderName } from '../providers/base'
 import { getProvider } from '../providers/registry'
+import type { ThinkingConfig } from '../types/unified'
 
 export interface TransformOptions {
   from: ProviderName
   to: ProviderName
   model?: string
+  /**
+   * Override thinking config in the UnifiedRequest before transforming.
+   * Use { enabled: false } to disable thinking regardless of source request.
+   */
+  thinkingOverride?: ThinkingConfig
 }
 
 /**
@@ -17,5 +23,11 @@ export function transformRequest(request: unknown, options: TransformOptions): u
   const targetProvider = getProvider(options.to)
 
   const unified = sourceProvider.parse(request)
+
+  // Apply thinking override if specified
+  if (options.thinkingOverride !== undefined) {
+    unified.thinking = options.thinkingOverride
+  }
+
   return targetProvider.transform(unified, options.model)
 }

@@ -10,16 +10,20 @@ import type {
   UnifiedMessage,
   UnifiedRequest,
   UnifiedTool,
+  UnifiedToolChoice,
 } from '../../types/unified'
 import type {
   OpenAIAssistantMessage,
   OpenAIContentPart,
+  OpenAIFlattenedToolCall,
   OpenAIFunctionParameters,
   OpenAIMessage,
   OpenAIRequest,
   OpenAITextContent,
+  OpenAIThinkingConfig,
   OpenAITool,
   OpenAIToolCall,
+  OpenAIToolChoice,
   OpenAIToolMessage,
   OpenAIUserMessage,
 } from './types'
@@ -39,7 +43,16 @@ export function parse(request: OpenAIRequest): UnifiedRequest {
   let systemContent: string | undefined
   const messages = request.messages || request.input || []
 
-  for (const msg of messages) {
+  // Reconstruct messages if tool calls are flattened into the array
+  // (only needed when using input field with Responses API format)
+  const hasFlattenedToolCalls = messages.some(
+    (msg) => msg && typeof msg === 'object' && !('role' in msg)
+  )
+  const reconstructedMessages: OpenAIMessage[] = hasFlattenedToolCalls
+    ? reconstructFlattenedToolCalls(messages)
+    : messages.filter((msg) => isOpenAIMessage(msg))
+
+  for (const msg of reconstructedMessages) {
     if (msg.role === 'system' || msg.role === 'developer') {
       // Extract system/developer message content
       systemContent = extractTextContent(msg.content)
@@ -63,11 +76,17 @@ export function parse(request: OpenAIRequest): UnifiedRequest {
     result.tools = request.tools.map(parseTool)
   }
 
-  // Parse thinking config
+  // Parse thinking config from OpenAI reasoning_effort
   if (request.reasoning_effort) {
     result.thinking = {
-      enabled: true,
+      enabled: request.reasoning_effort !== 'none',
+      effort: request.reasoning_effort,
     }
+  }
+
+  // Parse GLM thinking config
+  if (request.thinking) {
+    result.thinking = parseGLMThinking(request.thinking)
   }
 
   return result
@@ -86,6 +105,52 @@ function isReasoningModel(model: string): boolean {
     lowerModel.includes('-o3') ||
     lowerModel.includes('gpt-5') // Treat gpt-5.1 as reasoning model (provisional)
   )
+}
+
+/**
+ * Check if the model is a GLM model (glm-4.5, glm-4.6, glm-4.7, etc.)
+ */
+function isGLMModel(model: string): boolean {
+  const lowerModel = model.toLowerCase()
+  return lowerModel.startsWith('glm-') || lowerModel.startsWith('glm_')
+}
+
+/**
+ * Parse GLM thinking configuration into UnifiedRequest thinking config
+ */
+function parseGLMThinking(config: OpenAIThinkingConfig): NonNullable<UnifiedRequest['thinking']> {
+  const result: NonNullable<UnifiedRequest['thinking']> = {
+    enabled: config.type !== 'disabled',
+  }
+
+  // clear_thinking: false means preserve context
+  if (config.clear_thinking === false) {
+    result.preserveContext = true
+  }
+
+  return result
+}
+
+/**
+ * Transform UnifiedRequest thinking config into GLM thinking format
+ */
+function transformToGLMThinking(
+  thinking: UnifiedRequest['thinking']
+): OpenAIThinkingConfig | undefined {
+  if (!thinking) {
+    return undefined
+  }
+
+  const result: OpenAIThinkingConfig = {
+    type: thinking.enabled ? 'enabled' : 'disabled',
+  }
+
+  // preserveContext: true means clear_thinking: false
+  if (thinking.preserveContext === true) {
+    result.clear_thinking = false
+  }
+
+  return result
 }
 
 /**
@@ -172,9 +237,33 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
     result.tools = request.tools.map(transformTool)
   }
 
+  // Transform tool_choice
+  const toolChoice = transformToolChoice(request.toolChoice)
+  if (toolChoice) {
+    result.tool_choice = toolChoice
+  }
+
   // Transform thinking config
-  if (request.thinking?.enabled) {
-    result.reasoning_effort = 'medium'
+  if (isGLMModel(model)) {
+    // GLM 4.7 has thinking enabled by default, so we need to explicitly disable it
+    if (request.thinking?.enabled === true) {
+      result.thinking = transformToGLMThinking(request.thinking)
+    } else {
+      // Explicitly disable thinking for GLM models when not enabled
+      result.thinking = { type: 'disabled' }
+    }
+  } else if (request.thinking) {
+    if (isReasoningModel(model)) {
+      // O-series models use reasoning_effort format
+      result.reasoning_effort = request.thinking.effort || 'medium'
+    } else {
+      // Other models use reasoning_effort as well
+      if (request.thinking.enabled) {
+        result.reasoning_effort = request.thinking.effort || 'medium'
+      } else {
+        result.reasoning_effort = 'none'
+      }
+    }
   }
 
   // Transform metadata fields
@@ -188,6 +277,111 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
   }
 
   return result
+}
+
+// =============================================================================
+// Message Reconstruction
+// =============================================================================
+
+/**
+ * Type guard to check if an object is a flattened tool call
+ */
+function isFlattenedToolCall(obj: unknown): obj is OpenAIFlattenedToolCall {
+  if (typeof obj !== 'object' || obj === null) return false
+  const item = obj as Record<string, unknown>
+  return (
+    item.type === 'function' &&
+    typeof item.name === 'string' &&
+    typeof item.call_id === 'string' &&
+    typeof item.arguments === 'string'
+  )
+}
+
+/**
+ * Type guard to check if an object is an OpenAI message
+ */
+function isOpenAIMessage(obj: unknown): obj is OpenAIMessage {
+  if (typeof obj !== 'object' || obj === null) return false
+  const item = obj as Record<string, unknown>
+  return typeof item.role === 'string'
+}
+
+/**
+ * Reconstructs messages when tool calls are flattened into the message array.
+ * Some APIs (like Responses API) flatten tool calls, so we need to regroup them.
+ */
+function reconstructFlattenedToolCalls(messages: unknown[]): OpenAIMessage[] {
+  if (!Array.isArray(messages)) return []
+
+  const reconstructed: OpenAIMessage[] = []
+  let currentAssistantMessage: OpenAIAssistantMessage | null = null
+  let lastProcessedAssistantIndex = -1
+
+  for (const msg of messages) {
+    // Skip null/undefined
+    if (!msg) continue
+
+    // Check if this is a flattened tool call
+    if (isFlattenedToolCall(msg)) {
+      if (!currentAssistantMessage && lastProcessedAssistantIndex >= 0) {
+        // We have a previous assistant message - use it
+        currentAssistantMessage = reconstructed[
+          lastProcessedAssistantIndex
+        ] as OpenAIAssistantMessage
+      }
+
+      if (!currentAssistantMessage) {
+        // Create new assistant message with tool calls
+        currentAssistantMessage = {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: msg.call_id,
+              type: 'function',
+              function: {
+                name: msg.name,
+                arguments: msg.arguments,
+              },
+            },
+          ],
+        }
+        reconstructed.push(currentAssistantMessage)
+      } else {
+        // Add to existing assistant message
+        if (!currentAssistantMessage.tool_calls) {
+          currentAssistantMessage.tool_calls = []
+        }
+        currentAssistantMessage.tool_calls.push({
+          id: msg.call_id,
+          type: 'function',
+          function: {
+            name: msg.name,
+            arguments: msg.arguments,
+          },
+        })
+      }
+      continue
+    }
+
+    // Check if this is a regular message with role
+    if (isOpenAIMessage(msg)) {
+      // If this is a non-assistant message, clear current assistant tracking
+      if (msg.role !== 'assistant') {
+        currentAssistantMessage = null
+      }
+
+      reconstructed.push(msg)
+
+      // Track assistant messages for grouping subsequent tool calls
+      if (msg.role === 'assistant') {
+        lastProcessedAssistantIndex = reconstructed.length - 1
+        currentAssistantMessage = msg
+      }
+    }
+  }
+
+  return reconstructed
 }
 
 // =============================================================================
@@ -581,4 +775,33 @@ function inferMimeTypeFromUrl(url: string): string {
   }
 
   return mimeTypes[ext || ''] || 'image/jpeg'
+}
+
+/**
+ * Transform UnifiedToolChoice to OpenAI tool_choice format
+ */
+function transformToolChoice(toolChoice?: UnifiedToolChoice): OpenAIToolChoice | undefined {
+  if (!toolChoice) return undefined
+
+  if (typeof toolChoice === 'string') {
+    switch (toolChoice) {
+      case 'auto':
+        return 'auto'
+      case 'none':
+        return 'none'
+      case 'required':
+        return 'required'
+      default:
+        return undefined
+    }
+  }
+
+  if (toolChoice.type === 'tool' && toolChoice.name) {
+    return {
+      type: 'function',
+      function: { name: toolChoice.name },
+    }
+  }
+
+  return undefined
 }

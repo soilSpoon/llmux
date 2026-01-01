@@ -8,6 +8,7 @@ import type {
   RequestMetadata,
   StopReason,
   StreamChunk,
+  StreamDelta,
   ThinkingBlock,
   ThinkingConfig,
   ToolCall,
@@ -18,6 +19,7 @@ import type {
   UnifiedTool,
   UsageInfo,
 } from "../../src/types/unified";
+import { isPartialJsonChunk, isToolCallWithPartialJson } from "../../src/providers/base";
 
 describe("UnifiedRequest", () => {
   it("should accept valid request with required fields", () => {
@@ -377,5 +379,83 @@ describe("StreamChunk", () => {
       error: "Rate limit exceeded",
     };
     expect(chunk.error).toBe("Rate limit exceeded");
+  });
+
+  it("should support tool_call chunk with partialJson", () => {
+    const chunk: StreamChunk = {
+      type: "tool_call",
+      delta: {
+        type: "tool_call",
+        partialJson: '{"title": "Hello"',
+      },
+    };
+    expect(chunk.type).toBe("tool_call");
+    expect(chunk.delta?.partialJson).toBe('{"title": "Hello"');
+  });
+
+  it("should accumulate partialJson across multiple chunks", () => {
+    const chunks: StreamChunk[] = [
+      {
+        type: "tool_call",
+        delta: { partialJson: '{"key"' },
+      },
+      {
+        type: "tool_call",
+        delta: { partialJson: ': "val' },
+      },
+      {
+        type: "tool_call",
+        delta: { partialJson: 'ue"}' },
+      },
+    ];
+
+    let accumulated = "";
+    for (const chunk of chunks) {
+      if (chunk.delta?.partialJson) {
+        accumulated += chunk.delta.partialJson;
+      }
+    }
+
+    expect(accumulated).toBe('{"key": "value"}');
+  });
+});
+
+describe("StreamDelta and type guards", () => {
+  it("should create StreamDelta with partialJson", () => {
+    const delta: StreamDelta = {
+      type: "tool_call",
+      partialJson: '{"key": "value"}',
+    };
+    expect(delta.partialJson).toBe('{"key": "value"}');
+  });
+
+  it("should validate partialJson with isPartialJsonChunk", () => {
+    const validDelta: StreamDelta = { partialJson: '{"a": 1' };
+    const emptyDelta: StreamDelta = { partialJson: "" };
+    const noDelta: StreamDelta = {};
+
+    expect(isPartialJsonChunk(validDelta)).toBe(true);
+    expect(isPartialJsonChunk(emptyDelta)).toBe(false);
+    expect(isPartialJsonChunk(noDelta)).toBe(false);
+    expect(isPartialJsonChunk(undefined)).toBe(false);
+  });
+
+  it("should validate tool_call with isToolCallWithPartialJson", () => {
+    const validChunk: StreamChunk = {
+      type: "tool_call",
+      delta: { partialJson: '{"x":' },
+    };
+    const contentChunk: StreamChunk = {
+      type: "content",
+      delta: { partialJson: '{"x":' },
+    };
+    const toolCallNoJson: StreamChunk = {
+      type: "tool_call",
+      delta: { text: "something" },
+    };
+
+    expect(isToolCallWithPartialJson(validChunk)).toBe(true);
+    expect(isToolCallWithPartialJson(contentChunk)).toBe(false);
+    expect(isToolCallWithPartialJson(toolCallNoJson)).toBe(false);
   });
 });

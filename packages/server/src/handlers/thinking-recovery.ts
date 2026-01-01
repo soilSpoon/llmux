@@ -112,7 +112,7 @@ function isFunctionCallPart(part: ContentPart | ContentBlock): boolean {
  * Checks if a message is a tool result container (user role with functionResponse).
  */
 function isToolResultMessage(msg: ConversationMessage): boolean {
-  if (!msg || msg.role !== 'user') return false
+  if (!msg || (msg.role !== 'user' && msg.role !== 'function')) return false
 
   // Gemini format: parts array
   if (Array.isArray(msg.parts)) {
@@ -187,7 +187,7 @@ export function analyzeConversationState(contents: ConversationMessage[]): Conve
   let lastRealUserIdx = -1
   for (let i = 0; i < contents.length; i++) {
     const msg = contents[i]
-    if (msg?.role === 'user' && !isToolResultMessage(msg)) {
+    if ((msg?.role === 'user' || msg?.role === 'function') && !isToolResultMessage(msg)) {
       lastRealUserIdx = i
     }
   }
@@ -219,7 +219,10 @@ export function analyzeConversationState(contents: ConversationMessage[]): Conve
   // We're in a tool loop if the conversation ends with a tool result
   if (contents.length > 0) {
     const lastMsg = contents[contents.length - 1]
-    if (lastMsg?.role === 'user' && isToolResultMessage(lastMsg)) {
+    if (
+      (lastMsg?.role === 'user' || lastMsg?.role === 'function') &&
+      isToolResultMessage(lastMsg)
+    ) {
       state.inToolLoop = true
     }
   }
@@ -265,7 +268,7 @@ function countTrailingToolResults(contents: ConversationMessage[]): number {
   for (let i = contents.length - 1; i >= 0; i--) {
     const msg = contents[i]
 
-    if (msg?.role === 'user') {
+    if (msg?.role === 'user' || msg?.role === 'function') {
       if (isToolResultMessage(msg)) {
         count++
       } else {

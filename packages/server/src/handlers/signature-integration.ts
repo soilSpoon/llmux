@@ -11,6 +11,7 @@ import {
   type CacheKey,
   createLogger,
   createTextHash,
+  getModelFamily,
   SignatureCache,
   SQLiteStorage,
 } from '@llmux/core'
@@ -39,10 +40,14 @@ const lastSignedThinkingBySessionKey = new Map<string, { text: string; signature
 // Captures the most recent valid thoughtSignature globally.
 // Used as fallback when session-specific cache misses.
 const globalThoughtSignatureStore: {
+  text: string | null
   signature: string | null
+  model: string | null
   timestamp: number
 } = {
+  text: null,
   signature: null,
+  model: null,
   timestamp: 0,
 }
 
@@ -50,16 +55,19 @@ const globalThoughtSignatureStore: {
  * Store a signature in the global store (overwrites previous).
  * Used to capture signatures from streaming responses.
  */
-export function storeGlobalThoughtSignature(signature: string): void {
-  if (signature && signature.length >= MIN_SIGNATURE_LENGTH) {
+export function storeGlobalThoughtSignature(signature: string, text: string, model?: string): void {
+  if (signature && signature.length >= MIN_SIGNATURE_LENGTH && text) {
     globalThoughtSignatureStore.signature = signature
+    globalThoughtSignatureStore.text = text
+    globalThoughtSignatureStore.model = model || null
     globalThoughtSignatureStore.timestamp = Date.now()
     logger.debug(
       {
         signatureLength: signature.length,
+        textLength: text.length,
         timestamp: globalThoughtSignatureStore.timestamp,
       },
-      'Stored signature in global store (Layer 2 fallback)'
+      'Stored signature + text in global store (Layer 2 fallback)'
     )
   }
 }
@@ -68,9 +76,20 @@ export function storeGlobalThoughtSignature(signature: string): void {
  * Get the most recent global thought signature.
  * Returns undefined if signature is older than 10 minutes.
  */
-export function getGlobalThoughtSignature(): string | undefined {
-  const { signature, timestamp } = globalThoughtSignatureStore
-  if (!signature) return undefined
+export function getGlobalThoughtSignature(
+  targetModel?: string
+): { text: string; signature: string } | undefined {
+  const { signature, text, model, timestamp } = globalThoughtSignatureStore
+  if (!signature || !text) return undefined
+
+  // Prevent cross-model pollution (e.g. injecting Claude signature into Gemini)
+  if (targetModel && model && getModelFamily(targetModel) !== getModelFamily(model)) {
+    logger.debug(
+      { storedModel: model, targetModel },
+      'Skipping global signature: model family mismatch'
+    )
+    return undefined
+  }
 
   const age = Date.now() - timestamp
   const MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
@@ -83,7 +102,7 @@ export function getGlobalThoughtSignature(): string | undefined {
     return undefined
   }
 
-  return signature
+  return { text, signature }
 }
 
 /**
@@ -91,6 +110,8 @@ export function getGlobalThoughtSignature(): string | undefined {
  */
 export function clearGlobalThoughtSignature(): void {
   globalThoughtSignatureStore.signature = null
+  globalThoughtSignatureStore.text = null
+  globalThoughtSignatureStore.model = null
   globalThoughtSignatureStore.timestamp = 0
   logger.debug({}, 'Cleared global signature store')
 }
@@ -279,12 +300,28 @@ function hashConversationSeed(seed: string): string {
 }
 
 /**
- * Check if a model should use signature caching (Claude thinking models).
+ * Check if a model should use signature caching.
+ * Relaxed policy: Allow for ALL models except OpenAI (which errors on unknown fields).
+ * This supports Claude, Gemini, and any future models that support thinking signatures.
  */
 export function shouldCacheSignatures(model?: string): boolean {
   if (typeof model !== 'string') return false
-  const lower = model.toLowerCase()
-  return lower.includes('claude') && lower.includes('thinking')
+
+  const family = getModelFamily(model)
+
+  // Blacklist OpenAI - it throws 400 Bad Request when unknown fields (thoughtSignature) are present
+  if (family === 'openai') {
+    return false
+  }
+
+  // Only cache signatures for Claude thinking models through Antigravity
+  // Native Gemini models don't need/validate thinking signatures
+  if (family === 'gemini' && !model.includes('claude')) {
+    return false
+  }
+
+  // Allow Claude native models and gemini-claude-thinking models
+  return true
 }
 
 // ============================================================================
@@ -317,13 +354,30 @@ export function cacheSignatureFromChunk(
   if (signature && signature.length >= MIN_SIGNATURE_LENGTH) {
     const fullText = thoughtBuffer.get(candidateIndex) ?? ''
     if (fullText) {
+      // Extract model from sessionKey if possible, or default to checking via helper
+      // sessionKey format involved: SERVER_SESSION_ID:modelKey:projectPart:conversationPart
+      // But we can just use getModelFamily on the modelKey part if we parse it,
+      // OR better: since we are in a context where we know it's NOT OpenAI (checked by caller),
+      // we can try to detect family or fallback to 'claude' as a safe default for storage.
+      // However, correct storage family is important for some logic?
+      // Actually SignatureCache.store takes family but mostly for metadata.
+
+      let family: 'claude' | 'gemini' | 'openai' = 'claude'
+      const parts = sessionKey.split(':')
+      if (parts.length >= 2) {
+        const modelKey = parts[1]
+        if (modelKey) {
+          family = getModelFamily(modelKey)
+        }
+      }
+
       const cacheKey: CacheKey = {
         sessionId: sessionKey,
-        model: 'claude', // Simplified - could extract from session key
+        model: family,
         textHash: createTextHash(fullText),
       }
 
-      signatureCache.store(cacheKey, signature, 'claude')
+      signatureCache.store(cacheKey, signature, family)
       lastSignedThinkingBySessionKey.set(sessionKey, {
         text: fullText,
         signature,
@@ -331,7 +385,7 @@ export function cacheSignatureFromChunk(
 
       // 🔧 LAYER 2: Store in global signature store (Antigravity method)
       // This is used as fallback when session-specific cache misses on subsequent requests
-      storeGlobalThoughtSignature(signature)
+      storeGlobalThoughtSignature(signature, fullText, family)
 
       logger.debug(
         {
@@ -394,6 +448,19 @@ export function ensureThinkingSignatures(
       )
     }
   }
+
+  // --------------------------------------------------------------------------
+  // Check Model Family:
+  // - Gemini: STRIP ONLY. Do not inject signatures. (Avoids "Corrupted thought signature" errors)
+  // - Claude: STRIP & RESTORE. Needs signatures for Extended Thinking.
+  // --------------------------------------------------------------------------
+  const family = getModelFamily(model || 'claude') // Default to claude if unknown but passed guard
+  if (family === 'openai') {
+    logger.debug({ model }, 'Skipping signature restoration for OpenAI')
+    return
+  }
+  // Note: Removed the block for Gemini. We WANT to restore signatures for Gemini
+  // if they involve tool use, provided we have the correct signature/text.
 
   // STEP 2: Inject cached thinking only for tool-use cases
   // (Only inject before tool_use blocks to prevent invalid signatures)
@@ -610,12 +677,12 @@ function ensureSignaturesInContents(contents: Content[], sessionKey: string): Co
     // Uses the most recent valid signature from any session
     // Must apply to BOTH tool_use cases AND the last model message
     // (Claude API requires: thinking before tool_use AND final assistant must start with thinking)
-    const globalSig = getGlobalThoughtSignature()
-    if (globalSig && (hasToolUse || isLastModelMessage)) {
+    const globalData = getGlobalThoughtSignature(sessionKey.split(':')[1])
+    if (globalData && (hasToolUse || isLastModelMessage)) {
       const injected: Part = {
         thought: true,
-        text: '[Resuming analysis...]', // Generic placeholder text
-        thoughtSignature: globalSig,
+        text: globalData.text, // Use ACTUAL text, not placeholder
+        thoughtSignature: globalData.signature,
       }
 
       return { ...content, parts: [injected, ...otherParts] }
@@ -684,12 +751,12 @@ function ensureSignaturesInMessages(messages: Message[], sessionKey: string): Me
 
     // 🔧 LAYER 2: Try global signature store (Antigravity fallback)
     // Uses the most recent valid signature from any session
-    const globalSig = getGlobalThoughtSignature()
-    if (globalSig && hasToolUse) {
+    const globalData = getGlobalThoughtSignature()
+    if (globalData && hasToolUse) {
       const injected: Block = {
         type: 'thinking',
-        thinking: '[Resuming analysis...]', // Generic placeholder text
-        signature: globalSig,
+        thinking: globalData.text, // Use ACTUAL text, not placeholder
+        signature: globalData.signature,
       }
 
       return { ...message, content: [injected, ...otherBlocks] }
@@ -790,9 +857,16 @@ function ensureBlockSignature(block: Block, sessionKey: string): Block {
 }
 
 function restoreSignature(sessionKey: string, text: string): string | undefined {
+  // Attempt to derive family from sessionKey to be consistent, though restore mainly uses sessionId+textHash
+  let family = 'claude'
+  const parts = sessionKey.split(':')
+  if (parts.length >= 2) {
+    family = getModelFamily(parts[1] || 'claude')
+  }
+
   const cacheKey: CacheKey = {
     sessionId: sessionKey,
-    model: 'claude',
+    model: family,
     textHash: createTextHash(text),
   }
 

@@ -391,6 +391,7 @@ describe('Gemini Streaming Transformations', () => {
         const parsed = JSON.parse(result.replace('data: ', ''))
 
         expect(parsed.candidates[0].content.parts[0].functionCall).toEqual({
+          id: 'call_123',
           name: 'get_weather',
           args: { location: 'NYC' },
         })
@@ -986,7 +987,314 @@ describe('Gemini Streaming Transformations', () => {
 
         expect(result?.usage?.inputTokens).toBeUndefined()
         expect(result?.usage?.outputTokens).toBeUndefined()
-      })
-    })
-  })
-})
+        })
+        })
+
+        describe('partialJson streaming', () => {
+        it('should parse functionCall args as partialJson', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'calculate',
+                      args: '{"x": 10',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.type).toBe('tool_call')
+        expect(result?.delta?.partialJson).toBe('{"x": 10')
+        expect(result?.delta?.toolCall?.name).toBe('calculate')
+        })
+
+        it('should handle empty partialJson gracefully', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'test',
+                      args: '',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.type).toBe('tool_call')
+        expect(result?.delta?.partialJson).toBe('')
+        })
+
+        it('should accumulate partialJson chunks to complete JSON', () => {
+        const chunks = [
+          {
+            candidates: [
+              {
+                content: {
+                  role: 'model',
+                  parts: [
+                    {
+                      functionCall: {
+                        name: 'calculate',
+                        args: '{"x": 10',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            candidates: [
+              {
+                content: {
+                  role: 'model',
+                  parts: [
+                    {
+                      functionCall: {
+                        name: 'calculate',
+                        args: ', "y": 20',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+          {
+            candidates: [
+              {
+                content: {
+                  role: 'model',
+                  parts: [
+                    {
+                      functionCall: {
+                        name: 'calculate',
+                        args: '}',
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ]
+
+        let accumulated = ''
+        for (const chunkData of chunks) {
+          const result = parseStreamChunk(`data: ${JSON.stringify(chunkData)}`)
+          if (result?.delta?.partialJson) {
+            accumulated += result.delta.partialJson
+          }
+        }
+
+        expect(accumulated).toBe('{"x": 10, "y": 20}')
+        })
+
+        it('should round-trip partialJson through unified format', () => {
+        // Parse Gemini partial JSON function call
+        const parseChunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'test',
+                      args: '{"key": "val',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+
+        const parseResult = parseStreamChunk(`data: ${JSON.stringify(parseChunk)}`)
+        expect(parseResult?.delta?.partialJson).toBe('{"key": "val')
+
+        // Transform back to Gemini format
+        const transformResult = transformStreamChunk(parseResult!)
+        const data = JSON.parse(transformResult.replace('data: ', ''))
+
+        expect(data.candidates[0].content.parts[0].functionCall.args).toBe('{"key": "val')
+        })
+
+        it('should handle complete JSON objects in function args', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      name: 'update_user',
+                      args: { id: 123, name: 'Alice', active: true },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.type).toBe('tool_call')
+        expect(result?.delta?.partialJson).toBe('{"id":123,"name":"Alice","active":true}')
+        expect(result?.delta?.toolCall?.name).toBe('update_user')
+        })
+
+        it('should preserve tool ID during partialJson streaming', () => {
+        const chunk = {
+          candidates: [
+            {
+              content: {
+                role: 'model',
+                parts: [
+                  {
+                    functionCall: {
+                      id: 'call_xyz789',
+                      name: 'get_info',
+                      args: '{"param": 1',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        }
+        const sse = `data: ${JSON.stringify(chunk)}`
+
+        const result = parseStreamChunk(sse)
+
+        expect(result?.delta?.partialJson).toBe('{"param": 1')
+        expect(result?.delta?.toolCall?.id).toBe('call_xyz789')
+        expect(result?.delta?.toolCall?.name).toBe('get_info')
+        })
+        })
+        })
+
+        describe('transformStreamChunk with partialJson', () => {
+        it('should transform partialJson chunk to Gemini format', () => {
+        const chunk: StreamChunk = {
+        type: 'tool_call',
+        delta: {
+          type: 'tool_call',
+          partialJson: '{"location": "NYC',
+        },
+        }
+
+        const result = transformStreamChunk(chunk)
+        const data = JSON.parse(result.replace('data: ', ''))
+
+        expect(data.candidates[0].content.parts[0].functionCall.args).toBe('{"location": "NYC')
+        })
+
+        it('should include tool name in partialJson transform if available', () => {
+        const chunk: StreamChunk = {
+        type: 'tool_call',
+        delta: {
+          type: 'tool_call',
+          partialJson: '{"x": 10',
+          toolCall: {
+            id: 'call_abc',
+            name: 'calculate',
+            arguments: '{"x": 10',
+          },
+        },
+        }
+
+        const result = transformStreamChunk(chunk)
+        const data = JSON.parse(result.replace('data: ', ''))
+
+        expect(data.candidates[0].content.parts[0].functionCall.name).toBe('calculate')
+        expect(data.candidates[0].content.parts[0].functionCall.args).toBe('{"x": 10')
+        expect(data.candidates[0].content.parts[0].functionCall.id).toBe('call_abc')
+        })
+
+        it('should handle empty partialJson gracefully', () => {
+        const chunk: StreamChunk = {
+        type: 'tool_call',
+        delta: {
+          type: 'tool_call',
+          partialJson: '',
+        },
+        }
+
+        const result = transformStreamChunk(chunk)
+        const data = JSON.parse(result.replace('data: ', ''))
+
+        expect(data.candidates[0].content.parts[0].functionCall.args).toBe('')
+        })
+
+        it('should handle full JSON object in partialJson field', () => {
+        const chunk: StreamChunk = {
+        type: 'tool_call',
+        delta: {
+          type: 'tool_call',
+          partialJson: '{"action": "login", "user": "alice", "remember": true}',
+          toolCall: {
+            id: 'call_123',
+            name: 'authenticate',
+            arguments: '{"action": "login", "user": "alice", "remember": true}',
+          },
+        },
+        }
+
+        const result = transformStreamChunk(chunk)
+        const data = JSON.parse(result.replace('data: ', ''))
+
+        expect(data.candidates[0].content.parts[0].functionCall.args).toEqual({
+        action: 'login',
+        user: 'alice',
+        remember: true,
+        })
+        })
+
+        it('should parse stringified JSON in partialJson', () => {
+        const jsonString = '{"query": "SELECT * FROM users WHERE id = 1"}'
+        const chunk: StreamChunk = {
+        type: 'tool_call',
+        delta: {
+          type: 'tool_call',
+          partialJson: jsonString,
+          toolCall: {
+            id: 'call_456',
+            name: 'execute_sql',
+            arguments: jsonString,
+          },
+        },
+        }
+
+        const result = transformStreamChunk(chunk)
+        const data = JSON.parse(result.replace('data: ', ''))
+
+        expect(data.candidates[0].content.parts[0].functionCall.args).toEqual({
+        query: 'SELECT * FROM users WHERE id = 1',
+        })
+        })
+        })
+        })

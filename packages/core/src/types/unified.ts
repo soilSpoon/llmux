@@ -6,11 +6,25 @@ export interface UnifiedRequest {
   system?: string
   systemBlocks?: SystemBlock[] // Preserves cache_control for Anthropic
   tools?: UnifiedTool[]
+  toolChoice?: UnifiedToolChoice // Tool selection mode
   config?: GenerationConfig
   thinking?: ThinkingConfig
   metadata?: RequestMetadata
   stream?: boolean // Preserves stream parameter
 }
+
+/**
+ * UnifiedToolChoice - Unified tool selection mode
+ * Maps between providers:
+ * - Anthropic: tool_choice: {type: "auto"|"any"|"tool", name?: string}
+ * - OpenAI: tool_choice: "auto"|"none"|"required"|{type: "function", function: {name: string}}
+ * - Gemini/Antigravity: toolConfig.functionCallingConfig.mode + allowedFunctionNames
+ */
+export type UnifiedToolChoice =
+  | 'auto' // Let the model decide
+  | 'none' // Don't use tools
+  | 'required' // Must use a tool (any tool)
+  | { type: 'tool'; name: string } // Must use a specific tool
 
 /**
  * UnifiedResponse - Central hub format for all provider response transformations
@@ -95,10 +109,13 @@ export interface GenerationConfig {
 
 /**
  * ThinkingConfig - Extended thinking/reasoning configuration
+ * Unified configuration for thinking/reasoning across different providers
  */
 export interface ThinkingConfig {
   enabled: boolean
   budget?: number
+  effort?: 'none' | 'low' | 'medium' | 'high'
+  preserveContext?: boolean // GLM clear_thinking 반대
   includeThoughts?: boolean
 }
 
@@ -195,8 +212,32 @@ export interface JSONSchemaProperty {
  */
 export interface StreamChunk {
   type: 'content' | 'tool_call' | 'thinking' | 'usage' | 'done' | 'error'
-  delta?: Partial<ContentPart>
+  delta?: StreamDelta
   usage?: UsageInfo
   stopReason?: StopReason
   error?: string
+}
+
+/**
+ * StreamDelta - Partial content updates in a stream chunk
+ *
+ * Extends ContentPart with streaming-specific fields like partialJson
+ * for accumulating tool input across multiple stream events.
+ */
+export interface StreamDelta extends Partial<ContentPart> {
+  /**
+   * Streamed partial JSON for tool input accumulation
+   *
+   * When a tool call's arguments are streamed (e.g., input_json_delta in Anthropic,
+   * function_call_arguments_delta in OpenAI), this field captures the incremental JSON string.
+   *
+   * Example sequence:
+   * - Event 1: { partialJson: '{"title":' }
+   * - Event 2: { partialJson: ' "Hello"' }
+   * - Event 3: { partialJson: ',' }
+   * - Event 4: { partialJson: ' "count": 1}' }
+   *
+   * Client should accumulate these chunks to reconstruct complete JSON argument objects.
+   */
+  partialJson?: string
 }

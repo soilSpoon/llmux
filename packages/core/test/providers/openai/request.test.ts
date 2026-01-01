@@ -610,6 +610,7 @@ describe("OpenAI Request Transform", () => {
 
       expect(result.thinking).toEqual({
         enabled: true,
+        effort: "high",
       });
     });
 
@@ -675,6 +676,272 @@ describe("OpenAI Request Transform", () => {
           url: "https://example.com/img.png",
         },
       });
+    });
+
+    it("reconstructs flattened tool calls from Responses API", () => {
+      const openaiRequest: OpenAIRequest = {
+        model: "gpt-5.1",
+        input: [
+          { role: "user", content: "Use a tool" },
+          {
+            role: "assistant",
+            content: "I'll call a tool",
+          },
+          // Flattened tool call objects (from Responses API)
+          {
+            type: "function",
+            name: "search",
+            call_id: "call_1",
+            arguments: '{"query":"test"}',
+          } as any,
+          {
+            type: "function",
+            name: "fetch",
+            call_id: "call_2",
+            arguments: '{"url":"https://example.com"}',
+          } as any,
+        ],
+      };
+
+      const result = parse(openaiRequest);
+
+      expect(result.messages).toHaveLength(2);
+      const assistantMsg = result.messages[1]!;
+      expect(assistantMsg.role).toBe("assistant");
+      // Should have tool calls reconstructed
+      expect(assistantMsg.parts).toBeDefined();
+    });
+
+    it("handles multiple assistant messages with flattened tool calls", () => {
+      const openaiRequest: OpenAIRequest = {
+        model: "gpt-5.1",
+        input: [
+          { role: "user", content: "Call tools" },
+          {
+            role: "assistant",
+            content: "Calling first tool",
+          },
+          {
+            type: "function",
+            name: "tool_a",
+            call_id: "call_1",
+            arguments: "{}",
+          } as any,
+          { role: "user", content: "Result for first tool" },
+          {
+            role: "assistant",
+            content: "Calling second tool",
+          },
+          {
+            type: "function",
+            name: "tool_b",
+            call_id: "call_2",
+            arguments: "{}",
+          } as any,
+        ],
+      };
+
+      const result = parse(openaiRequest);
+
+      // Should parse all messages correctly
+      expect(result.messages.length).toBeGreaterThan(0);
+      // All assistant messages should be present
+      const assistantMessages = result.messages.filter(
+        (m) => m.role === "assistant"
+      );
+      expect(assistantMessages.length).toBe(2);
+    });
+  });
+
+  describe("GLM thinking parsing", () => {
+    it("parses thinking.type: 'enabled' from GLM request", () => {
+      const openaiRequest = {
+        model: "glm-4.6",
+        messages: [
+          {
+            role: "user",
+            content: "Solve this complex problem",
+          },
+        ],
+        thinking: {
+          type: "enabled",
+        },
+      } as OpenAIRequest;
+
+      const result = parse(openaiRequest);
+
+      expect(result.thinking).toBeDefined();
+      expect(result.thinking?.enabled).toBe(true);
+    });
+
+    it("parses thinking.type: 'disabled' from GLM request", () => {
+      const openaiRequest = {
+        model: "glm-4.6",
+        messages: [
+          {
+            role: "user",
+            content: "Quick question",
+          },
+        ],
+        thinking: {
+          type: "disabled",
+        },
+      } as OpenAIRequest;
+
+      const result = parse(openaiRequest);
+
+      expect(result.thinking).toBeDefined();
+      expect(result.thinking?.enabled).toBe(false);
+    });
+
+    it("parses thinking.clear_thinking from GLM request", () => {
+      const openaiRequest = {
+        model: "glm-4.6",
+        messages: [
+          {
+            role: "user",
+            content: "Problem to solve",
+          },
+        ],
+        thinking: {
+          type: "enabled",
+          clear_thinking: false,
+        },
+      } as OpenAIRequest;
+
+      const result = parse(openaiRequest);
+
+      expect(result.thinking).toBeDefined();
+      expect(result.thinking?.preserveContext).toBe(true);
+    });
+
+    it("handles missing thinking config", () => {
+      const openaiRequest: OpenAIRequest = {
+        model: "glm-4.6",
+        messages: [
+          {
+            role: "user",
+            content: "Hello",
+          },
+        ],
+      };
+
+      const result = parse(openaiRequest);
+
+      expect(result.thinking).toBeUndefined();
+    });
+  });
+
+  describe("GLM thinking transformation", () => {
+    it("transforms enabled: true to thinking.type: 'enabled' for GLM", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Complex problem")],
+        thinking: {
+          enabled: true,
+        },
+      });
+
+      const result = transform(unified, "glm-4.6");
+
+      expect(result.thinking).toBeDefined();
+      expect(result.thinking?.type).toBe("enabled");
+    });
+
+    it("transforms enabled: false to thinking.type: 'disabled' for GLM", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Quick question")],
+        thinking: {
+          enabled: false,
+        },
+      });
+
+      const result = transform(unified, "glm-4.6");
+
+      expect(result.thinking).toBeDefined();
+      expect(result.thinking?.type).toBe("disabled");
+    });
+
+    it("transforms preserveContext: true to clear_thinking: false for GLM", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Problem")],
+        thinking: {
+          enabled: true,
+          preserveContext: true,
+        },
+      });
+
+      const result = transform(unified, "glm-4.6");
+
+      expect(result.thinking).toBeDefined();
+      expect(result.thinking?.clear_thinking).toBe(false);
+    });
+
+    it("transforms thinking config to reasoning_effort for O-series models", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Problem")],
+        thinking: {
+          enabled: true,
+          effort: "high",
+        },
+      });
+
+      const result = transform(unified, "o1");
+
+      expect(result.reasoning_effort).toBe("high");
+      expect(result.thinking).toBeUndefined();
+    });
+
+    it("transforms thinking config to reasoning_effort for other models", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Problem")],
+        thinking: {
+          enabled: true,
+          effort: "medium",
+        },
+      });
+
+      const result = transform(unified, "gpt-4");
+
+      expect(result.reasoning_effort).toBe("medium");
+    });
+
+    it("maps effort level when not specified", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Problem")],
+        thinking: {
+          enabled: true,
+        },
+      });
+
+      const result = transform(unified, "gpt-4");
+
+      expect(result.reasoning_effort).toBe("medium");
+    });
+
+    it("disables reasoning when thinking is disabled", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Problem")],
+        thinking: {
+          enabled: false,
+        },
+      });
+
+      const result = transform(unified, "gpt-4");
+
+      expect(result.reasoning_effort).toBe("none");
+    });
+
+    it("does not set thinking for non-GLM models", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Problem")],
+        thinking: {
+          enabled: true,
+        },
+      });
+
+      const result = transform(unified, "gpt-4");
+
+      expect(result.thinking).toBeUndefined();
     });
   });
 });

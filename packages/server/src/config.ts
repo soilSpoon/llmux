@@ -27,6 +27,7 @@ export interface RoutingConfig {
 export interface AmpModelMapping {
   from: string
   to: string | string[]
+  thinking?: boolean
 }
 
 export interface AmpConfig {

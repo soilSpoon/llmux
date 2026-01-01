@@ -1,8 +1,6 @@
 import {
   ANTIGRAVITY_API_PATH_STREAM,
-  ANTIGRAVITY_DEFAULT_PROJECT_ID,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
-  ANTIGRAVITY_HEADERS,
   AuthProviderRegistry,
   CredentialStorage,
   fetchAntigravityProjectID,
@@ -15,13 +13,22 @@ import {
   getProvider,
   isValidProviderName,
   type ProviderName,
+  stripSignaturesFromContents,
   transformRequest,
 } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
+import {
+  ANTIGRAVITY_DEFAULT_PROJECT_ID,
+  applyAntigravityAlias,
+  fixOpencodeZenBody,
+  getCodexInstructions,
+  resolveOpencodeZenProtocol,
+  shouldFallbackToDefaultProject,
+  transformToolsForCodex,
+} from '../providers'
 import { accountRotationManager } from './account-rotation'
 import { normalizeBashArguments } from './bash-normalization'
-import { getCodexInstructions } from './codex'
 import { applyModelMappingV2 } from './model-mapping'
 import {
   buildSignatureSessionKey,
@@ -34,143 +41,8 @@ import {
 
 const logger = createLogger({ service: 'streaming-handler' })
 
-// Model Aliases for Antigravity API
-// These models need to be translated to their internal names
-const ANTIGRAVITY_MODEL_ALIASES: Record<string, string> = {
-  'gemini-3-pro-preview': 'gemini-3-pro-high',
-  'gemini-claude-sonnet-4-5': 'claude-sonnet-4-5',
-  'gemini-claude-sonnet-4-5-thinking': 'claude-sonnet-4-5-thinking',
-  'gemini-claude-opus-4-5-thinking': 'claude-opus-4-5-thinking',
-}
-
-function applyAntigravityAlias(model: string): string {
-  return ANTIGRAVITY_MODEL_ALIASES[model] || model
-}
-
-export function parseRetryAfterMs(response: Response, body?: string): number {
-  // 1. Check retry-after-ms header
-  const retryAfterMsHeader = response.headers.get('retry-after-ms')
-  if (retryAfterMsHeader) {
-    const parsed = parseInt(retryAfterMsHeader, 10)
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed
-  }
-
-  // 2. Check retry-after header (seconds)
-  const retryAfterHeader = response.headers.get('retry-after')
-  if (retryAfterHeader) {
-    const parsed = parseInt(retryAfterHeader, 10)
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed * 1000
-  }
-
-  // 3. Check body for retryDelay
-  if (body) {
-    const match = body.match(/"retryDelay":\s*"([0-9.]+)s"/)
-    if (match?.[1]) return parseFloat(match[1]) * 1000
-  }
-
-  // 4. Default fallback (30 seconds)
-  return 30000
-}
-
-/**
- * Transform tools from ChatCompletion API format to Responses API format
- * ChatCompletion: { type: "function", function: { name, description, parameters } }
- * Responses API: { type: "function", name, description, parameters }
- *
- * Also handles Anthropic format: { name, description, input_schema }
- */
-export function transformToolsForCodex(
-  tools: Array<{
-    type?: string
-    name?: string
-    description?: string
-    parameters?: unknown
-    input_schema?: unknown
-    function?: {
-      name?: string
-      description?: string
-      parameters?: unknown
-    }
-  }>
-): Array<{
-  type: string
-  name: string
-  description?: string
-  parameters?: unknown
-}> {
-  logger.debug({ toolsCount: tools.length }, '[tools] Starting transformToolsForCodex')
-
-  return tools.map((tool, idx) => {
-    let transformed: {
-      type: string
-      name: string
-      description?: string
-      parameters?: unknown
-    }
-
-    // ChatCompletion API format (has function wrapper)
-    if (tool.function?.name) {
-      transformed = {
-        type: 'function',
-        name: tool.function.name,
-        description: tool.function.description,
-        parameters: tool.function.parameters,
-      }
-      logger.debug(
-        {
-          index: idx,
-          originalFormat: 'ChatCompletion',
-          name: tool.function.name,
-        },
-        '[tools] Transformed from ChatCompletion format'
-      )
-      return transformed
-    }
-
-    // Anthropic format (has input_schema)
-    if (tool.name && tool.input_schema) {
-      transformed = {
-        type: 'function',
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.input_schema,
-      }
-      logger.debug(
-        { index: idx, originalFormat: 'Anthropic', name: tool.name },
-        '[tools] Transformed from Anthropic format'
-      )
-      return transformed
-    }
-
-    // Already Responses API format or similar (name at top level with parameters)
-    if (tool.name) {
-      transformed = {
-        type: tool.type || 'function',
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-      }
-      logger.debug(
-        { index: idx, originalFormat: 'Responses API', name: tool.name },
-        '[tools] Already in Responses API format'
-      )
-      return transformed
-    }
-
-    // Fallback: return as-is but ensure required fields
-    transformed = {
-      type: tool.type || 'function',
-      name: tool.name || 'unknown',
-      description: tool.description,
-      parameters: tool.parameters || tool.input_schema,
-    }
-    logger.warn(
-      { index: idx, originalTool: JSON.stringify(tool).slice(0, 100) },
-      '[tools] Using fallback transformation (missing name)'
-    )
-    return transformed
-  })
-}
+import { buildUpstreamHeaders, getDefaultEndpoint, parseRetryAfterMs } from '../upstream'
+export { parseRetryAfterMs }
 
 import type { Router } from '../routing'
 
@@ -179,18 +51,9 @@ export interface ProxyOptions {
   targetProvider: string
   targetModel?: string
   apiKey?: string
+  thinking?: boolean
   modelMappings?: AmpModelMapping[]
   router?: Router
-}
-
-const PROVIDER_ENDPOINTS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1/chat/completions',
-  anthropic: 'https://api.anthropic.com/v1/messages',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
-  antigravity:
-    'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse',
-  'opencode-zen': 'https://opencode.ai/zen/v1/messages',
-  'openai-web': 'https://chatgpt.com/backend-api/codex/responses',
 }
 
 function formatToProvider(format: RequestFormat): ProviderName {
@@ -202,38 +65,7 @@ function buildHeaders(
   apiKey?: string,
   fromProtocol?: string
 ): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-
-  if (!apiKey) return headers
-
-  switch (targetProvider) {
-    case 'anthropic':
-      headers['x-api-key'] = apiKey
-      headers['anthropic-version'] = '2023-06-01'
-      break
-    case 'openai':
-      headers.Authorization = `Bearer ${apiKey}`
-      break
-    case 'gemini':
-      headers['x-goog-api-key'] = apiKey
-      break
-    case 'antigravity':
-      headers.Authorization = `Bearer ${apiKey}`
-      Object.assign(headers, ANTIGRAVITY_HEADERS)
-      break
-    case 'opencode-zen':
-      if (fromProtocol === 'openai') {
-        headers.Authorization = `Bearer ${apiKey}`
-      } else {
-        headers['x-api-key'] = apiKey
-        headers['anthropic-version'] = '2023-06-01'
-      }
-      break
-  }
-
-  return headers
+  return buildUpstreamHeaders(targetProvider, apiKey, { fromProtocol })
 }
 
 /**
@@ -389,24 +221,60 @@ export async function handleStreamingProxy(
           bodyLength: number
         }
       | undefined,
+    fullResponse: '',
+    accumulatedText: '',
+    accumulatedThinking: '',
   }
 
   // logger.debug({ reqId, ...options }, '[Streaming] Init')
 
   try {
-    const body = (await request.json()) as { model?: string }
-    const originalModel = body.model || 'unknown'
+    const body = (await request.json()) as {
+      model?: string
+      thinking?: { type?: string; budget_tokens?: number } | unknown
+      reasoning_effort?: unknown
+    }
+    const originalModel = body.model ?? 'unknown'
     streamContext.originalModel = originalModel
 
     let initialMappedModel: string | undefined = originalModel
     let initialTargetProvider = options.targetProvider
 
+    // Check if thinking was explicitly requested in the original request
+    const hasThinkingInRequest = body.thinking !== undefined || body.reasoning_effort !== undefined
+    const thinkingType =
+      typeof body.thinking === 'object' && body.thinking !== null && 'type' in body.thinking
+        ? (body.thinking as { type?: string }).type
+        : undefined
+    let isThinkingEnabled: boolean | undefined = hasThinkingInRequest
+      ? thinkingType === 'enabled' || body.reasoning_effort !== undefined
+      : undefined
+
     if (originalModel !== 'unknown') {
       const mappingResult = applyModelMappingV2(originalModel, options.modelMappings)
       const appliedMapping = mappingResult.model
+      // Priority: options.thinking > mappingResult.thinking > original request thinking
+      if (options.thinking !== undefined) {
+        isThinkingEnabled = options.thinking
+      } else if (mappingResult.thinking !== undefined) {
+        isThinkingEnabled = mappingResult.thinking
+      }
+      // If still undefined after mapping, keep original request's thinking setting
+
+      logger.debug(
+        {
+          reqId,
+          originalModel,
+          isThinkingEnabled,
+          sourceFormat: options.sourceFormat,
+          targetModel: initialMappedModel,
+          fromOptions: options.thinking !== undefined,
+        },
+        '[streaming] Model mapping result for thinking control'
+      )
 
       if (mappingResult.provider && isValidProviderName(mappingResult.provider)) {
-        initialTargetProvider = mappingResult.provider
+        initialTargetProvider = mappingResult.provider as ProviderName
       }
       initialMappedModel = appliedMapping
     }
@@ -415,14 +283,60 @@ export async function handleStreamingProxy(
       initialMappedModel = options.targetModel
     }
 
-    // Retry loop for rotation
-    const MAX_ATTEMPTS = 10
-    let attempt = 0
+    // Capture effective target provider for debug logs
+    let effectiveTargetProvider: ProviderName
+    try {
+      effectiveTargetProvider = initialTargetProvider as ProviderName
+      if (initialTargetProvider === 'opencode-zen' && initialMappedModel) {
+        const protocol = resolveOpencodeZenProtocol(initialMappedModel)
+        if (protocol) {
+          effectiveTargetProvider = protocol as ProviderName
+        }
+      }
+    } catch {
+      effectiveTargetProvider = 'openai' as ProviderName
+    }
+
+    // Determine parser type early for logging
+    let parserType = 'sse-standard'
+    try {
+      const provider = getProvider(effectiveTargetProvider)
+      if (provider?.config?.defaultStreamParser) {
+        parserType = provider.config.defaultStreamParser
+      }
+    } catch {
+      // Ignore
+    }
+
+    logger.debug(
+      {
+        reqId,
+        originalModel,
+        initialMappedModel,
+        effectiveTargetProvider,
+        isThinkingEnabled,
+      },
+      '[streaming] Thinking control status initialized'
+    )
+
+    const isStreamingLoop = true
     let currentProvider = initialTargetProvider
     let currentModel = initialMappedModel
+    let previousProvider = initialTargetProvider // Track model changes for signature handling
+    let previousModel = initialMappedModel
+    let attemptCount = 0
+    const MAX_ATTEMPTS = 10
+
+    // Retry loop for rotation
+    // const MAX_ATTEMPTS = 10; // This was moved to attemptCount
+    // let attempt = 0; // This was moved to attemptCount
+    // let currentProvider = initialTargetProvider; // This was moved above
+    // let currentModel = initialMappedModel; // This was moved above
+    let antigravityEndpointIndex = 0 // State for Antigravity endpoint iteration
 
     // Variables hoisted
-    let effectiveTargetProvider: ProviderName = initialTargetProvider as ProviderName
+    // let effectiveTargetProvider: ProviderName = // This was moved above
+    //   initialTargetProvider as ProviderName;
     let requestBody: Record<string, unknown> = {}
     let endpoint: string = ''
     let headers: Record<string, string> = {}
@@ -430,20 +344,29 @@ export async function handleStreamingProxy(
     let signatureSessionKey: string | undefined
     let overrideProjectId: string | null = null // For Project ID Fallback
 
-    while (attempt < MAX_ATTEMPTS) {
-      attempt++
+    while (attemptCount < MAX_ATTEMPTS && isStreamingLoop) {
+      attemptCount++
 
-      logger.debug(
-        {
-          reqId,
-          attempt,
-          maxAttempts: MAX_ATTEMPTS,
-          provider: currentProvider,
-          model: currentModel,
-        },
-        '[streaming] Starting attempt'
-      )
+      // [THINKING CONTROL] Strip thinking param if disabled
+      if (isThinkingEnabled !== true) {
+        if (body.thinking) {
+          logger.info(
+            { reqId, model: originalModel },
+            "[streaming] REQUEST MODIFICATION: Stripping 'thinking' parameter from Anthropic request body to prevent upstream generation"
+          )
+          delete body.thinking
+        }
+        // Additional: If it's an OpenAI-style request, ensure no reasoning is requested
+        if (body.reasoning_effort) {
+          logger.info(
+            { reqId },
+            "[streaming] REQUEST MODIFICATION: Stripping 'reasoning_effort' parameter from OpenAI request body"
+          )
+          delete body.reasoning_effort
+        }
 
+        // Add a hint to the system message if possible? (Optional, might be too intrusive)
+      }
       // Variables for this attempt
       let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
       let accountIndex = 0
@@ -496,8 +419,41 @@ export async function handleStreamingProxy(
           from: formatToProvider(options.sourceFormat),
           to: effectiveTargetProvider,
           model: currentModel,
+          // Disable thinking if not explicitly enabled (false or undefined means no thinking)
+          thinkingOverride: isThinkingEnabled !== true ? { enabled: false } : undefined,
         })
+
         requestBody = transformedRequest as Record<string, unknown>
+
+        // Strip thoughtSignature if model changed (cross-model fallback)
+        // This prevents "Corrupted thought signature" errors when falling back
+        const modelChanged = previousProvider !== currentProvider || previousModel !== currentModel
+        const hasContents =
+          effectiveTargetProvider === 'antigravity' &&
+          (requestBody.request as Record<string, unknown> | undefined)?.contents
+        if (modelChanged && hasContents) {
+          const innerRequest = requestBody.request as Record<string, unknown>
+          const contents = innerRequest.contents as Array<{
+            role: string
+            parts: Array<{ thoughtSignature?: string; [key: string]: unknown }>
+          }>
+          if (Array.isArray(contents)) {
+            const stripped = stripSignaturesFromContents(contents)
+            innerRequest.contents = stripped
+            logger.debug(
+              {
+                reqId,
+                from: `${previousProvider}:${previousModel}`,
+                to: `${currentProvider}:${currentModel}`,
+              },
+              '[streaming] Stripped thoughtSignature during model fallback'
+            )
+          }
+        }
+
+        // Update tracking variables for next iteration
+        previousProvider = currentProvider
+        previousModel = currentModel
       } catch (error) {
         streamContext.error = error instanceof Error ? error.message : String(error)
         logger.error(
@@ -643,26 +599,34 @@ export async function handleStreamingProxy(
           endpoint = ''
         }
 
-        // Antigravity Endpoint Fallback Logic
+        // Antigravity Endpoint Logic with Scoped Provider Key
+        let effectiveProviderKey = currentProvider
+
         if (currentProvider === 'antigravity') {
-          const fallbackIndex = (attempt - 1) % ANTIGRAVITY_ENDPOINT_FALLBACKS.length
-          const baseEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[fallbackIndex]
+          const baseEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[antigravityEndpointIndex]
           const apiPath = ANTIGRAVITY_API_PATH_STREAM // Always streaming in this handler
           endpoint = `${baseEndpoint}${apiPath}`
 
+          // Scoped provider key for account rotation (antigravity:https://example.com)
+          effectiveProviderKey = `antigravity:${baseEndpoint}`
+
           logger.debug(
             {
-              attempt,
+              reqId, // Changed from attempt
               endpoint,
-              fallbackIndex,
+              endpointIndex: antigravityEndpointIndex,
               baseEndpoint,
+              effectiveProviderKey,
             },
-            '[streaming] Using Antigravity fallback endpoint'
+            '[streaming] Using Antigravity endpoint'
           )
         }
 
         // Simplified credential retrieval for retry loop context
         try {
+          // Pass effectiveProviderKey if supported, otherwise use currentProvider and we manage scope manually?
+          // TokenRefresh.ensureFresh typically takes the provider name.
+          // For Antigravity, the tokens are shared across endpoints, so we verify against the main provider name.
           credentials = await TokenRefresh.ensureFresh(currentProvider)
         } catch {
           logger.warn({ reqId, provider: currentProvider }, 'No credentials found')
@@ -672,7 +636,11 @@ export async function handleStreamingProxy(
           })
         }
 
-        accountIndex = accountRotationManager.getNextAvailable(currentProvider, credentials || [])
+        // Use effectiveProviderKey for rotation state to separate cooldowns per endpoint
+        accountIndex = accountRotationManager.getNextAvailable(
+          effectiveProviderKey,
+          credentials || []
+        )
         const credential = credentials?.[accountIndex]
 
         if (!credential)
@@ -707,7 +675,11 @@ export async function handleStreamingProxy(
             headers['x-api-key'] = (credential as { key: string }).key
           }
         }
+
+        // --- RETRY / ERROR HANDLING LOGIC MOVED INSIDE ---
+        // Need to ensure we use effectiveProviderKey for markRateLimited below
       } else {
+        // Logic for API Key provided (no rotation)
         let effectiveApiKey = options.apiKey
 
         if (!effectiveApiKey && currentProvider === 'openai') {
@@ -732,7 +704,9 @@ export async function handleStreamingProxy(
         }
 
         headers = buildHeaders(currentProvider, effectiveApiKey, effectiveTargetProvider)
-        let url = PROVIDER_ENDPOINTS[currentProvider] || PROVIDER_ENDPOINTS[effectiveTargetProvider]
+        let url =
+          getDefaultEndpoint(currentProvider, { streaming: true }) ||
+          getDefaultEndpoint(effectiveTargetProvider, { streaming: true })
         if (currentProvider === 'opencode-zen' && effectiveTargetProvider === 'openai') {
           url = 'https://opencode.ai/zen/v1/chat/completions'
         }
@@ -809,7 +783,7 @@ export async function handleStreamingProxy(
       }
 
       if (currentProvider === 'opencode-zen') {
-        fixOpencodeZenBody(requestBody)
+        fixOpencodeZenBody(requestBody, { thinkingEnabled: isThinkingEnabled })
       }
 
       // Enhanced logging for debugging
@@ -829,7 +803,7 @@ export async function handleStreamingProxy(
       logger.debug(
         {
           reqId,
-          attempt,
+          attempt: attemptCount, // Changed from attempt
           endpoint,
           requestHeaders: Object.keys(headers).reduce(
             (acc, key) => {
@@ -867,16 +841,17 @@ export async function handleStreamingProxy(
           {
             reqId,
             error: streamContext.error,
-            attempt,
+            attempt: attemptCount, // Changed from attempt
             maxAttempts: MAX_ATTEMPTS,
           },
           '[streaming] Upstream fetch failed'
         )
 
-        if (attempt < MAX_ATTEMPTS) {
-          const delay = Math.min(1000 * 2 ** (attempt - 1), 8000)
+        if (attemptCount < MAX_ATTEMPTS) {
+          // Changed from attempt < MAX_ATTEMPTS
+          const delay = Math.min(1000 * 2 ** (attemptCount - 1), 8000) // Changed from attempt - 1
           logger.debug(
-            { reqId, attempt, delayMs: delay },
+            { reqId, attempt: attemptCount, delayMs: delay }, // Changed from attempt
             '[streaming] Retrying after network error'
           )
           await new Promise((r) => setTimeout(r, delay))
@@ -893,7 +868,7 @@ export async function handleStreamingProxy(
       logger.debug(
         {
           reqId,
-          attempt,
+          attempt: attemptCount, // Changed from attempt
           status: upstreamResponse.status,
           responseHeaders: Object.fromEntries(upstreamResponse.headers.entries()),
         },
@@ -906,16 +881,26 @@ export async function handleStreamingProxy(
           bodyText = await upstreamResponse.clone().text()
         } catch {}
 
-        const retryAfterMs = parseRetryAfterMs(upstreamResponse, bodyText)
+        const parsedRetryAfter = parseRetryAfterMs(upstreamResponse, bodyText)
 
-        accountRotationManager.markRateLimited(currentProvider, accountIndex, retryAfterMs)
+        // Provider-specific default retry-after values
+        const defaultRetryAfter = currentProvider === 'opencode-zen' ? 300000 : 30000
+        const retryAfterMs = parsedRetryAfter || defaultRetryAfter
+
+        // Use effectiveProviderKey (scoped for Antigravity)
+        const effectiveKey =
+          currentProvider === 'antigravity'
+            ? `antigravity:${ANTIGRAVITY_ENDPOINT_FALLBACKS[antigravityEndpointIndex]}`
+            : currentProvider
+
+        accountRotationManager.markRateLimited(effectiveKey, accountIndex, retryAfterMs)
 
         logger.warn(
           {
             reqId,
-            attempt,
+            attempt: attemptCount, // Changed from attempt
             retryAfterMs,
-            provider: currentProvider,
+            provider: effectiveKey,
             model: currentModel,
             accountIndex,
           },
@@ -925,8 +910,32 @@ export async function handleStreamingProxy(
         if (options.router && currentModel) {
           options.router.handleRateLimit(currentModel, retryAfterMs || undefined)
 
-          // Only trigger model fallback if ALL accounts are rate limited
-          if (accountRotationManager.areAllRateLimited(currentProvider, credentials || [])) {
+          // HIERARCHICAL FALLBACK LOGIC
+          const allLimited = accountRotationManager.areAllRateLimited(
+            effectiveKey,
+            credentials || []
+          )
+
+          if (allLimited) {
+            // 1. Antigravity: Try Next Endpoint
+            if (currentProvider === 'antigravity') {
+              const nextEndpointIndex = antigravityEndpointIndex + 1
+              if (nextEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
+                logger.info(
+                  {
+                    reqId,
+                    currentEndpointIndex: antigravityEndpointIndex,
+                    nextEndpointIndex,
+                    reason: 'All accounts limited on current endpoint',
+                  },
+                  '[streaming] Switching to next Antigravity endpoint'
+                )
+                antigravityEndpointIndex = nextEndpointIndex
+                continue // Retry immediately with next endpoint
+              }
+            }
+
+            // 2. Model Fallback (All endpoints exhausted or not Antigravity)
             const original = originalModel || currentModel
             if (original) {
               const nextRoute = options.router.resolveModel(original)
@@ -935,22 +944,39 @@ export async function handleStreamingProxy(
                   {
                     from: `${currentProvider}:${currentModel}`,
                     to: `${nextRoute.provider}:${nextRoute.model}`,
-                    reason: '429 Fallback (All Accounts Limited)',
+                    reason: '429 Fallback (All Accounts/Endpoints Limited)',
                   },
                   '[streaming] Switching to fallback model'
                 )
                 currentProvider = nextRoute.provider
                 currentModel = nextRoute.model
+                // Reset endpoint index for new provider (though if switching BACK to AG it resets to 0 which is correct)
+                antigravityEndpointIndex = 0
                 continue
               }
             }
           }
         }
 
-        // Wait based on retryAfterMs (max 5 seconds as requested)
-        const delay = Math.min(retryAfterMs, 5000)
+        // Standard wait logic (if not fully exhausted or fallback failed)
+        // If we are here, it means we didn't (or couldn't) switch endpoint or model.
+        // We must wait.
+        // Recalculate isAllLimited based on effectiveKey
+        const effectiveKeyForWait =
+          currentProvider === 'antigravity'
+            ? `antigravity:${ANTIGRAVITY_ENDPOINT_FALLBACKS[antigravityEndpointIndex]}`
+            : currentProvider
 
-        logger.debug({ reqId, attempt, delayMs: delay }, '[streaming] Waiting before retry')
+        const isAllLimited = accountRotationManager.areAllRateLimited(
+          effectiveKeyForWait,
+          credentials || []
+        )
+        const delay = isAllLimited ? Math.min(retryAfterMs, 30000) : 0
+
+        logger.debug(
+          { reqId, attempt: attemptCount, delayMs: delay }, // Changed from attempt
+          '[streaming] Waiting before retry'
+        )
         await new Promise((r) => setTimeout(r, delay))
 
         if (authProvider?.rotate) {
@@ -971,30 +997,30 @@ export async function handleStreamingProxy(
         if (
           currentProvider === 'antigravity' &&
           (upstreamResponse.status === 403 || upstreamResponse.status === 400) &&
-          attempt < MAX_ATTEMPTS
+          attemptCount < MAX_ATTEMPTS // Changed from attempt < MAX_ATTEMPTS
         ) {
+          const currentProject = (requestBody as Record<string, unknown>).project as
+            | string
+            | undefined
           if (
-            errorBody.includes('#3501') ||
-            (errorBody.includes('PERMISSION_DENIED') && errorBody.includes('license'))
+            shouldFallbackToDefaultProject({
+              errorBody,
+              status: upstreamResponse.status,
+              currentProject,
+            })
           ) {
-            const currentProject = (requestBody as Record<string, unknown>).project
-            if (currentProject !== ANTIGRAVITY_DEFAULT_PROJECT_ID) {
-              logger.warn(
-                {
-                  attempt,
-                  currentProject,
-                  defaultProject: ANTIGRAVITY_DEFAULT_PROJECT_ID,
-                },
-                '[streaming] License error detected. Switching to default project ID and retrying.'
-              )
-              // Set override flag instead of modifying requestBody directly
-              // This ensures the override is applied after transformRequest() in the next attempt
-              overrideProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
+            logger.warn(
+              {
+                attempt: attemptCount, // Changed from attempt
+                currentProject,
+                defaultProject: ANTIGRAVITY_DEFAULT_PROJECT_ID,
+              },
+              '[streaming] License error detected. Switching to default project ID and retrying.'
+            )
+            overrideProjectId = ANTIGRAVITY_DEFAULT_PROJECT_ID
 
-              // Wait briefly before retry
-              await new Promise((r) => setTimeout(r, 1000))
-              continue
-            }
+            await new Promise((r) => setTimeout(r, 1000))
+            continue
           }
         }
 
@@ -1065,8 +1091,12 @@ export async function handleStreamingProxy(
         if (sse.includes('"type":"text_delta"') || sse.includes('"type":"text"')) {
           return 'text'
         }
-        if (sse.includes('"type":"input_json_delta"') || sse.includes('"type":"tool_use"')) {
+        if (sse.includes('"type":"tool_use"')) {
           return 'tool_use'
+        }
+        // input_json_delta should NOT start a new block - it's part of existing tool_use block
+        if (sse.includes('"type":"input_json_delta"')) {
+          return 'tool_use' // Continues tool_use block
         }
         return null
       }
@@ -1088,8 +1118,7 @@ export async function handleStreamingProxy(
             '[streaming] CRITICAL: Attempted to start tool_use block implicitly without ID/Name. Stream may be corrupted.'
           )
           // We do not enqueue anything, hoping the client handles the orphan delta or we are in a weird state.
-          // Sending a text block here (previous behavior) would guarantee corruption.
-        } else {
+        } else if (blockType === 'text') {
           const event = `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"text","text":""}}\n\n`
           controller.enqueue(encoder.encode(event))
         }
@@ -1102,6 +1131,7 @@ export async function handleStreamingProxy(
       ) => {
         const event = `event: content_block_stop\ndata: {"type":"content_block_stop","index":${index}}\n\n`
         logger.debug({ index }, '[streaming] Sending block stop')
+        streamContext.fullResponse += event
         controller.enqueue(encoder.encode(event))
       }
 
@@ -1114,8 +1144,20 @@ export async function handleStreamingProxy(
           // Process complete SSE events
           let rawEvents: string[]
 
-          if (parsingProvider === 'antigravity' || parsingProvider === 'gemini') {
-            // Antigravity/Gemini: split by newline, look for "data:" lines
+          // Determine parser type from provider config
+          // let parserType = "sse-standard"; // This was moved above
+          try {
+            const provider = getProvider(parsingProvider)
+            if (provider?.config?.defaultStreamParser) {
+              parserType = provider.config.defaultStreamParser
+            }
+          } catch {
+            // Fallback to standard if provider not found
+          }
+
+          if (parserType === 'sse-line-delimited') {
+            // Line-delimited SSE (e.g. Gemini, Antigravity, OpencodeZen/GLM)
+            // Split by newline, look for "data:" lines
             const lines = buffer.split('\n')
             rawEvents = []
 
@@ -1146,8 +1188,16 @@ export async function handleStreamingProxy(
 
           for (const rawEvent of rawEvents) {
             if (!rawEvent.trim()) continue
-            // Demoted log
-            // logger.debug({ event: rawEvent.slice(0,50) }, 'Event')
+
+            // DEBUG: Log raw event before processing
+            logger.debug(
+              {
+                rawEvent: rawEvent.slice(0, 300),
+                currentBlockType,
+                currentBlockIndex,
+              },
+              '[streaming] Processing raw SSE event'
+            )
 
             const eventWithNewline = `${rawEvent}\n\n`
             try {
@@ -1156,14 +1206,31 @@ export async function handleStreamingProxy(
                 sentMessageStart = true
                 const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
                 const messageStart = `event: message_start\ndata: {"type":"message_start","message":{"id":"${msgId}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
+                streamContext.fullResponse += messageStart
                 controller.enqueue(encoder.encode(messageStart))
               }
 
+              // logger.debug(
+              //   {
+              //     from: parsingProvider,
+              //     to: sourceFormat,
+              //     chunkSample: eventWithNewline.slice(0, 200),
+              //   },
+              //   "[streaming] Transform chunk"
+              // );
               const transformed = transformStreamChunk(
                 eventWithNewline,
                 parsingProvider,
                 sourceFormat
               )
+
+              // DEBUG: Log transformed chunk (use console.error to ensure it's visible)
+              console.error('[STREAMING DEBUG] After transformStreamChunk:', {
+                original: eventWithNewline.slice(0, 300),
+                transformed: Array.isArray(transformed)
+                  ? `ARRAY[${transformed.length}]:` + transformed.slice(0, 500)
+                  : `STRING: ${String(transformed).slice(0, 500)}`,
+              })
 
               // Helper to process chunk
               const processChunk = (
@@ -1196,12 +1263,33 @@ export async function handleStreamingProxy(
                       sendBlockStop(currentBlockIndex, controller)
                       currentBlockType = null
                     }
+                    streamContext.fullResponse += finalChunk
                     controller.enqueue(encoder.encode(finalChunk))
                     return
                   }
 
                   // 2. Handle Block Start / Transitions
                   if (isBlockStart) {
+                    // Debug log for tool_use block start
+                    if (chunkBlockType === 'tool_use') {
+                      logger.debug(
+                        { chunkPreview: chunk.slice(0, 500) },
+                        '[streaming] tool_use content_block_start received'
+                      )
+                    }
+                    // === EARLY FILTER: Empty text blocks (BEFORE block start logic) ===
+                    // Filter out empty text blocks from Gemini - these cause client errors
+                    if (chunkBlockType === 'text') {
+                      const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                      const allEmpty = textMatch?.every(
+                        (m) => m === '"text":""' || m === '"text": ""'
+                      )
+                      if (allEmpty) {
+                        logger.debug('[streaming] Filtering out empty text block (early)')
+                        return // Skip entirely - don't start any block
+                      }
+                    }
+
                     // Explicit start: Close current if exists, then START NEW
                     if (currentBlockType !== null) {
                       sendBlockStop(currentBlockIndex, controller)
@@ -1210,6 +1298,18 @@ export async function handleStreamingProxy(
                     // Set currentBlockType to the type of the new explicit block
                     if (chunkBlockType) currentBlockType = chunkBlockType
                   } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
+                    // === EARLY FILTER: Empty text blocks (BEFORE implicit switch) ===
+                    if (chunkBlockType === 'text') {
+                      const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                      const allEmpty = textMatch?.every(
+                        (m) => m === '"text":""' || m === '"text": ""'
+                      )
+                      if (allEmpty) {
+                        logger.debug('[streaming] Filtering empty text on implicit switch')
+                        return // Skip entirely
+                      }
+                    }
+
                     // Implicit switch (e.g., thinking_delta after text_delta)
                     if (currentBlockType !== null) {
                       sendBlockStop(currentBlockIndex, controller)
@@ -1218,29 +1318,23 @@ export async function handleStreamingProxy(
                     sendBlockStart(chunkBlockType, currentBlockIndex, controller)
                     currentBlockType = chunkBlockType
                   } else if (currentBlockType === null && chunkBlockType) {
+                    // === EARLY FILTER: Empty text blocks (BEFORE implicit start) ===
+                    if (chunkBlockType === 'text') {
+                      const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                      const allEmpty = textMatch?.every(
+                        (m) => m === '"text":""' || m === '"text": ""'
+                      )
+                      if (allEmpty) {
+                        logger.debug('[streaming] Filtering empty text on implicit start')
+                        return // Skip entirely - don't start any block
+                      }
+                    }
+
                     // Implicit start from null (first delta event)
                     sendBlockStart(chunkBlockType, currentBlockIndex, controller)
                     currentBlockType = chunkBlockType
                   }
                 } // End anthropic logic setup
-
-                // Filter out empty text blocks - these come from Gemini after tool_use and cause client errors
-                if (chunkBlockType === 'text') {
-                  const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
-                  // Check if ALL text values in this chunk are empty
-                  const allEmpty = textMatch?.every((m) => m === '"text":""' || m === '"text": ""')
-                  if (allEmpty) {
-                    logger.debug('[streaming] Filtering out empty text block')
-                    // Don't send this chunk - it would create an empty text block
-                    // If we were tracking this as a text block, close it
-                    if (currentBlockType === 'text') {
-                      sendBlockStop(currentBlockIndex, controller)
-                      currentBlockType = null
-                      currentBlockIndex++ // CRITICAL: Increment index after manual stop in filter
-                    }
-                    return
-                  }
-                }
 
                 // Cache signatures
                 if (
@@ -1277,11 +1371,60 @@ export async function handleStreamingProxy(
                     const line = lines[dataLineIndex]
                     if (line) {
                       const dataContent = line.slice(6) // Remove "data: "
-                      const json = JSON.parse(dataContent)
-                      if (typeof json === 'object' && json !== null && 'index' in json) {
-                        json.index = currentBlockIndex
-                        lines[dataLineIndex] = `data: ${JSON.stringify(json)}`
-                        updatedChunk = `${lines.join('\n')}\n\n`
+                      if (dataContent.trim() !== '[DONE]') {
+                        try {
+                          const json = JSON.parse(dataContent)
+                          if (typeof json === 'object' && json !== null && 'index' in json) {
+                            // [THINKING CONTROL & LOGGING]
+                            const isThinkingDelta =
+                              (json.type === 'content_block_delta' &&
+                                json.delta &&
+                                typeof json.delta.thinking === 'string') ||
+                              (json.type === 'content_block_start' &&
+                                json.content_block &&
+                                typeof json.content_block.thinking === 'string')
+
+                            if (isThinkingDelta && isThinkingEnabled !== true) {
+                              logger.debug(
+                                { reqId, type: json.type },
+                                '[streaming] Thinking block detected even with thinking:false setting'
+                              )
+                              // We NO LONGER filter it out here to maintain transparency.
+                            }
+
+                            // Accumulate text and thinking for logging
+                            if (json.type === 'content_block_delta' && json.delta) {
+                              if (typeof json.delta.text === 'string')
+                                streamContext.accumulatedText += json.delta.text
+                              if (typeof json.delta.thinking === 'string')
+                                streamContext.accumulatedThinking += json.delta.thinking
+                            } else if (json.type === 'content_block_start' && json.content_block) {
+                              if (typeof json.content_block.text === 'string')
+                                streamContext.accumulatedText += json.content_block.text
+                              if (typeof json.content_block.thinking === 'string')
+                                streamContext.accumulatedThinking += json.content_block.thinking
+                            }
+                            json.index = currentBlockIndex
+
+                            // if (
+                            //   isThinkingDelta &&
+                            //   isThinkingEnabled === false
+                            // ) {
+                            //   logger.debug(
+                            //     { reqId },
+                            //     "[streaming] Filtering out thinking block (internal) as per mapping config"
+                            //   );
+                            //   return;
+                            // }
+
+                            // End of accumulation logic (redundant block removed)
+
+                            lines[dataLineIndex] = `data: ${JSON.stringify(json)}`
+                            updatedChunk = `${lines.join('\n')}\n\n`
+                          }
+                        } catch {
+                          // Ignore parse errors
+                        }
                       }
                     }
                   }
@@ -1293,6 +1436,16 @@ export async function handleStreamingProxy(
                 }
 
                 streamContext.chunkCount++
+                logger.debug(
+                  {
+                    chunkPreview: updatedChunk.slice(0, 200),
+                    fullChunkLength: updatedChunk.length,
+                    currentBlockIndex,
+                    blockType: currentBlockType,
+                  },
+                  '[streaming] Enqueuing processed chunk'
+                )
+                streamContext.fullResponse += updatedChunk
                 controller.enqueue(encoder.encode(updatedChunk))
 
                 // Post-process state updates
@@ -1307,7 +1460,15 @@ export async function handleStreamingProxy(
               }
 
               if (Array.isArray(transformed)) {
-                transformed.forEach((t) => {
+                logger.debug(
+                  { arrayLength: transformed.length },
+                  '[streaming] Processing array of transformed chunks'
+                )
+                transformed.forEach((t, idx) => {
+                  logger.debug(
+                    { idx, chunkPreview: t?.slice?.(0, 100) },
+                    '[streaming] Processing array element'
+                  )
                   processChunk(t, controller)
                 })
               } else if (transformed) {
@@ -1343,9 +1504,18 @@ export async function handleStreamingProxy(
                         2,
                         11
                       )}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
+                    streamContext.fullResponse += messageStart
                     controller.enqueue(encoder.encode(messageStart))
                   }
 
+                  // logger.debug(
+                  //   {
+                  //     from: parsingProvider,
+                  //     to: sourceFormat,
+                  //     chunkSample: eventWithNewline.slice(0, 200),
+                  //   },
+                  //   "[streaming] Transform chunk (retry)"
+                  // );
                   const transformed = transformStreamChunk(
                     eventWithNewline,
                     parsingProvider,
@@ -1380,12 +1550,36 @@ export async function handleStreamingProxy(
                       }
 
                       if (isBlockStart) {
+                        // Early filter for empty text in explicit block start
+                        if (chunkBlockType === 'text') {
+                          const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                          const allEmpty = textMatch?.every(
+                            (m) => m === '"text":""' || m === '"text": ""'
+                          )
+                          if (allEmpty) {
+                            logger.debug('[streaming-flush] Filtering empty text on explicit start')
+                            return
+                          }
+                        }
                         if (currentBlockType !== null) {
                           sendBlockStop(currentBlockIndex, controller)
                           currentBlockIndex++
                         }
                         if (chunkBlockType) currentBlockType = chunkBlockType
                       } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
+                        // Early filter for empty text on implicit switch
+                        if (chunkBlockType === 'text') {
+                          const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                          const allEmpty = textMatch?.every(
+                            (m) => m === '"text":""' || m === '"text": ""'
+                          )
+                          if (allEmpty) {
+                            logger.debug(
+                              '[streaming-flush] Filtering empty text on implicit switch'
+                            )
+                            return
+                          }
+                        }
                         if (currentBlockType !== null) {
                           sendBlockStop(currentBlockIndex, controller)
                           currentBlockIndex++
@@ -1393,23 +1587,19 @@ export async function handleStreamingProxy(
                         sendBlockStart(chunkBlockType, currentBlockIndex, controller)
                         currentBlockType = chunkBlockType
                       } else if (currentBlockType === null && chunkBlockType) {
+                        // Early filter for empty text on implicit start
+                        if (chunkBlockType === 'text') {
+                          const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
+                          const allEmpty = textMatch?.every(
+                            (m) => m === '"text":""' || m === '"text": ""'
+                          )
+                          if (allEmpty) {
+                            logger.debug('[streaming-flush] Filtering empty text on implicit start')
+                            return
+                          }
+                        }
                         sendBlockStart(chunkBlockType, currentBlockIndex, controller)
                         currentBlockType = chunkBlockType
-                      }
-                    }
-
-                    if (chunkBlockType === 'text') {
-                      const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
-                      const allEmpty = textMatch?.every(
-                        (m) => m === '"text":""' || m === '"text": ""'
-                      )
-                      if (allEmpty) {
-                        if (currentBlockType === 'text') {
-                          sendBlockStop(currentBlockIndex, controller)
-                          currentBlockType = null
-                          currentBlockIndex++
-                        }
-                        return
                       }
                     }
 
@@ -1442,12 +1632,35 @@ export async function handleStreamingProxy(
                       if (dataLineIndex !== -1) {
                         const line = lines[dataLineIndex]
                         if (line) {
-                          const dataContent = line.slice(6)
-                          const json = JSON.parse(dataContent)
-                          if (typeof json === 'object' && json !== null && 'index' in json) {
-                            json.index = currentBlockIndex
-                            lines[dataLineIndex] = `data: ${JSON.stringify(json)}`
-                            updatedChunk = `${lines.join('\n')}\n\n`
+                          const dataContent = line.slice(6) // Remove "data: "
+                          if (dataContent.trim() !== '[DONE]') {
+                            try {
+                              const json = JSON.parse(dataContent)
+                              if (typeof json === 'object' && json !== null && 'index' in json) {
+                                json.index = currentBlockIndex
+
+                                // [READABLE LOGGING] Accumulate text and thinking
+                                if (json.type === 'content_block_delta' && json.delta) {
+                                  if (typeof json.delta.text === 'string')
+                                    streamContext.accumulatedText += json.delta.text
+                                  if (typeof json.delta.thinking === 'string')
+                                    streamContext.accumulatedThinking += json.delta.thinking
+                                } else if (
+                                  json.type === 'content_block_start' &&
+                                  json.content_block
+                                ) {
+                                  if (typeof json.content_block.text === 'string')
+                                    streamContext.accumulatedText += json.content_block.text
+                                  if (typeof json.content_block.thinking === 'string')
+                                    streamContext.accumulatedThinking += json.content_block.thinking
+                                }
+
+                                lines[dataLineIndex] = `data: ${JSON.stringify(json)}`
+                                updatedChunk = `${lines.join('\n')}\n\n`
+                              }
+                            } catch {
+                              // Ignore parse errors here
+                            }
                           }
                         }
                       }
@@ -1458,6 +1671,7 @@ export async function handleStreamingProxy(
                       )
                     }
                     streamContext.chunkCount++
+                    streamContext.fullResponse += updatedChunk
                     controller.enqueue(encoder.encode(updatedChunk))
 
                     if (
@@ -1515,7 +1729,9 @@ export async function handleStreamingProxy(
             streamContext.duration
           }ms | Chunks:${streamContext.chunkCount} | Bytes:${streamContext.totalBytes}${
             streamContext.error ? ` | Error: ${sanitize(streamContext.error)}` : ''
-          }`
+          } | Text: "${sanitize(
+            streamContext.accumulatedText
+          )}" | Thinking: "${sanitize(streamContext.accumulatedThinking)}"`
           logger.info(logMsg)
         },
       })
@@ -1576,66 +1792,4 @@ export async function handleStreamingProxy(
       headers: { 'Content-Type': 'application/json' },
     })
   }
-}
-
-// Helper types for Opencode Zen modifications
-interface OpencodeZenTool {
-  name?: string
-  description?: string
-  input_schema?: Record<string, unknown>
-}
-
-function stripBetaFields(body: Record<string, unknown> | unknown[]) {
-  if (!body || typeof body !== 'object') return
-
-  if (!Array.isArray(body) && 'cache_control' in body) {
-    delete body.cache_control
-  }
-
-  if (Array.isArray(body)) {
-    body.forEach((item) => {
-      if (typeof item === 'object' && item !== null) {
-        stripBetaFields(item as Record<string, unknown>)
-      }
-    })
-  } else {
-    for (const key in body) {
-      if (Object.hasOwn(body, key)) {
-        const value = (body as Record<string, unknown>)[key]
-        if (typeof value === 'object' && value !== null) {
-          stripBetaFields(value as Record<string, unknown>)
-        }
-      }
-    }
-  }
-}
-
-function fixOpencodeZenBody(body: Record<string, unknown>) {
-  if (!body || typeof body !== 'object') return
-
-  // 1. Remove unsupported fields
-  stripBetaFields(body)
-
-  // 2. Fix tools format (Anthropic input_schema -> OpenAI function)
-  const tools = body.tools as unknown[]
-
-  if (Array.isArray(tools) && tools.length > 0) {
-    const firstTool = tools[0] as OpencodeZenTool
-    if (firstTool.input_schema) {
-      body.tools = tools.map((t) => {
-        const tool = t as OpencodeZenTool
-        return {
-          type: 'function',
-          function: {
-            name: tool.name,
-            description: tool.description,
-            parameters: tool.input_schema,
-          },
-        }
-      })
-    }
-  }
-
-  // 3. Ensure messages are in a format Opencode Zen likes
-  // Reverted: Do NOT simplify content to string, as it might be required to stay as an array
 }

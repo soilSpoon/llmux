@@ -210,8 +210,14 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
     // Function call chunk - decode tool name
     if (part.functionCall) {
       const fc = part.functionCall as Record<string, unknown>
+      console.error(
+        `[DIAG-AG] Raw functionCall from Antigravity: ${JSON.stringify(fc).slice(0, 500)}`
+      )
       const name = decodeAntigravityToolName(fc.name as string)
       let args = fc.args as Record<string, unknown>
+      console.error(
+        `[DIAG-AG] Parsed functionCall - name: ${name}, args: ${JSON.stringify(args).slice(0, 300)}`
+      )
 
       // Bash compatibility: Copy 'command' to 'cmd' if needed (matching Go implementation)
       if (

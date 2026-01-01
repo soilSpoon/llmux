@@ -1,4 +1,4 @@
-import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../types/unified'
+import type { StreamChunk, StreamDelta, UnifiedRequest, UnifiedResponse } from '../types/unified'
 
 /**
  * Supported provider names
@@ -25,6 +25,33 @@ export function isValidProviderName(value: unknown): value is ProviderName {
 }
 
 /**
+ * Type guard to check if a StreamDelta contains partial JSON
+ */
+export function isPartialJsonChunk(
+  delta: StreamDelta | undefined
+): delta is StreamDelta & { partialJson: string } {
+  return (
+    !!delta?.partialJson && typeof delta.partialJson === 'string' && delta.partialJson.length > 0
+  )
+}
+
+/**
+ * Type guard to check if a StreamChunk is a tool_call with partial JSON
+ */
+export function isToolCallWithPartialJson(
+  chunk: StreamChunk
+): chunk is StreamChunk & { delta: StreamDelta & { partialJson: string } } {
+  return chunk.type === 'tool_call' && isPartialJsonChunk(chunk.delta)
+}
+
+/**
+ * Stream parser type
+ * - sse-standard: Events separated by double newline (\n\n)
+ * - sse-line-delimited: Events separated by single newline (\n)
+ */
+export type StreamParserType = 'sse-standard' | 'sse-line-delimited'
+
+/**
  * Provider configuration
  */
 export interface ProviderConfig {
@@ -33,6 +60,7 @@ export interface ProviderConfig {
   supportsThinking: boolean
   supportsTools: boolean
   defaultMaxTokens?: number
+  defaultStreamParser?: StreamParserType
 }
 
 /**

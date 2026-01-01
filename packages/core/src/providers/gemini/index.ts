@@ -22,6 +22,7 @@ export class GeminiProvider extends BaseProvider {
     supportsThinking: true,
     supportsTools: true,
     defaultMaxTokens: 8192,
+    defaultStreamParser: 'sse-line-delimited',
   }
 
   /**

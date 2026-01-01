@@ -14,6 +14,7 @@ import {
 } from '@llmux/core'
 import type { CredentialProvider } from '../auth'
 import type { AmpModelMapping } from '../config'
+import { buildUpstreamHeaders, getDefaultEndpoint } from '../upstream'
 import { getCodexInstructions } from './codex'
 import { applyModelMapping } from './model-mapping'
 import {
@@ -34,35 +35,8 @@ export interface ResponsesOptions {
   credentialProvider?: CredentialProvider
 }
 
-const PROVIDER_ENDPOINTS: Record<string, string> = {
-  openai: 'https://api.openai.com/v1/chat/completions',
-  anthropic: 'https://api.anthropic.com/v1/messages',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-  'openai-web': 'https://chatgpt.com/backend-api/codex/responses',
-}
-
 function buildHeaders(targetProvider: string, apiKey?: string): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  }
-
-  if (!apiKey) return headers
-
-  switch (targetProvider) {
-    case 'anthropic':
-      headers['x-api-key'] = apiKey
-      headers['anthropic-version'] = '2023-06-01'
-      break
-    case 'openai':
-    case 'openai-web':
-      headers.Authorization = `Bearer ${apiKey}`
-      break
-    case 'gemini':
-      headers['x-goog-api-key'] = apiKey
-      break
-  }
-
-  return headers
+  return buildUpstreamHeaders(targetProvider, apiKey)
 }
 
 function formatSSEEvent(event: ResponsesStreamEvent): string {
@@ -219,7 +193,7 @@ export async function handleResponses(
         model: options.targetModel || chatRequest.model,
       })
     } else {
-      const url = PROVIDER_ENDPOINTS[resolvedTargetProvider]
+      const url = getDefaultEndpoint(resolvedTargetProvider, { streaming: isStreaming })
       if (!url) {
         return new Response(
           JSON.stringify({
