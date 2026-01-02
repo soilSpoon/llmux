@@ -1,91 +1,91 @@
-# Provider Schema 비교 분석
+# Provider Schema Comparison Analysis
 
 **Created:** 2025-12-24  
 **Sources:** litellm, opencode, opencode-antigravity-auth, opencode-google-antigravity-auth
 
 ---
 
-## 1. 프로젝트별 스키마 사용 현황
+## 1. Project Schema Usage
 
-| 프로젝트 | 언어 | 주요 역할 | 지원 공급사 |
-|---------|------|----------|------------|
-| **litellm** | Python | 100+ 공급사 통합 프록시 | OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, Azure 등 |
-| **opencode** | TypeScript | AI 코딩 에이전트 | Anthropic, OpenAI, Google, Mistral, Bedrock 등 |
-| **opencode-antigravity-auth** | TypeScript | Antigravity 플러그인 | Claude, Gemini via Antigravity Gateway |
-| **opencode-google-antigravity-auth** | TypeScript | Google Antigravity 플러그인 | Claude, Gemini via Antigravity Gateway |
+| Project | Language | Main Role | Supported Providers |
+|---------|----------|-----------|--------------------|
+| **litellm** | Python | 100+ Provider Unified Proxy | OpenAI, Anthropic, Gemini, Vertex AI, Bedrock, Azure, etc. |
+| **opencode** | TypeScript | AI Coding Agent | Anthropic, OpenAI, Google, Mistral, Bedrock, etc. |
+| **opencode-antigravity-auth** | TypeScript | Antigravity Plugin | Claude, Gemini via Antigravity Gateway |
+| **opencode-google-antigravity-auth** | TypeScript | Google Antigravity Plugin | Claude, Gemini via Antigravity Gateway |
 
 ---
 
-## 2. 요청 스키마 비교
+## 2. Request Schema Comparison
 
-### 2.1 메시지 구조
+### 2.1 Message Structure
 
-| 항목 | OpenAI | Anthropic/Claude | Gemini | Antigravity |
-|-----|--------|------------------|--------|-------------|
-| **컨테이너** | `messages[]` | `messages[]` | `contents[]` | `request.contents[]` |
-| **역할** | `system`, `user`, `assistant`, `tool`, `developer` | `user`, `assistant` (system 별도) | `user`, `model` | `user`, `model` |
-| **내용 필드** | `content` (string 또는 array) | `content` (array of blocks) | `parts[]` | `parts[]` |
+| Item | OpenAI | Anthropic/Claude | Gemini | Antigravity |
+|------|--------|------------------|--------|-------------|
+| **Container** | `messages[]` | `messages[]` | `contents[]` | `request.contents[]` |
+| **Roles** | `system`, `user`, `assistant`, `tool`, `developer` | `user`, `assistant` (system separate) | `user`, `model` | `user`, `model` |
+| **Content Fields** | `content` (string or array) | `content` (array of blocks) | `parts[]` | `parts[]` |
 
-### 2.2 시스템 지시문
+### 2.2 System Instructions
 
-| 공급사 | 형식 | 예시 |
-|--------|------|------|
-| **OpenAI** | 첫 번째 `system` role 메시지 | `{role: "system", content: "..."}` |
-| **Anthropic** | 별도 `system` 필드 | `{system: "..."}`  또는 `{system: [{type: "text", text: "..."}]}` |
-| **Gemini** | `systemInstruction` 객체 | `{systemInstruction: {parts: [{text: "..."}]}}` ⚠️ 문자열 불가 |
-| **Antigravity** | Gemini 스타일 | `{request: {systemInstruction: {parts: [...]}}}` |
+| Provider | Format | Example |
+|----------|--------|---------|
+| **OpenAI** | First `system` role message | `{role: "system", content: "..."}` |
+| **Anthropic** | Separate `system` field | `{system: "..."}` or `{system: [{type: "text", text: "..."}]}` |
+| **Gemini** | `systemInstruction` object | `{systemInstruction: {parts: [{text: "..."}]}}` ⚠️ string not allowed |
+| **Antigravity** | Gemini style | `{request: {systemInstruction: {parts: [...]}}}` |
 
-### 2.3 Content Block/Part 타입
+### 2.3 Content Block/Part Types
 
-| 타입 | OpenAI | Anthropic | Gemini | Antigravity |
+| Type | OpenAI | Anthropic | Gemini | Antigravity |
 |------|--------|-----------|--------|-------------|
-| **텍스트** | `{type: "text", text}` | `{type: "text", text}` | `{text: "..."}` | `{text: "..."}` |
-| **이미지** | `{type: "image_url", image_url: {url}}` | `{type: "image", source: {type, data, media_type}}` | `{inlineData: {mimeType, data}}` | 동일 |
-| **Tool 호출** | `tool_calls[]` in message | `{type: "tool_use", id, name, input}` | `{functionCall: {name, args, id}}` | 동일 |
-| **Tool 결과** | `{role: "tool", content, tool_call_id}` | `{type: "tool_result", tool_use_id, content}` | `{functionResponse: {name, id, response}}` | 동일 |
-| **Thinking** | `reasoning_content` (일부 모델) | `{type: "thinking", thinking, signature}` | `{thought: true, text, thoughtSignature}` | 동일 |
+| **Text** | `{type: "text", text}` | `{type: "text", text}` | `{text: "..."}` | `{text: "..."}` |
+| **Image** | `{type: "image_url", image_url: {url}}` | `{type: "image", source: {type, data, media_type}}` | `{inlineData: {mimeType, data}}` | Same |
+| **Tool Call** | `tool_calls[]` in message | `{type: "tool_use", id, name, input}` | `{functionCall: {name, args, id}}` | Same |
+| **Tool Result** | `{role: "tool", content, tool_call_id}` | `{type: "tool_result", tool_use_id, content}` | `{functionResponse: {name, id, response}}` | Same |
+| **Thinking** | `reasoning_content` (some models) | `{type: "thinking", thinking, signature}` | `{thought: true, text, thoughtSignature}` | Same |
 
 ---
 
-## 3. Tool/Function 정의 비교
+## 3. Tool/Function Definition Comparison
 
-### 3.1 구조
+### 3.1 Structure
 
-| 공급사 | 위치 | 구조 |
-|--------|------|------|
+| Provider | Location | Structure |
+|----------|----------|-----------|
 | **OpenAI** | `tools[]` | `{type: "function", function: {name, description, parameters}}` |
-| **Anthropic** | `tools[]` | `{name, description, input_schema}` + 내장 도구 |
+| **Anthropic** | `tools[]` | `{name, description, input_schema}` + built-in tools |
 | **Gemini** | `tools[].functionDeclarations[]` | `{name, description, parameters}` |
-| **Antigravity** | `request.tools[]` | Gemini 스타일 |
+| **Antigravity** | `request.tools[]` | Gemini style (clean schema required) |
 
-### 3.2 스키마 지원
+### 3.2 Schema Support
 
-| JSON Schema 기능 | OpenAI | Anthropic | Gemini | Antigravity |
-|-----------------|--------|-----------|--------|-------------|
+| JSON Schema Feature | OpenAI | Anthropic | Gemini | Antigravity |
+|-------------------|--------|-----------|--------|-------------|
 | `type`, `properties` | ✅ | ✅ | ✅ | ✅ |
 | `required` | ✅ | ✅ | ✅ | ✅ |
 | `enum` | ✅ | ✅ | ✅ | ✅ |
-| `const` | ✅ | ✅ | ❌ | ❌ → `enum: [value]` 변환 필요 |
-| `$ref`, `$defs` | ✅ | ✅ | ❌ | ❌ → 인라인 필요 |
+| `const` | ✅ | ✅ | ❌ | ❌ → Convert to `enum: [value]` |
+| `$ref`, `$defs` | ✅ | ✅ | ❌ | ❌ → Must inline |
 | `anyOf`, `oneOf` | ✅ | ✅ | ✅ → `any_of` | ✅ |
-| `default`, `examples` | ✅ | ✅ | ❌ | ❌ → 제거 필요 |
+| `default`, `examples` | ✅ | ✅ | ❌ | ❌ → Remove |
 
-### 3.3 Tool 이름 규칙
+### 3.3 Tool Naming Rules
 
-| 규칙 | OpenAI | Anthropic | Gemini/Antigravity |
+| Rule | OpenAI | Anthropic | Gemini/Antigravity |
 |------|--------|-----------|-------------------|
-| 첫 문자 | 유연함 | 유연함 | 문자 또는 `_` 필수 |
-| 허용 문자 | 대부분 | 대부분 | `a-zA-Z0-9_.-:` |
-| 금지 문자 | - | - | `/`, 공백 |
-| 최대 길이 | - | - | 64자 |
+| First char | Flexible | Flexible | Letter or `_` required |
+| Allowed chars | Most | Most | `a-zA-Z0-9_.-:` |
+| Forbidden chars | - | - | `/`, Space |
+| Max length | - | - | 64 chars |
 
 ---
 
-## 4. 생성 설정 비교
+## 4. Generation Config Comparison
 
-| 파라미터 | OpenAI | Anthropic | Gemini | Antigravity |
-|---------|--------|-----------|--------|-------------|
-| **최대 토큰** | `max_tokens` | `max_tokens` (필수) | `maxOutputTokens` | `maxOutputTokens` |
+| Parameter | OpenAI | Anthropic | Gemini | Antigravity |
+|-----------|--------|-----------|--------|-------------|
+| **Max Tokens** | `max_tokens` | `max_tokens` (required) | `maxOutputTokens` | `maxOutputTokens` |
 | **Temperature** | `temperature` | `temperature` | `temperature` | `temperature` |
 | **Top P** | `top_p` | `top_p` | `topP` | `topP` |
 | **Top K** | ❌ | `top_k` | `topK` | `topK` |
@@ -94,49 +94,49 @@
 
 ---
 
-## 5. 응답 스키마 비교
+## 5. Response Schema Comparison
 
-### 5.1 최상위 구조
+### 5.1 Top-level Structure
 
-| 공급사 | 구조 |
-|--------|------|
+| Provider | Structure |
+|----------|-----------|
 | **OpenAI** | `{id, object, choices[], usage}` |
 | **Anthropic** | `{id, type: "message", role, content[], stop_reason, usage}` |
 | **Gemini** | `{candidates[], usageMetadata, modelVersion, responseId}` |
-| **Antigravity** | `{response: {candidates[], ...}, traceId}` → 플러그인이 `response`만 추출 |
+| **Antigravity** | `{response: {candidates[], ...}, traceId}` → Plugin unwraps `response` |
 
-### 5.2 완료 이유
+### 5.2 Finish Reasons
 
-| 이유 | OpenAI | Anthropic | Gemini |
-|-----|--------|-----------|--------|
-| 정상 종료 | `stop` | `end_turn` | `STOP` |
-| 토큰 한도 | `length` | `max_tokens` | `MAX_TOKENS` |
-| Tool 사용 | `tool_calls` | `tool_use` | `OTHER` |
-| 안전 필터 | `content_filter` | - | `SAFETY` |
+| Reason | OpenAI | Anthropic | Gemini |
+|--------|--------|-----------|--------|
+| Normal Stop | `stop` | `end_turn` | `STOP` |
+| Token Limit | `length` | `max_tokens` | `MAX_TOKENS` |
+| Tool Use | `tool_calls` | `tool_use` | `OTHER` |
+| Safety Filter | `content_filter` | - | `SAFETY` |
 
-### 5.3 Usage 필드
+### 5.3 Usage Fields
 
-| 필드 | OpenAI | Anthropic | Gemini |
-|------|--------|-----------|--------|
-| 입력 토큰 | `prompt_tokens` | `input_tokens` | `promptTokenCount` |
-| 출력 토큰 | `completion_tokens` | `output_tokens` | `candidatesTokenCount` |
-| Thinking 토큰 | - | (usage에 포함) | `thoughtsTokenCount` |
-| 캐시 토큰 | `cached_tokens` | `cache_creation_input_tokens`, `cache_read_input_tokens` | `cachedContentTokenCount` |
+| Field | OpenAI | Anthropic | Gemini |
+|-------|--------|-----------|--------|
+| Input Tokens | `prompt_tokens` | `input_tokens` | `promptTokenCount` |
+| Output Tokens | `completion_tokens` | `output_tokens` | `candidatesTokenCount` |
+| Thinking Tokens | - | (included in usage) | `thoughtsTokenCount` |
+| Cache Tokens | `cached_tokens` | `cache_creation_input_tokens`, `cache_read_input_tokens` | `cachedContentTokenCount` |
 
 ---
 
-## 6. 스트리밍 형식 비교
+## 6. Streaming Format Comparison
 
-### 6.1 이벤트 타입
+### 6.1 Event Types
 
-| 공급사 | 형식 | 이벤트 |
-|--------|------|--------|
+| Provider | Format | Event |
+|----------|--------|-------|
 | **OpenAI** | SSE | `data: {choices: [{delta: {...}}]}` |
 | **Anthropic** | SSE | `message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop` |
 | **Gemini** | SSE | `data: {candidates: [...], usageMetadata: {...}}` |
-| **Antigravity** | SSE | `data: {response: {...}}` → 플러그인이 unwrap |
+| **Antigravity** | SSE | `data: {response: {...}}` → Plugin unwraps |
 
-### 6.2 Delta 구조
+### 6.2 Delta Structure
 
 ```jsonc
 // OpenAI
@@ -154,37 +154,37 @@
 
 ---
 
-## 7. Thinking/Reasoning 처리 비교
+## 7. Thinking/Reasoning Handling
 
-### 7.1 요청 설정
+### 7.1 Request Configuration
 
-| 공급사 | 활성화 방법 | 파라미터 |
-|--------|------------|---------|
+| Provider | Activation | Parameter |
+|----------|------------|-----------|
 | **OpenAI** | `reasoning_effort` | `"low"`, `"medium"`, `"high"` |
-| **Anthropic** | `thinking` 객체 | `{type: "enabled", budget_tokens: N}` |
-| **Gemini** | `thinkingConfig` | `{thinkingBudget: N, includeThoughts: true}` 또는 `{thinkingLevel: "high"}` |
+| **Anthropic** | `thinking` object | `{type: "enabled", budget_tokens: N}` |
+| **Gemini** | `thinkingConfig` | `{thinkingBudget: N, includeThoughts: true}` or `{thinkingLevel: "high"}` |
 | **Antigravity (Claude)** | `thinkingConfig` | `{include_thoughts: true, thinking_budget: N}` (snake_case) |
 
-### 7.2 응답 형식
+### 7.2 Response Format
 
-| 공급사 | Thinking 블록 구조 |
-|--------|-------------------|
-| **OpenAI** | `reasoning_content` 필드 (일부 모델) |
+| Provider | Thinking Block Structure |
+|----------|--------------------------|
+| **OpenAI** | `reasoning_content` field (some models) |
 | **Anthropic** | `{type: "thinking", thinking: "...", signature: "..."}` |
 | **Gemini** | `{thought: true, text: "...", thoughtSignature: "..."}` |
 
-### 7.3 시그니처 처리 (멀티턴)
+### 7.3 Signature Handling (Multi-turn)
 
-| 항목 | 설명 |
-|------|------|
-| **문제** | Claude는 멀티턴에서 서명되지 않은 thinking 블록 거부 |
-| **해결** | 플러그인이 시그니처를 캐시하여 후속 요청에 복원 |
-| **캐시 키** | `hash(sessionId + model + text)` |
-| **TTL** | 1시간, 세션당 최대 100개 |
+| Item | Description |
+|------|-------------|
+| **Issue** | Claude rejects unsigned thinking blocks in multi-turn conversations |
+| **Solution** | Plugin caches signatures and restores them in subsequent requests |
+| **Cache Key** | `hash(sessionId + model + text)` |
+| **TTL** | 1 hour, max 100 per session |
 
 ---
 
-## 8. 프로젝트별 변환 패턴
+## 8. Transformation Patterns by Project
 
 ### 8.1 litellm (Python)
 
@@ -196,26 +196,26 @@ class BaseConfig(ABC):
     def transform_response(raw_response, model_response) -> ModelResponse
 ```
 
-**특징:**
-- OpenAI 형식을 "표준"으로 사용
-- 각 공급사별 Config 클래스가 변환 담당
-- Usage를 OpenAI 스타일로 통합
+**Features:**
+- Uses OpenAI format as "standard"
+- Config classes per provider handle transformation
+- Unifies Usage into OpenAI style
 
 ### 8.2 opencode (TypeScript)
 
 ```typescript
 namespace ProviderTransform {
-  message(model, messages): ModelMessage[]  // ID 정규화, 미지원 파트 처리
-  options(model): LanguageModelV1CallOptions  // 공급사별 옵션
-  schema(model, schema): JSONSchema  // enum 정규화
-  applyCaching(model, messages): ModelMessage[]  // 캐시 제어
+    message(model, messages): ModelMessage[]  // ID normalization, handle unsupported parts
+    options(model): LanguageModelV1CallOptions  // Provider-specific options
+    schema(model, schema): JSONSchema  // Enum normalization
+    applyCaching(model, messages): ModelMessage[]  // Cache control
 }
 ```
 
-**특징:**
-- AI SDK의 `LanguageModelV2` 인터페이스 사용
-- 공급사별 quirk를 미리 정규화
-- `reasoning` 파트를 `reasoning_content`로 이동
+**Features:**
+- Uses AI SDK `LanguageModelV2` interface
+- Pre-normalizes provider quirks
+- Moves `reasoning` part to `reasoning_content`
 
 ### 8.3 opencode-antigravity-auth (TypeScript)
 
@@ -227,41 +227,41 @@ transformAntigravityResponse(response, streaming)
   → unwrapped response, cached signatures
 ```
 
-**특징:**
-- Gemini 스타일 API를 Antigravity wrapper로 감쌈
-- Claude 모델은 `toolConfig.mode = "VALIDATED"` 강제
-- Thinking 시그니처 캐싱/복원
+**Features:**
+- Wraps Gemini-style API with Antigravity wrapper
+- Enforces `toolConfig.mode = "VALIDATED"` for Claude models
+- Thinking signature caching/restoration
 
 ### 8.4 opencode-google-antigravity-auth (TypeScript)
 
 ```typescript
 transformClaudeRequest(context, body)
-  → Claude 전용 변환 (snake_case thinkingConfig, schema 정규화)
+  → Claude specific transform (snake_case thinkingConfig, schema normalization)
 
 transformGeminiRequest(context, body)
-  → Gemini 전용 변환 (시스템 힌트 주입, 도구 이름 정제)
+  → Gemini specific transform (inject system hints, sanitize tool names)
 ```
 
-**특징:**
-- 모델 패밀리별 분기 (`isClaudeModel`)
-- 도구 스키마 캐싱 및 응답 정규화
-- 대화 이력에서 artifact 제거
+**Features:**
+- Branches by model family (`isClaudeModel`)
+- Tool schema caching and response normalization
+- Removes artifacts from conversation history
 
 ---
 
-## 9. 테스트 전략
+## 9. Testing Strategy
 
-### 9.1 단위 테스트 (변환 함수)
+### 9.1 Unit Tests (Transformation Functions)
 
-| 테스트 대상 | 검증 항목 |
-|------------|----------|
-| **메시지 변환** | role 매핑, content 구조 변환 |
-| **시스템 지시문** | 문자열 → 객체 변환 |
-| **Tool 스키마** | `const` → `enum`, `$ref` 인라인화 |
-| **Thinking 설정** | 예산/한도 자동 조정 |
+| Test Target | Verification Item |
+|-------------|-------------------|
+| **Message Transform** | Role mapping, content structure conversion |
+| **System Instruction** | String → Object conversion |
+| **Tool Schema** | `const` → `enum`, `$ref` inlining |
+| **Thinking Config** | Auto-adjustment of budget/limit |
 
 ```go
-// 예시: Go 단위 테스트
+// Example: Go unit test
 func TestOpenAIToGeminiMessages(t *testing.T) {
     input := OpenAIRequest{
         Messages: []Message{{Role: "assistant", Content: "Hello"}},
@@ -274,33 +274,33 @@ func TestOpenAIToGeminiMessages(t *testing.T) {
 }
 ```
 
-### 9.2 통합 테스트 (Mock 서버)
+### 9.2 Integration Tests (Mock Server)
 
 ```go
-// 예시: Mock 서버로 왕복 테스트
+// Example: Round-trip test with Mock server
 func TestRoundTrip(t *testing.T) {
-    // 1. OpenAI 형식 요청 생성
+    // 1. Create OpenAI format request
     openaiReq := createTestOpenAIRequest()
     
-    // 2. Gemini로 변환
+    // 2. Transform to Gemini
     geminiReq := Transform(openaiReq, "gemini")
     
-    // 3. Mock Gemini 서버로 전송
+    // 3. Send to Mock Gemini Server
     geminiResp := mockGeminiServer.Handle(geminiReq)
     
-    // 4. OpenAI로 역변환
+    // 4. Transform back to OpenAI
     openaiResp := TransformResponse(geminiResp, "openai")
     
-    // 5. 검증
+    // 5. Verify
     assert.NotEmpty(t, openaiResp.Choices)
 }
 ```
 
-### 9.3 스트리밍 테스트
+### 9.3 Streaming Tests
 
 ```go
 func TestStreamingTransform(t *testing.T) {
-    // SSE 청크 시퀀스
+    // SSE chunk sequence
     chunks := []string{
         `data: {"candidates":[{"content":{"parts":[{"text":"Hel"}]}}]}`,
         `data: {"candidates":[{"content":{"parts":[{"text":"lo"}]}}]}`,
@@ -317,35 +317,35 @@ func TestStreamingTransform(t *testing.T) {
 }
 ```
 
-### 9.4 Thinking 시그니처 테스트
+### 9.4 Thinking Signature Tests
 
 ```go
 func TestThinkingSignatureCache(t *testing.T) {
-    // 1. 첫 요청: thinking 블록 + 시그니처 응답
+    // 1. First request: thinking block + signature response
     resp1 := simulateResponse(withThinking("Let me think...", "sig123"))
     CacheSignatures(resp1)
     
-    // 2. 두 번째 요청: 시그니처 없는 thinking 블록
+    // 2. Second request: thinking block without signature
     req2 := createRequest(withThinking("Let me think...", ""))
     restored := RestoreSignatures(req2)
     
-    // 3. 시그니처가 복원되었는지 확인
+    // 3. Verify signature restored
     assert.Equal(t, "sig123", restored.ThinkingSignature)
 }
 ```
 
-### 9.5 실제 API 테스트 (E2E)
+### 9.5 End-to-End API Tests
 
 ```bash
-# 환경 변수 설정
+# Set environment variables
 export OPENAI_API_KEY=...
 export ANTHROPIC_API_KEY=...
 export GOOGLE_API_KEY=...
 
-# 프록시 서버 시작
+# Start proxy server
 go run ./cmd/server
 
-# curl로 변환 테스트
+# Test transformation with curl
 curl http://localhost:8743/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "X-Target-Provider: gemini" \
@@ -354,7 +354,7 @@ curl http://localhost:8743/v1/chat/completions \
 
 ---
 
-## 10. 관련 문서
+## 10. Related Documentation
 
 - [openai-chat-completions-schema.md](./openai-chat-completions-schema.md)
 - [anthropic-api-schema.md](./anthropic-api-schema.md)
