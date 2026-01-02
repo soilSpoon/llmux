@@ -18,7 +18,7 @@ export function expectRequestRoundTrip(
   expectedProviderRequest?: unknown
 ): unknown {
   // Transform unified -> provider
-  const providerRequest = provider.transform(unifiedRequest);
+  const providerRequest = provider.transform(unifiedRequest, 'test-model');
 
   if (expectedProviderRequest) {
     expect(providerRequest).toEqual(expectedProviderRequest);

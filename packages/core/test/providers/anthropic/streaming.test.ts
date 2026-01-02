@@ -24,9 +24,10 @@ data: {"type":"content_block_start","index":0,"content_block":{"type":"text","te
 
       const result = parseStreamChunk(sseData);
 
-      // content_block_start for text typically doesn't produce a chunk
-      // It just initializes the block
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe("content");
+      expect(result?.blockIndex).toBe(0);
+      expect(result?.blockType).toBe("text");
     });
 
     it("should parse text_delta event", () => {
@@ -101,8 +102,9 @@ data: {"type":"content_block_stop","index":0}`;
 
       const result = parseStreamChunk(sseData);
 
-      // content_block_stop typically doesn't produce a unified chunk
-      expect(result).toBeNull();
+      expect(result).not.toBeNull();
+      expect(result?.type).toBe("block_stop");
+      expect(result?.blockIndex).toBe(0);
     });
 
     it("should parse message_delta event with stop_reason", () => {
@@ -408,14 +410,20 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
         }
       }
 
-      // Should have: usage (message_start), 2x content (text deltas), usage (message_delta), done
-      expect(chunks.length).toBeGreaterThanOrEqual(4);
+      // Should have: usage (message_start), 1x content (start), 2x content (text deltas), 1x block_stop, usage (message_delta), done
+      expect(chunks.length).toBeGreaterThanOrEqual(6);
 
       // Check we got text content
       const textChunks = chunks.filter((c) => c.type === "content");
-      expect(textChunks.length).toBe(2);
-      expect(textChunks[0]!.delta?.text).toBe("Hello");
-      expect(textChunks[1]!.delta?.text).toBe(", world!");
+      // Now we expect 3 chunks: one from start (empty), two from deltas
+      expect(textChunks.length).toBe(3);
+      expect(textChunks[0]!.delta?.text).toBe("");
+      expect(textChunks[1]!.delta?.text).toBe("Hello");
+      expect(textChunks[2]!.delta?.text).toBe(", world!");
+
+      // Check we got block_stop
+      const blockStopChunk = chunks.find((c) => c.type === "block_stop");
+      expect(blockStopChunk).toBeDefined();
 
       // Check we got done
       const doneChunk = chunks.find((c) => c.type === "done");
@@ -641,6 +649,202 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
        expect(output).toContain("call_normal");
        expect(output).toContain("normal_tool");
        expect(output).toContain("input_json_delta");
-     });
-   });
-});
+       });
+
+       it("should include input_tokens in usage chunk transformation (no stopReason → message_start)", () => {
+        const chunk: StreamChunk = {
+          type: "usage",
+          usage: {
+            inputTokens: 150,
+            outputTokens: 50,
+          },
+        };
+
+        const result = transformStreamChunk(chunk);
+        // Without stopReason, returns single message_start string
+        expect(typeof result).toBe("string");
+        expect(result).toContain("event: message_start");
+        expect(result).toContain('"input_tokens":150');
+        expect(result).toContain('"output_tokens":50');
+        });
+
+        it("should return message_delta for usage chunk with stopReason", () => {
+        const chunk: StreamChunk = {
+          type: "usage",
+          stopReason: "end_turn",
+          usage: {
+            inputTokens: 150,
+            outputTokens: 50,
+          },
+        };
+
+        const result = transformStreamChunk(chunk);
+        // With stopReason, returns single message_delta string
+        expect(typeof result).toBe("string");
+        expect(result).toContain("event: message_delta");
+        expect(result).toContain('"input_tokens":150');
+        expect(result).toContain('"output_tokens":50');
+        expect(result).toContain('"stop_reason":"end_turn"');
+        });
+
+       it("should include input_tokens in done chunk transformation", () => {
+        const chunk: StreamChunk = {
+          type: "done",
+          stopReason: "end_turn",
+          usage: {
+            inputTokens: 200,
+            outputTokens: 100,
+          },
+        };
+
+        const result = transformStreamChunk(chunk);
+
+        // result is array of strings for 'done' type
+        const resultString = Array.isArray(result) ? result.join("\n") : result;
+
+        expect(resultString).toContain('"input_tokens":200');
+        expect(resultString).toContain('"output_tokens":100');
+        });
+
+        // Phase 2: message_start event generation tests (stopReason-based logic)
+        describe("message_start event generation", () => {
+          it("should return message_start for usage chunk without stopReason", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              usage: {
+                inputTokens: 150,
+                outputTokens: 50,
+              },
+            };
+
+            const result = transformStreamChunk(chunk);
+
+            // Without stopReason, returns single message_start string
+            expect(typeof result).toBe("string");
+            expect(result).toContain("event: message_start");
+            expect(result).toContain('"type":"message_start"');
+          });
+
+          it("should return message_delta for usage chunk with stopReason", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              stopReason: "end_turn",
+              usage: {
+                inputTokens: 150,
+                outputTokens: 50,
+              },
+            };
+
+            const result = transformStreamChunk(chunk);
+
+            // With stopReason, returns single message_delta string
+            expect(typeof result).toBe("string");
+            expect(result).toContain("event: message_delta");
+            expect(result).toContain('"type":"message_delta"');
+          });
+
+          it("should include usage info in message_start.message.usage", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              usage: {
+                inputTokens: 250,
+                outputTokens: 75,
+              },
+            };
+
+            const result = transformStreamChunk(chunk);
+            expect(typeof result).toBe("string");
+            
+            const dataMatch = (result as string).match(/data: (.+)/);
+            expect(dataMatch).not.toBeNull();
+            const parsed = JSON.parse(dataMatch![1]!);
+            
+            expect(parsed.type).toBe("message_start");
+            expect(parsed.message).toBeDefined();
+            expect(parsed.message.usage).toBeDefined();
+            expect(parsed.message.usage.input_tokens).toBe(250);
+            expect(parsed.message.usage.output_tokens).toBe(75);
+          });
+
+          it("should include required message metadata in message_start", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              usage: {
+                inputTokens: 100,
+                outputTokens: 10,
+              },
+            };
+
+            const result = transformStreamChunk(chunk);
+            expect(typeof result).toBe("string");
+            
+            const dataMatch = (result as string).match(/data: (.+)/);
+            const parsed = JSON.parse(dataMatch![1]!);
+            
+            // Required fields per Anthropic spec
+            expect(parsed.message.id).toBeDefined();
+            expect(parsed.message.type).toBe("message");
+            expect(parsed.message.role).toBe("assistant");
+            expect(parsed.message.model).toBeDefined();
+            expect(parsed.message.content).toEqual([]);
+          });
+
+          it("should preserve cachedTokens in message_start usage", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              usage: {
+                inputTokens: 500,
+                outputTokens: 100,
+                cachedTokens: 300,
+              },
+            };
+
+            const result = transformStreamChunk(chunk);
+            expect(typeof result).toBe("string");
+            
+            const dataMatch = (result as string).match(/data: (.+)/);
+            const parsed = JSON.parse(dataMatch![1]!);
+            
+            // cachedTokens should map to cache_read_input_tokens
+            expect(parsed.message.usage.cache_read_input_tokens).toBe(300);
+          });
+
+          it("should use provided model name in message_start", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              usage: {
+                inputTokens: 100,
+                outputTokens: 10,
+              },
+              model: "claude-3-opus-20240229",
+            };
+
+            const result = transformStreamChunk(chunk);
+            expect(typeof result).toBe("string");
+            
+            const dataMatch = (result as string).match(/data: (.+)/);
+            const parsed = JSON.parse(dataMatch![1]!);
+            
+            expect(parsed.message.model).toBe("claude-3-opus-20240229");
+          });
+
+          it("should fallback to default model name if not provided in message_start", () => {
+            const chunk: StreamChunk = {
+              type: "usage",
+              usage: {
+                inputTokens: 100,
+                outputTokens: 10,
+              },
+            };
+
+            const result = transformStreamChunk(chunk);
+            expect(typeof result).toBe("string");
+            
+            const dataMatch = (result as string).match(/data: (.+)/);
+            const parsed = JSON.parse(dataMatch![1]!);
+            
+            expect(parsed.message.model).toBe("claude-3-5-sonnet-20241022");
+          });
+        });
+        });
+        });

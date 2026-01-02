@@ -7,3 +7,4 @@ export {
 } from './fallback'
 export { handleHealth } from './health'
 export { handleResponses, type ResponsesOptions } from './responses'
+export type { ProxyOptions } from './types'

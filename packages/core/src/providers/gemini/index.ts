@@ -12,7 +12,7 @@ import { BaseProvider, type ProviderConfig } from '../base'
 import { parse, transform } from './request'
 import { parseResponse, transformResponse } from './response'
 import { parseStreamChunk, transformStreamChunk } from './streaming'
-import type { GeminiRequest, GeminiResponse } from './types'
+import { type GeminiRequest, type GeminiResponse, isGeminiRequest } from './types'
 
 export class GeminiProvider extends BaseProvider {
   readonly name = 'gemini' as const
@@ -23,6 +23,14 @@ export class GeminiProvider extends BaseProvider {
     supportsTools: true,
     defaultMaxTokens: 8192,
     defaultStreamParser: 'sse-line-delimited',
+  }
+
+  isSupportedRequest(request: unknown): boolean {
+    return isGeminiRequest(request)
+  }
+
+  isSupportedModel(model: string): boolean {
+    return model.startsWith('gemini')
   }
 
   /**

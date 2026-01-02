@@ -1,4 +1,4 @@
-import type { Credential } from '@llmux/auth'
+import { type Credential, isOAuthCredential, type OAuthCredential, TokenRefresh } from '@llmux/auth'
 
 interface AccountState {
   index: number
@@ -122,6 +122,69 @@ export class AccountRotationManager {
     }
 
     return minWait === Infinity ? 0 : minWait
+  }
+  /**
+   * Get a fresh credential and account info for a provider.
+   * If currentIndex is provided and valid, try to use the next available account starting from currentIndex + 1.
+   * Otherwise, use getNextAvailable() which finds the first non-rate-limited account.
+   */
+  async getCredential(
+    provider: string,
+    _model: string,
+    currentIndex: number
+  ): Promise<{ credentials: Credential[]; accountId?: string; accountIndex: number } | null> {
+    const freshCredentials = await TokenRefresh.ensureFresh(provider)
+    if (!freshCredentials || freshCredentials.length === 0) return null
+
+    let accountIndex: number
+    const states = this.getStates(provider)
+    const now = Date.now()
+
+    // If we have a currentIndex, try to find the next available account starting after currentIndex
+    if (currentIndex >= 0 && currentIndex < freshCredentials.length) {
+      accountIndex = -1
+      // Search for next available account after currentIndex
+      for (let i = currentIndex + 1; i < freshCredentials.length; i++) {
+        const state = states.find((s) => s.index === i)
+        if (!state || state.rateLimitedUntil <= now) {
+          accountIndex = i
+          break
+        }
+      }
+      // If no available after currentIndex, wrap around
+      if (accountIndex === -1) {
+        for (let i = 0; i <= currentIndex; i++) {
+          const state = states.find((s) => s.index === i)
+          if (!state || state.rateLimitedUntil <= now) {
+            accountIndex = i
+            break
+          }
+        }
+      }
+      // If still not found, fallback to getNextAvailable
+      if (accountIndex === -1) {
+        accountIndex = this.getNextAvailable(provider, freshCredentials)
+      }
+    } else {
+      accountIndex = this.getNextAvailable(provider, freshCredentials)
+    }
+
+    const credential = freshCredentials[accountIndex] as Credential
+
+    return {
+      credentials: freshCredentials,
+      accountId: isOAuthCredential(credential)
+        ? (credential as OAuthCredential).accountId
+        : undefined,
+      accountIndex,
+    }
+  }
+
+  /**
+   * Check if there's a next account to try.
+   */
+  hasNext(_provider: string, _model: string, _currentIndex: number): boolean {
+    return true
   }
 }
 

@@ -73,7 +73,7 @@ describe("OpenAIProvider", () => {
         },
       });
 
-      const result = provider.transform(unified) as OpenAIRequest;
+      const result = provider.transform(unified, 'gpt-4') as OpenAIRequest;
 
       expect(result.model).toBe("gpt-4");
       expect(result.messages).toHaveLength(2);

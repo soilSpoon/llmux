@@ -64,20 +64,18 @@ export class FallbackHandler {
   private getProxy: () => UpstreamProxy | null
   private hasLocalProvider: ProviderChecker
   private modelMappings?: AmpModelMapping[]
-  private modelLookup?: ModelLookup
   private router?: Router
 
   constructor(
     getProxy: () => UpstreamProxy | null,
     providerChecker?: ProviderChecker,
     modelMappings?: AmpModelMapping[],
-    modelLookup?: ModelLookup,
+    _modelLookup?: ModelLookup, // Deprecated, kept for signature compatibility if needed, or remove
     router?: Router
   ) {
     this.getProxy = getProxy
     this.hasLocalProvider = providerChecker ?? (() => false)
     this.modelMappings = modelMappings
-    this.modelLookup = modelLookup
     this.router = router
   }
 
@@ -176,22 +174,41 @@ export class FallbackHandler {
         logger.debug({ originalModel }, 'No fallback model mapping found')
       }
 
-      // Check if model is available via ModelLookup (from /models endpoint data)
+      // Check if model is available via ModelLookup (via ModelRouter)
       let hasProvider = this.hasLocalProvider(model)
 
       if (detectedProvider) {
         hasProvider = true
       }
 
-      if (!hasProvider && this.modelLookup) {
-        const lookupProvider = await this.modelLookup.getProviderForModel(model)
-        if (lookupProvider) {
-          detectedProvider = lookupProvider
+      if (!hasProvider && this.router) {
+        try {
+          const resolution = await this.router.resolveModel(model)
+          // resolveModel will return detected provider if found via lookup or inference
+          // We trust it to find a provider if possible.
+          // However, resolveModel ALWAYS returns a provider (inference fallback).
+          // We need to know if it was actually FOUND in the registry (lookup) vs inferred.
+          // Router.resolveModel returns { provider, model }, it wraps ModelRouter.resolve().
+
+          // Ideally we want to know if it's a "valid" provider for this model to confirm "hasProvider".
+          // If detection falls back to 'openai' by default inference, it might not mean we HAVE it.
+          // But fallback handler's job is to route to local handlers if possible.
+
+          // If we use inference, we assume we can handle it.
+          // The goal of this check is: "Should we handle this locally or pass to upstream proxy?"
+
+          // Strategy: If ModelRouter resolves it, we try to handle it locally.
+          // EXCEPT if it's just a default fallback and we prefer upstream?
+          // Existing logic was: explicitly check lookup.
+
+          // Let's assume if Router resolves it, we treat it as detected.
+          // Note: Router uses ModelLookup internally.
+
+          detectedProvider = resolution.provider
           hasProvider = true
-          logger.info(
-            { model, provider: detectedProvider },
-            'Model found in authenticated provider via ModelLookup'
-          )
+          logger.info({ model, provider: detectedProvider }, 'Model resolved via ModelRouter')
+        } catch {
+          // Router failed
         }
       }
 

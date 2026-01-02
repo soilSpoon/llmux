@@ -77,6 +77,16 @@ export interface Provider {
   readonly config: ProviderConfig
 
   /**
+   * Check if the request object is supported by this provider
+   */
+  isSupportedRequest(request: unknown): boolean
+
+  /**
+   * Check if the model name is supported by this provider
+   */
+  isSupportedModel(model: string): boolean
+
+  /**
    * Parse provider-specific request format into UnifiedRequest
    */
   parse(request: unknown): UnifiedRequest
@@ -84,10 +94,7 @@ export interface Provider {
   /**
    * Transform UnifiedRequest into provider-specific request format
    */
-  /**
-   * Transform UnifiedRequest into provider-specific request format
-   */
-  transform(request: UnifiedRequest, model?: string): unknown
+  transform(request: UnifiedRequest, model: string): unknown
 
   /**
    * Parse provider-specific response format into UnifiedResponse
@@ -117,8 +124,11 @@ export abstract class BaseProvider implements Provider {
   abstract readonly name: ProviderName
   abstract readonly config: ProviderConfig
 
+  abstract isSupportedRequest(request: unknown): boolean
+  abstract isSupportedModel(model: string): boolean
+
   abstract parse(request: unknown): UnifiedRequest
-  abstract transform(request: UnifiedRequest, model?: string): unknown
+  abstract transform(request: UnifiedRequest, model: string): unknown
   abstract parseResponse(response: unknown): UnifiedResponse
   abstract transformResponse(response: UnifiedResponse): unknown
 

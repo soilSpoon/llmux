@@ -57,8 +57,8 @@ describe("Integration: Request Transformation", () => {
       const sourceProvider = getProvider(from);
       const unifiedRequest = createUnifiedRequest();
 
-      const sourceRequest = sourceProvider.transform(unifiedRequest);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(unifiedRequest, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
 
       const targetProvider = getProvider(to);
       const parsedUnified = targetProvider.parse(targetRequest);
@@ -88,8 +88,8 @@ describe("Integration: Request Transformation", () => {
         ],
       });
 
-      const sourceRequest = sourceProvider.transform(requestWithTools);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(requestWithTools, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
 
       const targetProvider = getProvider(to);
       const parsed = targetProvider.parse(targetRequest);
@@ -121,8 +121,8 @@ describe("Integration: Request Transformation", () => {
         ],
       });
 
-      const sourceRequest = sourceProvider.transform(requestWithToolCall);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(requestWithToolCall, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
 
       const targetProvider = getProvider(to);
       const parsed = targetProvider.parse(targetRequest);
@@ -214,11 +214,12 @@ describe("Integration: Round-trip Transformation", () => {
         ],
       });
 
-      const sourceRequest = sourceProvider.transform(unifiedRequest);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(unifiedRequest, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
       const backToSourceRequest = transformRequest(targetRequest, {
         from: to,
         to: from,
+        model: 'test-model',
       });
 
       const parsed = sourceProvider.parse(backToSourceRequest);
@@ -303,8 +304,8 @@ describe("Integration: Complex Scenarios", () => {
 
     for (const { from, to } of providerCombinations) {
       const sourceProvider = getProvider(from);
-      const sourceRequest = sourceProvider.transform(request);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(request, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
 
       const targetProvider = getProvider(to);
       const parsed = targetProvider.parse(targetRequest);
@@ -357,8 +358,8 @@ describe("Integration: Complex Scenarios", () => {
 
     for (const { from, to } of providerCombinations) {
       const sourceProvider = getProvider(from);
-      const sourceRequest = sourceProvider.transform(request);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(request, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
 
       const targetProvider = getProvider(to);
       const parsed = targetProvider.parse(targetRequest);
@@ -388,8 +389,8 @@ describe("Integration: Complex Scenarios", () => {
 
     for (const { from, to } of providerCombinations) {
       const sourceProvider = getProvider(from);
-      const sourceRequest = sourceProvider.transform(request);
-      const targetRequest = transformRequest(sourceRequest, { from, to });
+      const sourceRequest = sourceProvider.transform(request, 'test-model');
+      const targetRequest = transformRequest(sourceRequest, { from, to, model: 'test-model' });
 
       expect(targetRequest).toBeDefined();
     }

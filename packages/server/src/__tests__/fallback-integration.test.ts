@@ -43,16 +43,22 @@ describe("429 Fallback Integration", () => {
   };
 
   beforeEach(() => {
-    cooldownManager = new CooldownManager();
-    router = new Router(config, cooldownManager);
+    // router = new Router(config); // Internal to router now
+    // Reset global cooldown manager
+    const { globalCooldownManager } = require("../cooldown");
+    globalCooldownManager.clear();
+    
+    router = new Router(config);
+    // Access internal cooldown manager for testing
+    cooldownManager = (router as any).cooldownManager;
   });
 
   describe("Single fallback scenario", () => {
-    it("should switch from glm-4.7-free to gemini-claude-opus on 429", () => {
+    it("should switch from glm-4.7-free to gemini-claude-opus on 429", async () => {
       // Simulate 429 for primary model
       router.handleRateLimit("glm-4.7-free");
 
-      const result = router.resolveModel("glm-4.7-free");
+      const result = await router.resolveModel("glm-4.7-free");
 
       expect(result).toEqual({
         provider: "antigravity",
@@ -67,7 +73,7 @@ describe("429 Fallback Integration", () => {
       // Wait for expiration
       await new Promise((resolve) => setTimeout(resolve, 20));
 
-      const result = router.resolveModel("glm-4.7-free");
+      const result = await router.resolveModel("glm-4.7-free");
 
       expect(result).toEqual({
         provider: "opencode-zen",
@@ -77,27 +83,27 @@ describe("429 Fallback Integration", () => {
   });
 
   describe("Cascading fallback scenario", () => {
-    it("should cascade through all fallbacks", () => {
+    it("should cascade through all fallbacks", async () => {
       // Mark primary as rate limited
       router.handleRateLimit("primary-model");
 
-      let result = router.resolveModel("primary-model");
+      let result = await router.resolveModel("primary-model");
       expect(result.model).toBe("gpt-3.5-turbo");
 
       // Mark secondary as rate limited too
       router.handleRateLimit("secondary-model");
 
-      result = router.resolveModel("primary-model");
+      result = await router.resolveModel("primary-model");
       expect(result.model).toBe("claude-3-sonnet");
       expect(result.provider).toBe("anthropic");
     });
 
-    it("should return primary when all fallbacks exhausted", () => {
+    it("should return primary when all fallbacks exhausted", async () => {
       router.handleRateLimit("primary-model");
       router.handleRateLimit("secondary-model");
       router.handleRateLimit("tertiary-model");
 
-      const result = router.resolveModel("primary-model");
+      const result = await router.resolveModel("primary-model");
 
       // When all are down, return primary (caller will get 429)
       expect(result.model).toBe("gpt-4");
@@ -105,21 +111,21 @@ describe("429 Fallback Integration", () => {
   });
 
   describe("Provider switching", () => {
-    it("should correctly switch providers during fallback", () => {
+    it("should correctly switch providers during fallback", async () => {
       // OpenAI -> Anthropic transition
       router.handleRateLimit("primary-model");
       router.handleRateLimit("secondary-model");
 
-      const result = router.resolveModel("primary-model");
+      const result = await router.resolveModel("primary-model");
 
       expect(result.provider).toBe("anthropic");
       expect(result.model).toBe("claude-3-sonnet");
     });
 
-    it("should correctly switch from opencode-zen to antigravity", () => {
+    it("should correctly switch from opencode-zen to antigravity", async () => {
       router.handleRateLimit("glm-4.7-free");
 
-      const result = router.resolveModel("glm-4.7-free");
+      const result = await router.resolveModel("glm-4.7-free");
 
       expect(result.provider).toBe("antigravity");
     });
@@ -152,12 +158,12 @@ describe("429 Fallback Integration", () => {
   });
 
   describe("Concurrent models", () => {
-    it("should handle multiple models independently", () => {
+    it("should handle multiple models independently", async () => {
       // Rate limit glm but not primary-model
       router.handleRateLimit("glm-4.7-free");
 
-      const glmResult = router.resolveModel("glm-4.7-free");
-      const primaryResult = router.resolveModel("primary-model");
+      const glmResult = await router.resolveModel("glm-4.7-free");
+      const primaryResult = await router.resolveModel("primary-model");
 
       // GLM should fallback
       expect(glmResult.model).toBe("gemini-claude-opus-4-5-thinking");

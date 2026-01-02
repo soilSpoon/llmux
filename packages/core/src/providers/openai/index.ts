@@ -7,6 +7,7 @@
 
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
+import { isChatCompletionsRequest } from './format-detector'
 import { parse, transform } from './request'
 import { parseResponse, transformResponse } from './response'
 import { parseStreamChunk, transformStreamChunk } from './streaming'
@@ -29,18 +30,24 @@ export class OpenAIProvider extends BaseProvider {
   readonly name: ProviderName = 'openai'
   readonly config: ProviderConfig = OPENAI_CONFIG
 
-  private defaultModel: string = 'gpt-4'
+  isSupportedRequest(request: unknown): boolean {
+    if (!isOpenAIRequest(request)) return false
+    // Anthropic requests have top-level system property
+    if (typeof request === 'object' && request !== null && 'system' in request) return false
+    return isChatCompletionsRequest(request)
+  }
 
-  /**
-   * Create a new OpenAI provider instance.
-   *
-   * @param options - Optional configuration
-   */
-  constructor(options?: { defaultModel?: string }) {
-    super()
-    if (options?.defaultModel) {
-      this.defaultModel = options.defaultModel
+  isSupportedModel(model: string): boolean {
+    // Explicitly exclude models handled by openai-web
+    if (model.startsWith('gpt-5') || model.includes('codex')) {
+      return false
     }
+    return (
+      model.startsWith('gpt-') ||
+      model.startsWith('o1') ||
+      model.startsWith('o3') ||
+      model.startsWith('o4')
+    )
   }
 
   /**
@@ -61,11 +68,11 @@ export class OpenAIProvider extends BaseProvider {
    * Transform a UnifiedRequest into OpenAI request format.
    *
    * @param request - The UnifiedRequest to transform
-   * @param model - Optional model override (defaults to 'gpt-4')
+   * @param model - Model name to use
    * @returns The OpenAI request
    */
-  transform(request: UnifiedRequest, model?: string): OpenAIRequest {
-    return transform(request, model || this.defaultModel)
+  transform(request: UnifiedRequest, model: string): OpenAIRequest {
+    return transform(request, model)
   }
 
   /**

@@ -64,23 +64,8 @@ function createModelsDispatcher(modelsHandler?: RouteHandler): RouteHandler {
   }
 }
 
-function createUpstreamRedirectHandler(upstreamUrl: string = 'https://ampcode.com'): RouteHandler {
-  return async (request: Request) => {
-    const url = new URL(request.url)
-    const pathname = url.pathname
-    const upstreamAddress = new URL(pathname, upstreamUrl).toString()
-
-    return new Response(null, {
-      status: 307,
-      headers: {
-        Location: upstreamAddress,
-      },
-    })
-  }
-}
-
 export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
-  const { handlers, fallbackHandler, modelsHandler, upstreamUrl } = config
+  const { handlers, fallbackHandler, modelsHandler } = config
 
   const chatHandler = createProviderDispatcher(handlers, fallbackHandler)
   const messagesHandler = createProviderDispatcher(handlers, fallbackHandler)
@@ -88,7 +73,6 @@ export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
   const modelsDispatcher = createModelsDispatcher(modelsHandler)
 
   const responsesHandler = createProviderDispatcher(handlers, fallbackHandler)
-  const redirectHandler = createUpstreamRedirectHandler(upstreamUrl)
 
   const routes: Route[] = [
     {
@@ -110,16 +94,6 @@ export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
       method: 'GET',
       path: '/api/provider/:provider/v1/models',
       handler: modelsDispatcher,
-    },
-    {
-      method: 'GET',
-      path: '/threads/*path',
-      handler: redirectHandler,
-    },
-    {
-      method: 'GET',
-      path: '/settings/*path',
-      handler: redirectHandler,
     },
   ]
 

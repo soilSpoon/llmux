@@ -76,6 +76,7 @@ const response = await llmux.proxy(geminiRequest, {
 | 14 | CLI 통합 패키지 | ✅ Complete | 100% | ~2h |
 | 15 | AI SDK 호환 레이어 | ✅ Complete | 100% | ~3h |
 | 16 | LiteLLM 호환 레이어 | ⏳ Pending | 0% | 3h |
+| 17 | Unified Streaming Model 개선 | ✅ Complete | 100% | ~6h |
 
 ---
 
@@ -1353,6 +1354,31 @@ response = litellm.completion(
 ```bash
 bun test packages/core/test/providers/litellm/
 curl -X POST http://localhost:8743/litellm/chat/completions
+```
+
+---
+
+## Phase 17: Unified Streaming Model 개선 ✅ Complete
+
+**예상 시간:** 6시간
+**리스크:** 🟠 High (Unified 타입 변경)
+**위치:** `@llmux/core`
+
+### 개요
+Anthropic의 멀티 블록 스트리밍과 다른 Provider들의 스트리밍 방식 차이를 Unified 레벨에서 해소하기 위해 `StreamChunk` 모델을 확장하고 각 Provider 구현을 개선함.
+
+### 변경 사항
+- **Unified**: `StreamChunk`에 `blockIndex`, `blockType`, `type: 'block_stop'` 추가
+- **Anthropic**: `content_block_start`, `content_block_stop` 이벤트를 Unified 모델로 매핑
+- **OpenAI/Gemini**: `blockIndex` 지원 추가 (기존 0 또는 내부 인덱스 매핑)
+- **Response**: `tool_result` 및 `redacted_thinking` 지원 강화
+
+### Quality Gate
+```bash
+bun test packages/core/test/providers/anthropic/streaming-extended.test.ts
+bun test packages/core/test/providers/gemini/streaming-block-index.test.ts
+bun run build
+bun run typecheck
 ```
 
 ---

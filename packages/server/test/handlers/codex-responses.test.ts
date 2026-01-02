@@ -229,13 +229,13 @@ describe("Codex Responses Handler", () => {
         expiresAt: Date.now() + 3600000,
       });
 
-      let capturedBody: any;
+      let capturedBody: Record<string, unknown> | undefined;
       globalThis.fetch = mock(async (_url: string, init?: RequestInit) => {
-        capturedBody = JSON.parse(init?.body as string);
+        capturedBody = JSON.parse(init?.body as string) as Record<string, unknown>;
         return new Response(JSON.stringify({ id: "resp_123", output: [] }), {
           status: 200,
         });
-      }) as any;
+      }) as unknown as typeof globalThis.fetch;
 
       const tools = [{ type: "function", function: { name: "test_tool" } }];
       const reasoning = { effort: "medium" };
@@ -253,8 +253,9 @@ describe("Codex Responses Handler", () => {
 
       await handleResponses(request, { targetProvider: "openai-web" });
 
-      expect(capturedBody.tools).toEqual(tools);
-      expect(capturedBody.reasoning).toEqual(reasoning);
+      // Tools are transformed by handleResponses (nested function -> flattened)
+      expect(capturedBody?.tools).toEqual([{ type: "function", name: "test_tool" }]);
+      expect(capturedBody?.reasoning).toEqual(reasoning);
     });
   });
 

@@ -62,7 +62,7 @@ describe("OpencodeZenProvider", () => {
         metadata: { model: "glm-4.7-free" },
       });
 
-      const result = provider.transform(unified) as {
+      const result = provider.transform(unified, 'glm-4.7-free') as {
         model?: string;
         messages?: unknown[];
       };
@@ -78,7 +78,7 @@ describe("OpencodeZenProvider", () => {
         metadata: { model: "claude-3-sonnet" },
       });
 
-      const result = provider.transform(unified) as {
+      const result = provider.transform(unified, 'claude-3-sonnet') as {
         messages?: unknown[];
         max_tokens?: number;
       };
@@ -93,7 +93,7 @@ describe("OpencodeZenProvider", () => {
         messages: [createUnifiedMessage("user", "Hello")],
       });
 
-      const result = provider.transform(unified) as { messages?: unknown[] };
+      const result = provider.transform(unified, 'test-model') as { messages?: unknown[] };
 
       expect(result.messages).toBeDefined();
       expect(Array.isArray(result.messages)).toBe(true);

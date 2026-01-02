@@ -24,7 +24,7 @@ describe("Antigravity Request Compliance", () => {
         ],
       };
 
-      const result = transformRequest(request);
+      const result = transformRequest(request, 'test-model');
 
       // Tool name should be encoded
       const toolDecl = result.request.tools?.[0]?.functionDeclarations?.[0];
@@ -63,7 +63,7 @@ describe("Antigravity Request Compliance", () => {
         ],
       };
 
-      const result = transformRequest(request);
+      const result = transformRequest(request, 'test-model');
 
       // functionCall.name in history should be encoded
       const assistantContent = result.request.contents[1];
@@ -95,7 +95,7 @@ describe("Antigravity Request Compliance", () => {
         ],
       };
 
-      const result = transformRequest(request);
+      const result = transformRequest(request, 'test-model');
 
       // const should be converted to enum: [value]
       const toolDecl = result.request.tools?.[0]?.functionDeclarations?.[0];
@@ -131,7 +131,7 @@ describe("Antigravity Request Compliance", () => {
 
       // This should either throw, log a warning, or handle gracefully
       // For now we test that it doesn't crash and produces valid output
-      expect(() => transformRequest(request)).not.toThrow();
+      expect(() => transformRequest(request, 'test-model')).not.toThrow();
     });
   });
 });

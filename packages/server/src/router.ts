@@ -100,7 +100,10 @@ function getRoutePriority(parsed: ParsedRoute): number {
   }
 
   if (parsed.type === 'wildcard') {
-    return 10
+    // More specific wildcard routes (higher wildcardIndex) get higher priority
+    // e.g., /api/provider/:provider/v1beta1/.../models/*action (wildcardIndex=8)
+    // should beat /api/provider/*path (wildcardIndex=2)
+    return 10 + parsed.wildcardIndex
   }
 
   return 0

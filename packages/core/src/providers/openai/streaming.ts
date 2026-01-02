@@ -50,6 +50,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     content?: string
     usage?: OpenAIUsage
     choices?: {
+      index?: number
       delta?: OpenAIDelta
       finish_reason?: OpenAIFinishReason
       message?: OpenAIDelta // Non-standard fallback
@@ -104,10 +105,13 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     return null
   }
 
+  const blockIndex = choice.index ?? 0
+
   // Handle finish reason
   if (choice.finish_reason) {
     return {
       type: 'done',
+      blockIndex,
       stopReason: parseFinishReason(choice.finish_reason),
     }
   }
@@ -120,7 +124,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (delta.tool_calls && delta.tool_calls.length > 0) {
     const firstToolCall = delta.tool_calls[0]
     if (firstToolCall) {
-      return parseToolCallDelta(firstToolCall)
+      return parseToolCallDelta(firstToolCall, blockIndex)
     }
   }
 
@@ -128,6 +132,8 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (delta.content !== undefined) {
     return {
       type: 'content',
+      blockIndex,
+      blockType: 'text',
       delta: {
         type: 'text',
         text: delta.content,
@@ -139,6 +145,8 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (delta.reasoning_content !== undefined) {
     return {
       type: 'thinking',
+      blockIndex,
+      blockType: 'thinking',
       delta: {
         type: 'thinking',
         thinking: {
@@ -165,6 +173,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
 export function transformStreamChunk(chunk: StreamChunk): string {
   const id = `chatcmpl-${generateId()}`
   const created = Math.floor(Date.now() / 1000)
+  const index = chunk.blockIndex ?? 0
 
   switch (chunk.type) {
     case 'content':
@@ -175,7 +184,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         model: 'gpt-4',
         choices: [
           {
-            index: 0,
+            index,
             delta: { content: chunk.delta?.text || '' },
             finish_reason: null,
           },
@@ -190,7 +199,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         model: 'gpt-4',
         choices: [
           {
-            index: 0,
+            index,
             delta: {},
             finish_reason: transformStopReason(chunk.stopReason || null),
           },
@@ -205,7 +214,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         model: 'gpt-4',
         choices: [
           {
-            index: 0,
+            index,
             delta: {
               tool_calls: [transformToolCallDelta(chunk)],
             },
@@ -237,12 +246,18 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         model: 'gpt-4',
         choices: [
           {
-            index: 0,
+            index,
             delta: { content: chunk.delta?.thinking?.text || '' },
             finish_reason: null,
           },
         ],
       })
+
+    case 'block_stop':
+      // OpenAI doesn't have explicit block_stop, but we can simulate it with empty delta if needed
+      // or simply ignore it as it doesn't carry content.
+      // For now, we'll return an empty string/comment to keep the stream alive but do nothing.
+      return ': block_stop'
 
     case 'error':
       // Error chunks - just send [DONE]
@@ -257,13 +272,13 @@ export function transformStreamChunk(chunk: StreamChunk): string {
 // Tool Call Parsing
 // =============================================================================
 
-function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
+function parseToolCallDelta(toolCall: OpenAIDeltaToolCall, blockIndex: number): StreamChunk {
   // For streaming, arguments come as incremental JSON strings
   // We store them in partialJson for proper cross-provider accumulation
   const args = toolCall.function?.arguments || ''
 
   // Debug logging for tool call parsing
-  logger.debug(
+  logger.trace(
     {
       toolId: toolCall.id,
       toolName: toolCall.function?.name,
@@ -277,6 +292,8 @@ function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
   if ((toolCall.id || toolCall.function?.name) && args) {
     return {
       type: 'tool_call',
+      blockIndex,
+      blockType: 'tool_call',
       delta: {
         type: 'tool_call',
         partialJson: args,
@@ -296,6 +313,8 @@ function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
   if (args) {
     return {
       type: 'tool_call',
+      blockIndex,
+      blockType: 'tool_call',
       delta: {
         type: 'tool_call',
         partialJson: args,
@@ -306,6 +325,8 @@ function parseToolCallDelta(toolCall: OpenAIDeltaToolCall): StreamChunk {
   // Fallback for tool call header (ID and name only, no arguments yet)
   return {
     type: 'tool_call',
+    blockIndex,
+    blockType: 'tool_call',
     delta: {
       type: 'tool_call',
       toolCall: {
@@ -327,7 +348,7 @@ function transformToolCallDelta(chunk: StreamChunk): OpenAIDeltaToolCall {
 
   // Handle partialJson streaming (incremental JSON arguments)
   if (partialJson) {
-    logger.debug(
+    logger.trace(
       { partialJsonPreview: partialJson.slice(0, 100) },
       '[OPENAI] transform partialJson'
     )

@@ -11,6 +11,8 @@ import { parse, transform } from './request'
 import { parseResponse, transformResponse } from './response'
 import { parseStreamChunk, transformStreamChunk } from './streaming'
 
+import { isAntigravityRequest } from './types'
+
 export class AntigravityProvider extends BaseProvider {
   readonly name: ProviderName
   readonly config: ProviderConfig
@@ -28,6 +30,30 @@ export class AntigravityProvider extends BaseProvider {
     }
   }
 
+  isSupportedRequest(request: unknown): boolean {
+    if (isAntigravityRequest(request)) return true
+
+    // Legacy/Alternative detection (from old detectFormat)
+    // Supports { payload: { contents: ... } } structure
+    if (request && typeof request === 'object' && 'payload' in request) {
+      const payload = (request as Record<string, unknown>).payload
+      if (payload && typeof payload === 'object' && 'contents' in payload) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  isSupportedModel(model: string): boolean {
+    return (
+      model.includes('antigravity') ||
+      model.startsWith('gemini-') ||
+      model.startsWith('claude-') ||
+      model.includes('gpt-oss')
+    )
+  }
+
   /**
    * Parse an Antigravity request into UnifiedRequest format.
    */
@@ -38,8 +64,8 @@ export class AntigravityProvider extends BaseProvider {
   /**
    * Transform a UnifiedRequest into Antigravity request format.
    */
-  transform(request: UnifiedRequest): unknown {
-    return transform(request)
+  transform(request: UnifiedRequest, model: string): unknown {
+    return transform(request, model)
   }
 
   /**

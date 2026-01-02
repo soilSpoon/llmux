@@ -42,6 +42,8 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'content',
+        blockIndex: 0,
+        blockType: 'text',
         delta: {
           type: 'text',
           text: 'Hello',
@@ -69,6 +71,8 @@ describe('OpenAI Streaming', () => {
       // Empty content should still return content chunk with empty text
       expect(result).toEqual({
         type: 'content',
+        blockIndex: 0,
+        blockType: 'text',
         delta: {
           type: 'text',
           text: '',
@@ -95,6 +99,7 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'done',
+        blockIndex: 0,
         stopReason: 'end_turn',
       })
     })
@@ -118,6 +123,7 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'done',
+        blockIndex: 0,
         stopReason: 'max_tokens',
       })
     })
@@ -141,6 +147,7 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'done',
+        blockIndex: 0,
         stopReason: 'tool_use',
       })
     })
@@ -177,6 +184,8 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'tool_call',
+        blockIndex: 0,
+        blockType: 'tool_call',
         delta: {
           type: 'tool_call',
           toolCall: {
@@ -217,6 +226,8 @@ describe('OpenAI Streaming', () => {
       // For incremental arguments, we return partialJson for proper accumulation
       expect(result).toEqual({
         type: 'tool_call',
+        blockIndex: 0,
+        blockType: 'tool_call',
         delta: {
           type: 'tool_call',
           partialJson: '{"lo',
@@ -452,6 +463,8 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'thinking',
+        blockIndex: 0,
+        blockType: 'thinking',
         delta: {
           type: 'thinking',
           thinking: {

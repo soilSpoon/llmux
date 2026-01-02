@@ -91,12 +91,12 @@ describe('ModelCache', () => {
     })
 
     it('should return true for expired cache', async () => {
-      const cache = createModelCache(testCacheDir, { ttlMs: 50 })
+      const cache = createModelCache(testCacheDir, { ttlMs: 10 })
       await cache.set('openai', [
         { id: 'gpt-4', provider: 'openai', name: 'GPT-4', object: 'model' },
       ])
 
-      await new Promise((resolve) => setTimeout(resolve, 100))
+      await new Promise((resolve) => setTimeout(resolve, 150))
 
       const expired = await cache.isExpired('openai')
       expect(expired).toBe(true)

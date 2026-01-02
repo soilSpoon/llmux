@@ -17,7 +17,17 @@ describe("handleProxy with modelMappings", () => {
         }
         return new Response(
           JSON.stringify({
-            choices: [{ message: { role: "assistant", content: "Hello" } }],
+            id: "chatcmpl-123",
+            object: "chat.completion",
+            created: 1234567890,
+            model: "gpt-4",
+            choices: [
+              {
+                index: 0,
+                message: { role: "assistant", content: "Hello" },
+                finish_reason: "stop",
+              },
+            ],
           }),
           { headers: { "Content-Type": "application/json" } }
         );

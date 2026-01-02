@@ -1,4 +1,4 @@
-# llmux Amp 기본 지원 구현 계획
+# llmux Amp Basic Support Implementation Plan
 
 **Version:** 1.0  
 **Created:** 2025-12-25  
@@ -9,23 +9,23 @@
 
 ---
 
-## 개요
+## Overview
 
-llmux 서버에 Amp CLI 호환 API 지원을 추가합니다. 모델 매핑 시스템과 Gemini Bridge는 후속 작업으로 미루고, 기본적인 Amp 라우팅 지원에 집중합니다.
+Add Amp CLI compatible API support to the llmux server. Model mapping system and Gemini Bridge are deferred to follow-up tasks, focusing on basic Amp routing support.
 
-### 목표
+### Goals
 
-1. **라우터 확장**: Path parameters (`:provider`) 및 wildcards (`*path`) 지원
-2. **Provider Alias 라우트**: `/api/provider/:provider/v1/*` 패턴 지원
-3. **Upstream Proxy**: ampcode.com으로 fallback 프록시
-4. **FallbackHandler**: 로컬 provider 없을 때 upstream으로 라우팅
+1. **Extend Router**: Support Path parameters (`:provider`) and wildcards (`*path`).
+2. **Provider Alias Route**: Support `/api/provider/:provider/v1/*` pattern.
+3. **Upstream Proxy**: Fallback proxy to ampcode.com.
+4. **FallbackHandler**: Route to upstream when no local provider exists.
 
-### 제외 범위 (후속 작업)
+### Out of Scope (Follow-up)
 
-- ❌ Model Mapping 시스템
+- ❌ Model Mapping System
 - ❌ Gemini Bridge (`/publishers/google/models/...`)
-- ❌ Response Rewriter (모델명 재작성)
-- ❌ 관리 라우트 (`/api/user`, `/api/auth` 등)
+- ❌ Response Rewriter (Rewrite model name)
+- ❌ Admin Routes (`/api/user`, `/api/auth`, etc.)
 
 ---
 
@@ -33,35 +33,35 @@ llmux 서버에 Amp CLI 호환 API 지원을 추가합니다. 모델 매핑 시�
 
 | Phase | Description | Status | Estimated Time |
 |-------|-------------|--------|----------------|
-| 1 | 라우터 확장 (Path Params + Wildcards) | ✅ Complete | 2h |
-| 2 | Upstream Proxy 구현 | ✅ Complete | 1.5h |
-| 3 | FallbackHandler 구현 | ✅ Complete | 2h |
-| 4 | Provider Alias 라우트 등록 | ✅ Complete | 1.5h |
-| 5 | 통합 테스트 및 문서화 | ✅ Complete | 1h |
+| 1 | Extend Router (Path Params + Wildcards) | ✅ Complete | 2h |
+| 2 | Implement Upstream Proxy | ✅ Complete | 1.5h |
+| 3 | Implement FallbackHandler | ✅ Complete | 2h |
+| 4 | Register Provider Alias Routes | ✅ Complete | 1.5h |
+| 5 | Integration Testing and Documentation | ✅ Complete | 1h |
 
 **Total Estimated Time:** 8 hours
 
 ---
 
-## Phase 1: 라우터 확장 (Path Params + Wildcards)
+## Phase 1: Extend Router (Path Params + Wildcards)
 
 **Status:** ✅ Complete  
 **Risk Level:** 🟡 Medium  
 **Estimated Time:** 2 hours
 
-### 목표
+### Goal
 
-현재 exact match만 지원하는 라우터를 확장하여:
+Extend the router which currently supports exact match only to support:
 - Path parameters: `/api/provider/:provider/v1/chat/completions`
 - Wildcards: `/v1beta/models/*action`
 
 ### TDD Tasks
 
-#### 1.1 타입 정의 확장 (테스트 먼저)
+#### 1.1 Extend Type Definition (Test First)
 
-- [ ] **Test**: `router.test.ts` - Route 타입에 params 지원 테스트
+- [ ] **Test**: `router.test.ts` - Test Route type params support
   ```typescript
-  // 테스트: params가 handler에 전달되는지 확인
+  // Test: Verify params are passed to handler
   it('should pass path params to handler', async () => {
     const routes: Route[] = [{
       method: 'GET',
@@ -76,49 +76,49 @@ llmux 서버에 Amp CLI 호환 API 지원을 추가합니다. 모델 매핑 시�
     expect(res.status).toBe(200)
   })
   ```
-- [ ] **Impl**: `Route` 인터페이스에 `params` 지원 추가
+- [ ] **Impl**: Add `params` support to `Route` interface
 
-#### 1.2 Path Parameter 매칭 구현
+#### 1.2 Implement Path Parameter Matching
 
-- [ ] **Test**: 단일 param 매칭 테스트
+- [ ] **Test**: Single param match test
   ```typescript
   it('should match :param pattern', async () => {
-    // /users/:id → /users/123 매칭
+    // /users/:id → /users/123 match
   })
   ```
-- [ ] **Test**: 다중 param 매칭 테스트
+- [ ] **Test**: Multiple params match test
   ```typescript
   it('should match multiple :params', async () => {
-    // /api/:provider/v1/:endpoint → /api/openai/v1/chat 매칭
+    // /api/:provider/v1/:endpoint → /api/openai/v1/chat match
   })
   ```
-- [ ] **Impl**: `matchPath()` 함수 구현 - param 추출 로직
+- [ ] **Impl**: Implement `matchPath()` function - param extraction logic
 
-#### 1.3 Wildcard 매칭 구현
+#### 1.3 Implement Wildcard Matching
 
-- [ ] **Test**: wildcard 매칭 테스트
+- [ ] **Test**: wildcard match test
   ```typescript
   it('should match *wildcard pattern', async () => {
     // /v1beta/models/*action → /v1beta/models/gemini-pro:generateContent
   })
   ```
-- [ ] **Test**: wildcard가 나머지 경로 전체 캡처
+- [ ] **Test**: wildcard captures entire remaining path
   ```typescript
   it('should capture rest of path in wildcard', async () => {
     // /files/*path → /files/a/b/c.txt → params.path = 'a/b/c.txt'
   })
   ```
-- [ ] **Impl**: wildcard 패턴 매칭 로직 추가
+- [ ] **Impl**: Add wildcard pattern matching logic
 
-#### 1.4 라우터 통합
+#### 1.4 Integrate Router
 
-- [ ] **Test**: 우선순위 테스트 (exact > param > wildcard)
+- [ ] **Test**: Priority test (exact > param > wildcard)
   ```typescript
   it('should prioritize exact match over param match', async () => {
     // /api/health (exact) vs /api/:resource (param)
   })
   ```
-- [ ] **Impl**: `createRouter()` 함수 리팩토링
+- [ ] **Impl**: Refactor `createRouter()` function
 
 ### Quality Gate
 
@@ -129,26 +129,26 @@ bun run typecheck
 
 ### Deliverables
 
-- `packages/server/src/router.ts` - 확장된 라우터
-- `packages/server/test/router.test.ts` - 라우터 테스트 (15+ tests)
+- `packages/server/src/router.ts` - Extended router
+- `packages/server/test/router.test.ts` - Router tests (15+ tests)
 
 ---
 
-## Phase 2: Upstream Proxy 구현
+## Phase 2: Implement Upstream Proxy
 
 **Status:** ✅ Complete  
 **Risk Level:** 🟢 Low  
 **Estimated Time:** 1.5 hours
 
-### 목표
+### Goal
 
-ampcode.com으로 요청을 프록시하는 기능 구현
+Implement proxy function to forward requests to ampcode.com.
 
 ### TDD Tasks
 
-#### 2.1 Proxy 타입 정의
+#### 2.1 Define Proxy Type
 
-- [ ] **Test**: `proxy.test.ts` - ProxyConfig 타입 테스트
+- [ ] **Test**: `proxy.test.ts` - ProxyConfig type test
   ```typescript
   it('should create proxy with valid config', () => {
     const proxy = createUpstreamProxy({
@@ -158,49 +158,49 @@ ampcode.com으로 요청을 프록시하는 기능 구현
     expect(proxy).toBeDefined()
   })
   ```
-- [ ] **Impl**: `ProxyConfig` 인터페이스 정의
+- [ ] **Impl**: Define `ProxyConfig` interface
 
-#### 2.2 요청 전달 구현
+#### 2.2 Implement Request Forwarding
 
-- [ ] **Test**: 요청 헤더/바디 전달 테스트
+- [ ] **Test**: Forward request headers/body test
   ```typescript
   it('should forward request headers and body', async () => {
-    // X-Api-Key, Authorization 주입 확인
+    // Verify X-Api-Key, Authorization injection
   })
   ```
-- [ ] **Test**: 인증 헤더 교체 테스트
+- [ ] **Test**: Auth header replacement test
   ```typescript
   it('should replace auth headers with upstream credentials', async () => {
-    // 클라이언트의 Authorization 제거, upstream API key 주입
+    // Remove client Authorization, inject upstream API key
   })
   ```
-- [ ] **Impl**: `proxyRequest()` 함수 구현
+- [ ] **Impl**: Implement `proxyRequest()` function
 
-#### 2.3 응답 전달 구현
+#### 2.3 Implement Response Forwarding
 
-- [ ] **Test**: 응답 스트리밍 전달 테스트
+- [ ] **Test**: Response streaming forwarding test
   ```typescript
   it('should stream SSE response from upstream', async () => {
-    // text/event-stream 응답 그대로 전달
+    // Pass through text/event-stream response
   })
   ```
-- [ ] **Test**: 에러 응답 처리 테스트
+- [ ] **Test**: Error response handling test
   ```typescript
   it('should handle upstream errors gracefully', async () => {
-    // 502 Bad Gateway 반환
+    // Return 502 Bad Gateway
   })
   ```
-- [ ] **Impl**: 응답 스트리밍 처리
+- [ ] **Impl**: Response streaming processing
 
-#### 2.4 gzip 처리
+#### 2.4 Gzip Handling
 
-- [ ] **Test**: gzip 응답 디코딩 테스트
+- [ ] **Test**: gzip response decoding test
   ```typescript
   it('should decompress gzip responses if needed', async () => {
-    // Content-Encoding: gzip 처리
+    // Handle Content-Encoding: gzip
   })
   ```
-- [ ] **Impl**: gzip 자동 감지 및 처리
+- [ ] **Impl**: Gzip auto-detection and handling
 
 ### Quality Gate
 
@@ -211,38 +211,38 @@ bun run typecheck
 
 ### Deliverables
 
-- `packages/server/src/upstream/proxy.ts` - Upstream 프록시
-- `packages/server/src/upstream/index.ts` - 모듈 exports
-- `packages/server/test/upstream/proxy.test.ts` - 프록시 테스트 (10+ tests)
+- `packages/server/src/upstream/proxy.ts` - Upstream Proxy
+- `packages/server/src/upstream/index.ts` - Module exports
+- `packages/server/test/upstream/proxy.test.ts` - Proxy tests (10+ tests)
 
 ---
 
-## Phase 3: FallbackHandler 구현
+## Phase 3: Implement FallbackHandler
 
 **Status:** ✅ Complete  
 **Risk Level:** 🟡 Medium  
 **Estimated Time:** 2 hours
 
-### 목표
+### Goal
 
-로컬 provider가 없을 때 upstream으로 자동 fallback하는 핸들러 래퍼 구현
+Implement a handler wrapper that automatically falls back to upstream when no local provider exists.
 
 ### TDD Tasks
 
-#### 3.1 FallbackHandler 타입 정의
+#### 3.1 Define FallbackHandler Type
 
-- [ ] **Test**: `fallback.test.ts` - FallbackHandler 생성 테스트
+- [ ] **Test**: `fallback.test.ts` - FallbackHandler creation test
   ```typescript
   it('should create fallback handler with proxy getter', () => {
     const fallback = new FallbackHandler(() => mockProxy)
     expect(fallback).toBeDefined()
   })
   ```
-- [ ] **Impl**: `FallbackHandler` 클래스 정의
+- [ ] **Impl**: Define `FallbackHandler` class
 
-#### 3.2 모델 추출 로직
+#### 3.2 Model Extraction Logic
 
-- [ ] **Test**: JSON body에서 model 추출
+- [ ] **Test**: Extract model from JSON body
   ```typescript
   it('should extract model from JSON body', async () => {
     const body = JSON.stringify({ model: 'gpt-4o', messages: [] })
@@ -250,56 +250,56 @@ bun run typecheck
     expect(model).toBe('gpt-4o')
   })
   ```
-- [ ] **Test**: URL path에서 model 추출 (Gemini 스타일)
+- [ ] **Test**: Extract model from URL path (Gemini style)
   ```typescript
   it('should extract model from URL path', () => {
     // /models/gemini-pro:generateContent → 'gemini-pro'
   })
   ```
-- [ ] **Impl**: `extractModel()` 함수 구현
+- [ ] **Impl**: Implement `extractModel()` function
 
-#### 3.3 Provider 확인 로직
+#### 3.3 Provider Check Logic
 
-- [ ] **Test**: 로컬 provider 존재 확인
+- [ ] **Test**: Check local provider availability
   ```typescript
   it('should detect local provider availability', () => {
-    // 모델명으로 사용 가능한 provider 확인
+    // Check available provider by model name
   })
   ```
-- [ ] **Impl**: `hasLocalProvider()` 함수 구현 (llmux/core 연동)
+- [ ] **Impl**: Implement `hasLocalProvider()` function (Integrate with llmux/core)
 
-#### 3.4 Fallback 결정 로직
+#### 3.4 Fallback Decision Logic
 
-- [ ] **Test**: 로컬 provider 있으면 로컬 처리
+- [ ] **Test**: Use local handler if local provider exists
   ```typescript
   it('should use local handler when provider available', async () => {
-    // 로컬 handler 호출 확인
+    // Verify local handler call
   })
   ```
-- [ ] **Test**: 로컬 provider 없으면 upstream 프록시
+- [ ] **Test**: Proxy to upstream if no local provider
   ```typescript
   it('should proxy to upstream when no local provider', async () => {
-    // upstream proxy 호출 확인
+    // Verify upstream proxy call
   })
   ```
-- [ ] **Test**: upstream도 없으면 에러 반환
+- [ ] **Test**: Return error if upstream is also missing
   ```typescript
   it('should return error when no provider and no proxy', async () => {
     // 503 Service Unavailable
   })
   ```
-- [ ] **Impl**: `wrapHandler()` 메서드 구현
+- [ ] **Impl**: Implement `wrapHandler()` method
 
-#### 3.5 핸들러 래핑
+#### 3.5 Handler Wrapping
 
-- [ ] **Test**: 래핑된 핸들러가 올바르게 동작
+- [ ] **Test**: Wrapped handler works correctly
   ```typescript
   it('should wrap handler with fallback logic', async () => {
     const wrapped = fallback.wrap(originalHandler)
-    // 래핑 후에도 정상 동작 확인
+    // Verify normal operation after wrapping
   })
   ```
-- [ ] **Impl**: `wrap()` 메서드 완성
+- [ ] **Impl**: Complete `wrap()` method
 
 ### Quality Gate
 
@@ -311,25 +311,25 @@ bun run typecheck
 ### Deliverables
 
 - `packages/server/src/handlers/fallback.ts` - FallbackHandler
-- `packages/server/test/handlers/fallback.test.ts` - 테스트 (12+ tests)
+- `packages/server/test/handlers/fallback.test.ts` - Tests (12+ tests)
 
 ---
 
-## Phase 4: Provider Alias 라우트 등록
+## Phase 4: Register Provider Alias Routes
 
 **Status:** ✅ Complete  
 **Risk Level:** 🟡 Medium  
 **Estimated Time:** 1.5 hours
 
-### 목표
+### Goal
 
-`/api/provider/:provider/v1/*` 패턴의 Amp 호환 라우트 등록
+Register Amp compatible routes matching `/api/provider/:provider/v1/*` pattern.
 
 ### TDD Tasks
 
-#### 4.1 Amp 라우트 정의
+#### 4.1 Define Amp Routes
 
-- [ ] **Test**: `amp-routes.test.ts` - 라우트 목록 생성 테스트
+- [ ] **Test**: `amp-routes.test.ts` - Route list generation test
   ```typescript
   it('should create amp provider routes', () => {
     const routes = createAmpRoutes(baseHandler, fallbackHandler)
@@ -338,11 +338,11 @@ bun run typecheck
     )
   })
   ```
-- [ ] **Impl**: `createAmpRoutes()` 함수 정의
+- [ ] **Impl**: Define `createAmpRoutes()` function
 
-#### 4.2 Provider별 핸들러 라우팅
+#### 4.2 Route Handler by Provider
 
-- [ ] **Test**: provider 파라미터에 따른 핸들러 선택
+- [ ] **Test**: Handler selection by provider parameter
   ```typescript
   it('should route to OpenAI handler for openai provider', async () => {
     // /api/provider/openai/v1/chat/completions → OpenAI handler
@@ -354,38 +354,38 @@ bun run typecheck
     // /api/provider/google/v1beta/models/* → Gemini handler
   })
   ```
-- [ ] **Impl**: provider별 핸들러 매핑 로직
+- [ ] **Impl**: Provider-specific handler mapping logic
 
-#### 4.3 Models 엔드포인트
+#### 4.3 Models Endpoint
 
-- [ ] **Test**: /models 엔드포인트 라우팅
+- [ ] **Test**: /models endpoint routing
   ```typescript
   it('should return provider-specific models list', async () => {
-    // /api/provider/openai/models → OpenAI 모델 목록
+    // /api/provider/openai/models → OpenAI model list
   })
   ```
-- [ ] **Impl**: 통합 모델 목록 핸들러
+- [ ] **Impl**: Unified model list handler
 
-#### 4.4 서버 통합
+#### 4.4 Server Integration
 
-- [ ] **Test**: 서버에 Amp 라우트 등록
+- [ ] **Test**: Register Amp routes on server
   ```typescript
   it('should register amp routes on server startup', async () => {
     const server = await startServer({ enableAmp: true })
-    // /api/provider/openai/v1/chat/completions 응답 확인
+    // Verify /api/provider/openai/v1/chat/completions response
   })
   ```
-- [ ] **Impl**: `startServer()` 함수에 Amp 라우트 통합
+- [ ] **Impl**: Integrate Amp routes into `startServer()` function
 
-#### 4.5 FallbackHandler 적용
+#### 4.5 Apply FallbackHandler
 
-- [ ] **Test**: 모든 POST 엔드포인트에 fallback 적용
+- [ ] **Test**: Apply fallback to all POST endpoints
   ```typescript
   it('should apply fallback handler to POST endpoints', async () => {
-    // 로컬 provider 없을 때 upstream 프록시 확인
+    // Verify upstream proxy when no local provider
   })
   ```
-- [ ] **Impl**: POST 핸들러들에 FallbackHandler 래핑
+- [ ] **Impl**: Wrap POST handlers with FallbackHandler
 
 ### Quality Gate
 
@@ -396,55 +396,55 @@ bun run typecheck
 
 ### Deliverables
 
-- `packages/server/src/amp/routes.ts` - Amp 라우트 정의
-- `packages/server/src/amp/index.ts` - 모듈 exports
-- `packages/server/test/amp/routes.test.ts` - 라우트 테스트 (10+ tests)
+- `packages/server/src/amp/routes.ts` - Amp Route definitions
+- `packages/server/src/amp/index.ts` - Module exports
+- `packages/server/test/amp/routes.test.ts` - Route tests (10+ tests)
 
 ---
 
-## Phase 5: 통합 테스트 및 문서화
+## Phase 5: Integration Testing and Documentation
 
 **Status:** ✅ Complete  
 **Risk Level:** 🟢 Low  
 **Estimated Time:** 1 hour
 
-### 목표
+### Goal
 
-End-to-end 통합 테스트 및 사용 문서 작성
+Write End-to-end integration tests and usage documentation.
 
 ### TDD Tasks
 
-#### 5.1 E2E 통합 테스트
+#### 5.1 E2E Integration Tests
 
-- [ ] **Test**: 전체 흐름 테스트
+- [ ] **Test**: Full flow test
   ```typescript
   it('should handle amp request end-to-end', async () => {
-    // 서버 시작 → Amp 요청 → 응답 확인
+    // Start server → Amp request → Verify response
   })
   ```
-- [ ] **Test**: 로컬 provider 사용 E2E
+- [ ] **Test**: Local provider usage E2E
   ```typescript
   it('should use local provider when available', async () => {
-    // API key 설정 → 로컬 처리 확인
+    // Set API key → Verify local processing
   })
   ```
 - [ ] **Test**: Upstream fallback E2E
   ```typescript
   it('should fallback to upstream when no local provider', async () => {
-    // 로컬 provider 없음 → upstream 프록시 확인
+    // No local provider → Verify upstream proxy
   })
   ```
 
-#### 5.2 문서화
+#### 5.2 Documentation
 
-- [ ] **Doc**: README.md에 Amp 지원 섹션 추가
-- [ ] **Doc**: 설정 예제 (`config.yaml`)
-- [ ] **Doc**: API 엔드포인트 목록
+- [ ] **Doc**: Add Amp support section to README.md
+- [ ] **Doc**: Config example (`config.yaml`)
+- [ ] **Doc**: API endpoint list
 
-#### 5.3 예제 코드
+#### 5.3 Example Code
 
-- [ ] **Example**: Amp CLI 연동 예제
-- [ ] **Example**: 설정 파일 예제
+- [ ] **Example**: Amp CLI integration example
+- [ ] **Example**: Config file example
 
 ### Quality Gate
 
@@ -456,37 +456,36 @@ bun run build
 
 ### Deliverables
 
-- `packages/server/test/integration/amp.test.ts` - 통합 테스트
-- `llmux/README.md` 업데이트
-- `llmux/examples/amp-config.yaml` - 설정 예제
+- `packages/server/test/integration/amp.test.ts` - Integration tests
+- Update `llmux/README.md`
+- `llmux/examples/amp-config.yaml` - Config example
 
 ---
 
-## 성공 기준
+## Success Criteria
 
-1. ✅ 라우터가 path params와 wildcards를 올바르게 매칭
-2. ✅ Upstream proxy가 요청/응답을 정확히 전달
-3. ✅ FallbackHandler가 provider 가용성에 따라 올바르게 라우팅
-4. ✅ `/api/provider/:provider/v1/*` 라우트가 동작
-5. ✅ 모든 테스트 통과 (50+ tests)
-6. ✅ TypeScript 타입 체크 통과
+1. ✅ Router correctly matches path params and wildcards.
+2. ✅ Upstream proxy correctly forwards requests/responses.
+3. ✅ FallbackHandler correctly routes based on provider availability.
+4. ✅ `/api/provider/:provider/v1/*` routes work.
+5. ✅ All tests passed (50+ tests).
+6. ✅ TypeScript type checks passed.
 
 ---
 
-## 후속 작업 (다음 계획)
+## Follow-up Tasks (Next Plan)
 
-이 계획 완료 후 추가할 기능:
+Features to be added after this plan:
 
-1. **Model Mapping 시스템** - 모델 별칭 및 fallback chain
-2. **Gemini Bridge** - `/publishers/google/models/...` 경로 지원
-3. **Response Rewriter** - 응답에서 모델명 재작성
-4. **관리 라우트** - `/api/user`, `/api/auth`, `/threads` 등
-5. **Hot Reload** - 설정 변경 시 동적 재로딩
+1. **Model Mapping System** - Model aliases and fallback chain
+2. **Gemini Bridge** - Support `/publishers/google/models/...` path
+3. **Response Rewriter** - Rewrite model names in response
+4. **Admin Routes** - `/api/user`, `/api/auth`, `/threads`, etc.
+5. **Hot Reload** - Dynamic reloading on config change
 
 ---
 
 ## Notes
 
 ### Implementation Notes
-*(구현 중 기록)*
-
+*(Records during implementation)*

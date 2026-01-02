@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ProviderName } from '@llmux/core'
+import type { MergeExclusive } from 'type-fest'
 
 export interface ServerSettings {
   port: number
@@ -22,11 +23,24 @@ export interface RoutingConfig {
   modelMapping?: Record<string, ModelMapping>
   fallbackOrder?: ProviderName[]
   rotateOn429?: boolean
+  maxRetryAttempts?: number
 }
+
+export interface AmpTargetBase {
+  model: string
+  provider?: string
+  thinking?: boolean
+}
+
+export type AmpTarget = AmpTargetBase &
+  MergeExclusive<
+    { thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high' },
+    { thinkingBudget?: number }
+  >
 
 export interface AmpModelMapping {
   from: string
-  to: string | string[]
+  to: string | AmpTarget | (string | AmpTarget)[]
   thinking?: boolean
 }
 
@@ -53,6 +67,7 @@ const DEFAULT_CONFIG: LlmuxConfig = {
   routing: {
     fallbackOrder: ['anthropic', 'openai', 'gemini'],
     rotateOn429: true,
+    maxRetryAttempts: 20,
   },
   amp: {
     enabled: true,

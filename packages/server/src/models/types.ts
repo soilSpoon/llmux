@@ -20,11 +20,13 @@ export interface Model {
   owned_by?: string
 }
 
+import type { AmpModelMapping } from '../config'
+
 export interface ModelsResponse {
   object: 'list'
   data: Model[]
   providers: ModelProvider[]
-  mappings?: Array<{ from: string; to: string | string[] }>
+  mappings?: AmpModelMapping[]
 }
 
 export interface ModelFetcher {

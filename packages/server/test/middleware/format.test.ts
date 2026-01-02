@@ -1,7 +1,23 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import {
+  AntigravityProvider,
+  AnthropicProvider,
+  GeminiProvider,
+  OpenAIProvider,
+  clearProviders,
+  registerProvider,
+} from '@llmux/core'
 import { detectFormat } from '../../src/middleware/format'
 
 describe('detectFormat', () => {
+  beforeAll(() => {
+    clearProviders()
+    registerProvider(new OpenAIProvider())
+    registerProvider(new AnthropicProvider())
+    registerProvider(new GeminiProvider())
+    registerProvider(new AntigravityProvider())
+  })
+
   test('detects OpenAI format (model + messages, no system)', () => {
     const body = {
       model: 'gpt-4',

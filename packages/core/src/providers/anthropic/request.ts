@@ -382,14 +382,23 @@ function transformPart(part: ContentPart): AnthropicContentBlock | null {
 
     case 'tool_call':
       if (!part.toolCall) return null
-      return {
-        type: 'tool_use',
-        id: part.toolCall.id,
-        name: part.toolCall.name,
-        input:
-          typeof part.toolCall.arguments === 'string'
-            ? JSON.parse(part.toolCall.arguments || '{}')
-            : part.toolCall.arguments,
+      {
+        let input: Record<string, unknown>
+        if (typeof part.toolCall.arguments === 'string') {
+          try {
+            input = JSON.parse(part.toolCall.arguments || '{}')
+          } catch {
+            input = {}
+          }
+        } else {
+          input = part.toolCall.arguments as Record<string, unknown>
+        }
+        return {
+          type: 'tool_use',
+          id: part.toolCall.id,
+          name: part.toolCall.name,
+          input,
+        }
       }
 
     case 'tool_result':

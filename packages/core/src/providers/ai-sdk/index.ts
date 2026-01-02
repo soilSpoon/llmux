@@ -44,6 +44,15 @@ export class AiSdkProvider extends BaseProvider {
   readonly name: ProviderName = 'openai' as ProviderName // Compatibility name
   readonly config: ProviderConfig = AI_SDK_CONFIG
 
+  isSupportedRequest(request: unknown): boolean {
+    return isAiSdkCallOptions(request)
+  }
+
+  isSupportedModel(_model: string): boolean {
+    // AI SDK adapter supports any model as it's just a protocol wrapper
+    return true
+  }
+
   /**
    * Parse AI SDK LanguageModelV3CallOptions into UnifiedRequest format.
    *

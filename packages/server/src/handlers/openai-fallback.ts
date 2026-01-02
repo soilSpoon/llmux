@@ -9,6 +9,10 @@
 
 import { CredentialStorage } from '@llmux/auth'
 import { createLogger } from '@llmux/core'
+import { isOpenAICompatibleProvider, isOpenAIModel } from '../routing/model-rules'
+import { isRateLimited } from '../upstream'
+
+export { isRateLimited, isOpenAICompatibleProvider, isOpenAIModel }
 
 const logger = createLogger({ service: 'openai-fallback' })
 
@@ -40,12 +44,8 @@ export async function checkOpenAIProviderAvailability(): Promise<ProviderAvailab
 }
 
 /**
+ * @deprecated Use ModelRouter logic instead
  * Resolve which OpenAI provider to use based on availability
- *
- * Priority:
- * 1. If only one is available → use that one, no fallback
- * 2. If both are available → use openai-web as primary, openai as fallback
- * 3. If neither is available → return openai as primary (will fail at auth)
  */
 export async function resolveOpenAIProvider(): Promise<ResolvedProvider> {
   const availability = await checkOpenAIProviderAvailability()
@@ -54,50 +54,19 @@ export async function resolveOpenAIProvider(): Promise<ResolvedProvider> {
 
   // Neither available - default to openai (will fail at credential lookup)
   if (!availability.openai && !availability['openai-web']) {
-    logger.warn('No OpenAI credentials found')
     return { primary: 'openai', fallback: null }
   }
 
   // Only openai available
   if (availability.openai && !availability['openai-web']) {
-    logger.debug('Using openai (only available provider)')
     return { primary: 'openai', fallback: null }
   }
 
   // Only openai-web available
   if (!availability.openai && availability['openai-web']) {
-    logger.debug('Using openai-web (only available provider)')
     return { primary: 'openai-web', fallback: null }
   }
 
   // Both available - prefer openai-web with openai as fallback
-  logger.debug('Both providers available - using openai-web with openai fallback')
   return { primary: 'openai-web', fallback: 'openai' }
-}
-
-/**
- * Check if a response indicates rate limiting (429)
- */
-export function isRateLimited(response: Response): boolean {
-  return response.status === 429
-}
-
-/**
- * Check if a provider is an OpenAI-compatible provider
- */
-export function isOpenAICompatibleProvider(provider: string): provider is OpenAIProviderType {
-  return provider === 'openai' || provider === 'openai-web'
-}
-
-/**
- * Check if a model is typically served by OpenAI
- */
-export function isOpenAIModel(model: string): boolean {
-  return (
-    model.startsWith('gpt-') ||
-    model.startsWith('o1') ||
-    model.startsWith('o3') ||
-    model.startsWith('o4') ||
-    model.includes('codex')
-  )
 }

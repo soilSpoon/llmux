@@ -211,14 +211,18 @@ class MyAuthProvider implements AuthProvider {
 
 | File | Purpose |
 |------|---------|
-| `packages/core/src/providers/base.ts` | Provider interface definition |
-| `packages/core/src/transform/request.ts` | Request transformation logic |
-| `packages/core/src/transform/response.ts` | Response transformation logic |
-| `packages/core/src/types/unified.ts` | Unified request/response types |
 | `packages/server/src/server.ts` | Main server with route registration |
 | `packages/server/src/router.ts` | HTTP router implementation |
+| `packages/server/src/routing/model-router.ts` | Model routing logic |
+| `packages/server/src/routing/model-rules.ts` | Model rules and prefix definitions |
+| `packages/server/src/handlers/codex.ts` | Codex/Copilot specific handling |
+| `packages/server/src/handlers/responses.ts` | Responses API implementation |
+| `packages/server/src/handlers/account-rotation.ts` | Account rotation handler |
+| `packages/server/src/handlers/signature-integration.ts` | Request deduplication via signatures |
+| `packages/server/src/handlers/thinking-recovery.ts` | Thinking/reasoning content recovery |
+| `packages/server/src/cooldown.ts` | Rate limit cooldown management |
+| `packages/auth/src/providers/registry.ts` | Auth provider registry |
 | `packages/server/ENDPOINTS.md` | API endpoint documentation |
-| `packages/auth/src/providers/base.ts` | Auth provider interface |
 
 ## Adding a New Provider
 
@@ -231,6 +235,8 @@ class MyAuthProvider implements AuthProvider {
    - `index.ts` - Export provider class
 3. Register in `packages/core/src/providers/registry.ts`
 4. Export from `packages/core/src/index.ts`
+5. **Update Routing**: Add model prefixes/rules in `packages/server/src/routing/model-rules.ts`.
+6. **Consider Cooldowns**: Ensure error handling triggers cooldowns if applicable.
 
 ## Adding a New Auth Provider
 
@@ -289,4 +295,51 @@ return new Response(stream, {
 
 ## Provider-Specific Documentation
 
-- [opencode-zen GLM 4.7 Thinking Control](docs/OPENCODE_ZEN_THINKING.md) - GLM/Kimi thinking 비활성화 방법
+- [opencode-zen GLM 4.7 Thinking Control](docs/OPENCODE_ZEN_THINKING.md) - How to disable thinking for GLM/Kimi models
+- [Antigravity Streaming & Models](docs/antigravity/STREAMING_AND_MODELS.md) - Gemini/Claude streaming support status and references
+
+## Providers & Registries
+
+### Core Providers (`packages/core`)
+- **opencode-zen**: Unified gateway for GLM, Kimi, Grok, etc.
+- **antigravity**: Google's unified gateway (Claude, Gemini).
+- **anthropic**: Direct Anthropic API.
+- **openai**: Direct OpenAI API.
+- **gemini**: Direct Google Gemini API.
+- **openai-web**: Web-based OpenAI access.
+- **ai-sdk**: Vercel AI SDK integration.
+
+### Auth Providers (`packages/auth`)
+- **github-copilot**: GitHub Copilot token management.
+- **opencode-zen**: Auth for OpenCode Zen.
+- **antigravity**: Auth for Antigravity (combined OAuth/Server).
+- **antigravity-server**: Antigravity server-side auth.
+- **antigravity-oauth**: Antigravity OAuth flow.
+- **openai-server**: OpenAI server-side auth.
+- **openai-web**: OpenAI web-based auth.
+
+## Routing & Model Rules
+
+Requests are routed based on model prefixes and aliases defined in `model-rules.ts` and `model-router.ts`.
+
+- **Prefix Matching**: `glm-*` -> OpenAI protocol, `claude-*` -> Anthropic protocol.
+- **Aliases**: `gemini-pro` -> `gemini-1.5-pro`.
+- **Protocol Transformation**: Automatically converts between OpenAI, Anthropic, and Gemini formats.
+
+## Cooldown, Account Rotation & Signatures
+
+- **Account Rotation**: Automatically rotates between available credentials to distribute load.
+- **Cooldowns**: Temporarily disables accounts that hit rate limits (429) or errors.
+- **Signatures**: Uses `SignatureCache` to detect and deduplicate identical requests, preventing redundant processing.
+
+## Thinking, Reasoning & OpenAI Responses API
+
+- **Thinking Control**: Supports `thinking: { type: "enabled" | "disabled" }` for models like GLM-4.7 and Kimi.
+- **Reasoning Content**: Maps `reasoning_content` to standard fields.
+- **Responses API**: `/v1/responses` endpoint provides access to raw provider responses for debugging and analysis.
+
+## Debugging & Analysis Resources
+
+For code change analysis and root cause investigation:
+
+- **[ROOT_CAUSE_FOUND.md](docs/debugging/ROOT_CAUSE_FOUND.md)** - Diagnosis of Antigravity streaming issues (Gemini vs Claude).

@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createRouter, Router } from "../src/routing";
+import { Router } from "../src/routing";
 
 describe("Router (Routing)", () => {
   describe("resolveModel", () => {
-    test("returns mapped provider and model when mapping exists", () => {
-      const router = createRouter({
+    test("returns mapped provider and model when mapping exists", async () => {
+      const router = new Router({
         modelMapping: {
           "gpt-4": { provider: "openai", model: "gpt-4-turbo" },
           "claude-3": {
@@ -14,25 +14,33 @@ describe("Router (Routing)", () => {
         },
       });
 
-      const result = router.resolveModel("gpt-4");
+      const result = await router.resolveModel("gpt-4");
       expect(result.provider).toBe("openai");
       expect(result.model).toBe("gpt-4-turbo");
     });
 
-    test("returns first fallback provider when no mapping exists", () => {
-      const router = createRouter({
+    test("returns first fallback provider when no mapping exists", async () => {
+      const router = new Router({
         fallbackOrder: ["anthropic", "openai"],
       });
 
-      const result = router.resolveModel("unknown-model");
-      expect(result.provider).toBe("anthropic");
+      const result = await router.resolveModel("unknown-model");
+      // Now returns primary inferred provider (default openai) if not mapped
+      // The old logic returned fallbackOrder[0].
+      // New logic: ModelRouter infers 'openai' for unknown model.
+      // Then Router checks cooldown. If ok, returns it.
+      // The config.fallbackOrder is used in Router as a last resort if ModelRouter resolution fails/cooldown blocks all.
+      
+      // inferProviderFromModel defaults to 'openai' for 'unknown-model'.
+      // So result.provider should be 'openai'.
+      expect(result.provider).toBe("openai");
       expect(result.model).toBe("unknown-model");
     });
 
-    test("defaults to openai when no fallbackOrder set", () => {
-      const router = createRouter({});
+    test("defaults to openai when no fallbackOrder set", async () => {
+      const router = new Router({});
 
-      const result = router.resolveModel("some-model");
+      const result = await router.resolveModel("some-model");
       expect(result.provider).toBe("openai");
       expect(result.model).toBe("some-model");
     });
@@ -40,12 +48,12 @@ describe("Router (Routing)", () => {
 
   describe("getNextProvider", () => {
     test("returns undefined when no fallback order", () => {
-      const router = createRouter({});
+      const router = new Router({});
       expect(router.getNextProvider()).toBeUndefined();
     });
 
     test("rotates through fallback order", () => {
-      const router = createRouter({
+      const router = new Router({
         fallbackOrder: ["anthropic", "openai", "gemini"],
       });
 
@@ -56,7 +64,7 @@ describe("Router (Routing)", () => {
     });
 
     test("resetRotation resets the index", () => {
-      const router = createRouter({
+      const router = new Router({
         fallbackOrder: ["anthropic", "openai"],
       });
 
@@ -70,12 +78,12 @@ describe("Router (Routing)", () => {
 
   describe("shouldRotateOn429", () => {
     test("returns false by default", () => {
-      const router = createRouter({});
+      const router = new Router({});
       expect(router.shouldRotateOn429()).toBe(false);
     });
 
     test("returns true when enabled", () => {
-      const router = createRouter({
+      const router = new Router({
         rotateOn429: true,
       });
       expect(router.shouldRotateOn429()).toBe(true);
@@ -84,7 +92,7 @@ describe("Router (Routing)", () => {
 
   describe("handleRateLimit", () => {
     test("returns undefined when rotateOn429 is false", () => {
-      const router = createRouter({
+      const router = new Router({
         rotateOn429: false,
         fallbackOrder: ["anthropic", "openai"],
       });
@@ -93,7 +101,7 @@ describe("Router (Routing)", () => {
     });
 
     test("returns next provider when rotateOn429 is true", () => {
-      const router = createRouter({
+      const router = new Router({
         rotateOn429: true,
         fallbackOrder: ["anthropic", "openai", "gemini"],
       });
@@ -104,13 +112,15 @@ describe("Router (Routing)", () => {
   });
 
   describe("Router class", () => {
-    test("can be instantiated directly", () => {
+    test("can be instantiated directly", async () => {
       const router = new Router({
         fallbackOrder: ["gemini"],
       });
 
-      const result = router.resolveModel("test");
-      expect(result.provider).toBe("gemini");
+      const result = await router.resolveModel("test");
+      // ModelRouter uses inferProviderFromModel which defaults to 'openai' for unknown models
+      // fallbackOrder is only used as last resort if primary provider is on cooldown
+      expect(result.provider).toBe("openai");
     });
   });
 });

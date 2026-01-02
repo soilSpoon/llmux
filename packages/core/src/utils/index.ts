@@ -1,1 +1,5 @@
-export { stripSignaturesFromContents, stripThoughtSignatures } from './signature-strip'
+export {
+  stripSignaturesFromContents,
+  stripSignaturesFromMessages,
+  stripThoughtSignatures,
+} from './signature-strip'

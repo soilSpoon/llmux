@@ -23,6 +23,24 @@ export function resolveOpencodeZenProtocol(model: string): EffectiveProtocol | n
   return null
 }
 
+export function resolveOpencodeZenModel(model: string, protocol: EffectiveProtocol): string {
+  if (protocol === 'openai') {
+    if (model === 'glm-4.7-free') {
+      return 'gpt-4-turbo'
+    }
+    if (model.startsWith('glm-')) {
+      return 'gpt-4-turbo'
+    }
+    if (model.startsWith('kimi-')) {
+      return 'gpt-4-turbo'
+    }
+    if (model === 'big-pickle') {
+      return 'gpt-4-turbo'
+    }
+  }
+  return model
+}
+
 export function getOpencodeZenEndpoint(protocol: EffectiveProtocol): string {
   switch (protocol) {
     case 'openai':

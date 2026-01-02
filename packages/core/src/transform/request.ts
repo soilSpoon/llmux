@@ -5,12 +5,16 @@ import type { ThinkingConfig } from '../types/unified'
 export interface TransformOptions {
   from: ProviderName
   to: ProviderName
-  model?: string
+  model: string
   /**
    * Override thinking config in the UnifiedRequest before transforming.
    * Use { enabled: false } to disable thinking regardless of source request.
    */
   thinkingOverride?: ThinkingConfig
+  /**
+   * Additional metadata to merge into the UnifiedRequest before transforming.
+   */
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -27,6 +31,11 @@ export function transformRequest(request: unknown, options: TransformOptions): u
   // Apply thinking override if specified
   if (options.thinkingOverride !== undefined) {
     unified.thinking = options.thinkingOverride
+  }
+
+  // Merge metadata if specified
+  if (options.metadata) {
+    unified.metadata = { ...unified.metadata, ...options.metadata }
   }
 
   return targetProvider.transform(unified, options.model)

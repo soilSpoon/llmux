@@ -91,6 +91,24 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
           filteredHeaders.set('Authorization', `Bearer ${config.apiKey}`)
         }
 
+        // Log transformed request before sending (for debugging schema issues)
+        if (url.pathname.includes('/api/provider/')) {
+          const headersObj: Record<string, string> = {}
+          filteredHeaders.forEach((v, k) => {
+            headersObj[k] = k.toLowerCase().includes('auth') ? '[REDACTED]' : v
+          })
+          logger.debug(
+            {
+              reqId,
+              proxyUrl,
+              method: request.method,
+              headers: headersObj,
+              bodyPreview: requestBodyPreview.slice(0, 1000),
+            },
+            '[Proxy] Request to upstream (pre-fetch)'
+          )
+        }
+
         const upstreamResponse = await fetch(proxyUrl, {
           method: request.method,
           headers: filteredHeaders,

@@ -405,7 +405,7 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
   });
 
   describe("Model filtering", () => {
-    it("should allow signatures for Claude and Gemini, but block OpenAI", () => {
+    it("should allow signatures for Claude and Gemini (including pure Gemini), but block OpenAI", () => {
       // Claude thinking - allow
       expect(shouldCacheSignatures("claude-3-5-sonnet-thinking")).toBe(true);
       expect(shouldCacheSignatures("claude-opus-thinking")).toBe(true);
@@ -413,26 +413,29 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       // Claude non-thinking (relaxed policy) - allow
       expect(shouldCacheSignatures("claude-3-5-sonnet")).toBe(true);
 
-      // Gemini - allow
+      // Pure Gemini - ALLOW (now managed to prevent corrupted signatures)
       expect(shouldCacheSignatures("gemini-1.5-pro")).toBe(true);
       expect(shouldCacheSignatures("gemini-3-pro-high")).toBe(true);
 
-      // OpenAI - BLOCK (Blacklist)
+      // gemini-claude - allow (these are Claude models via Antigravity)
+      expect(shouldCacheSignatures("gemini-claude-thinking")).toBe(true);
+
+      // OpenAI - BLOCK (throws 400 Bad Request on unknown fields)
       expect(shouldCacheSignatures("gpt-4")).toBe(false);
       expect(shouldCacheSignatures("gpt-3.5-turbo")).toBe(false);
-      expect(shouldCacheSignatures("o1-preview")).toBe(false); // Assuming o1 maps to openai family
+      expect(shouldCacheSignatures("o1-preview")).toBe(false);
     });
 
-    it("should strip signatures for Gemini and restore with tool_use present", () => {
+    it("should strip signatures for gemini-claude and restore with tool_use present", () => {
       const sessionKey = buildSignatureSessionKey(
-        "gemini-1.5-pro",
-        "test-conv-gemini",
+        "gemini-claude-thinking",
+        "test-conv-gemini-claude",
         "proj-1"
       );
 
       // Setup global signature - must be at least 50 characters to be stored
       const globalSig = "a".repeat(60); // 60 characters > MIN_SIGNATURE_LENGTH (50)
-      storeGlobalThoughtSignature(globalSig, "Some thinking text", "gemini-1.5-pro");
+      storeGlobalThoughtSignature(globalSig, "Some thinking text", "gemini-claude-thinking");
 
       const requestBody = {
         contents: [
@@ -456,7 +459,7 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       };
 
       // Run ensureThinkingSignatures
-      ensureThinkingSignatures(requestBody, sessionKey, "gemini-1.5-pro");
+      ensureThinkingSignatures(requestBody, sessionKey, "gemini-claude-thinking");
 
       // Verify:
       // 1. Thinking part is RESTORED when tool_use is present

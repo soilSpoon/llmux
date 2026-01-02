@@ -5,13 +5,15 @@ import type { UpstreamProxy } from '../upstream/proxy'
 const logger = createLogger({ service: 'management-routes' })
 
 export type RouteHandler = (request: Request, params?: RouteParams) => Promise<Response>
+export type HttpMethod = 'GET' | 'POST'
 
 export interface ManagementRoutesConfig {
   getProxy: () => UpstreamProxy | null
   restrictToLocalhost?: boolean
+  upstreamUrl?: string
 }
 
-const MANAGEMENT_PATHS = [
+const API_PATHS = [
   '/api/internal',
   '/api/user',
   '/api/auth',
@@ -22,55 +24,66 @@ const MANAGEMENT_PATHS = [
   '/api/otel',
   '/api/tab',
   '/api/provider',
-  '/threads',
-  '/docs',
-  '/settings',
-  '/auth',
-]
+] as const
+
+const BROWSER_REDIRECT_PATHS = ['/threads', '/docs', '/settings', '/auth'] as const
+
+const STATIC_PATHS = ['/threads.rss', '/news.rss'] as const
+
+const DEFAULT_UPSTREAM_URL = 'https://ampcode.com'
+
+const LOCALHOST_PATTERNS = new Set(['localhost', '127.0.0.1', '::1', '[::1]', '0.0.0.0'])
 
 function isLocalhostRequest(request: Request): boolean {
   const url = new URL(request.url)
-  const host = url.hostname
-  return host === 'localhost' || host === '127.0.0.1' || host === '::1'
+  return LOCALHOST_PATTERNS.has(url.hostname)
+}
+
+function isBrowserRequest(request: Request): boolean {
+  const accept = request.headers.get('accept') || ''
+  return accept.includes('text/html')
+}
+
+function createErrorResponse(message: string, status: number): Response {
+  return new Response(JSON.stringify({ error: message }), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+function createRedirectHandler(upstreamUrl: string): RouteHandler {
+  return async (request: Request): Promise<Response> => {
+    const url = new URL(request.url)
+    const upstreamAddress = new URL(url.pathname + url.search, upstreamUrl).toString()
+
+    return new Response(null, {
+      status: 307,
+      headers: { Location: upstreamAddress },
+    })
+  }
 }
 
 function createProxyHandler(config: ManagementRoutesConfig): RouteHandler {
   return async (request: Request, _params?: RouteParams): Promise<Response> => {
     const url = new URL(request.url)
-    // Logging handled by upstream proxy for detailed request/response
-    // Keeping a very low-level debug here just for route matching confirmation if needed
-    // logger.debug({ path: url.pathname }, "[management] Route matched");
 
     if (config.restrictToLocalhost && !isLocalhostRequest(request)) {
       logger.warn({ hostname: url.hostname }, '[management] Access denied - not localhost')
-      return new Response(
-        JSON.stringify({
-          error: 'Access denied: management routes restricted to localhost',
-        }),
-        {
-          status: 403,
-          headers: { 'Content-Type': 'application/json' },
-        }
-      )
+      return createErrorResponse('Access denied: management routes restricted to localhost', 403)
     }
 
     const proxy = config.getProxy()
     if (!proxy) {
       logger.error({}, '[management] Amp upstream proxy not available')
-      return new Response(JSON.stringify({ error: 'amp upstream proxy not available' }), {
-        status: 503,
-        headers: { 'Content-Type': 'application/json' },
-      })
+      return createErrorResponse('Amp upstream proxy not available', 503)
     }
 
     const newRequest = new Request(request.url, {
       method: request.method,
       headers: request.headers,
-      body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined,
+      body: request.body,
+      duplex: request.body ? 'half' : undefined,
     })
-
-    // Proxying... (logger in proxy.ts handles details)
-
     const response = await proxy.proxyRequest(newRequest)
 
     if (!response.ok) {
@@ -85,43 +98,48 @@ function createProxyHandler(config: ManagementRoutesConfig): RouteHandler {
 }
 
 export function createManagementRoutes(config: ManagementRoutesConfig): Route[] {
+  const upstreamUrl = config.upstreamUrl ?? DEFAULT_UPSTREAM_URL
   const proxyHandler = createProxyHandler(config)
+  const redirectHandler = createRedirectHandler(upstreamUrl)
 
-  const routes: Route[] = []
-
-  for (const basePath of MANAGEMENT_PATHS) {
-    routes.push({
-      method: 'GET',
-      path: basePath,
-      handler: proxyHandler,
-    })
-    routes.push({
-      method: 'POST',
-      path: basePath,
-      handler: proxyHandler,
-    })
-    routes.push({
-      method: 'GET',
-      path: `${basePath}/*path`,
-      handler: proxyHandler,
-    })
-    routes.push({
-      method: 'POST',
-      path: `${basePath}/*path`,
-      handler: proxyHandler,
-    })
+  const browserAwareHandler: RouteHandler = async (request, params) => {
+    if (isBrowserRequest(request)) {
+      return redirectHandler(request, params)
+    }
+    return proxyHandler(request, params)
   }
 
-  routes.push({
-    method: 'GET',
-    path: '/threads.rss',
-    handler: proxyHandler,
-  })
-  routes.push({
-    method: 'GET',
-    path: '/news.rss',
-    handler: proxyHandler,
-  })
+  const addRoutesForPath = (
+    basePath: string,
+    methods: readonly HttpMethod[],
+    handler: RouteHandler,
+    includeWildcard = true
+  ): Route[] => {
+    const routes: Route[] = []
+    for (const method of methods) {
+      routes.push({ method, path: basePath, handler })
+      if (includeWildcard) {
+        routes.push({ method, path: `${basePath}/*path`, handler })
+      }
+    }
+    return routes
+  }
 
-  return routes
+  type RouteConfig = {
+    paths: readonly string[]
+    methods: readonly HttpMethod[]
+    handler: RouteHandler
+    includeWildcard?: boolean
+  }
+
+  const routeConfigs: RouteConfig[] = [
+    { paths: API_PATHS, methods: ['GET', 'POST'], handler: proxyHandler },
+    { paths: BROWSER_REDIRECT_PATHS, methods: ['GET'], handler: browserAwareHandler },
+    { paths: BROWSER_REDIRECT_PATHS, methods: ['POST'], handler: proxyHandler },
+    { paths: STATIC_PATHS, methods: ['GET'], handler: proxyHandler, includeWildcard: false },
+  ]
+
+  return routeConfigs.flatMap(({ paths, methods, handler, includeWildcard = true }) =>
+    paths.flatMap((path) => addRoutesForPath(path, methods, handler, includeWildcard))
+  )
 }

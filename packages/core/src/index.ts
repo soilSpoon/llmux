@@ -103,6 +103,7 @@ export { OpenAIWebProvider } from './providers/openai-web'
 export { OpencodeZenProvider } from './providers/opencode-zen'
 // Provider registry
 export {
+  clearProviders,
   getProvider,
   getRegisteredProviders,
   hasProvider,
@@ -158,4 +159,8 @@ export type {
 // Logging
 export { createLogger, logger } from './util/logger'
 // Utilities
-export { stripSignaturesFromContents, stripThoughtSignatures } from './utils'
+export {
+  stripSignaturesFromContents,
+  stripSignaturesFromMessages,
+  stripThoughtSignatures,
+} from './utils'

@@ -13,8 +13,12 @@ import {
   parseStreamChunk as parseStream,
   transformStreamChunk as transformStream,
 } from './streaming'
-import type { AnthropicRequest, AnthropicResponse } from './types'
-import { isAnthropicResponse } from './types'
+import {
+  type AnthropicRequest,
+  type AnthropicResponse,
+  isAnthropicRequest,
+  isAnthropicResponse,
+} from './types'
 
 /**
  * Anthropic Provider implementation
@@ -33,6 +37,16 @@ export class AnthropicProvider extends BaseProvider {
       supportsTools: true,
       defaultMaxTokens: 4096,
     }
+  }
+
+  isSupportedRequest(request: unknown): boolean {
+    if (!isAnthropicRequest(request)) return false
+    // Anthropic requests usually have top-level system property
+    return typeof request === 'object' && request !== null && 'system' in request
+  }
+
+  isSupportedModel(model: string): boolean {
+    return model.includes('claude')
   }
 
   /**

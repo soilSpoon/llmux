@@ -127,7 +127,7 @@ describe("AntigravityProvider", () => {
         messages: [createUnifiedMessage("user", "Hello")],
       });
 
-      const result = provider.transform(request) as AntigravityRequest;
+      const result = provider.transform(request, 'gemini-2.0-flash') as AntigravityRequest;
 
       expect(result.project).toBeDefined();
       expect(result.model).toBeDefined();
@@ -146,7 +146,7 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.transform(request) as AntigravityRequest;
+      const result = provider.transform(request, 'claude-sonnet-4-5') as AntigravityRequest;
 
       expect(result.project).toBe("custom-project");
       expect(result.model).toBe("claude-sonnet-4-5");
@@ -159,7 +159,7 @@ describe("AntigravityProvider", () => {
         system: "You are helpful.",
       });
 
-      const result = provider.transform(request) as AntigravityRequest;
+      const result = provider.transform(request, 'gemini-2.0-flash') as AntigravityRequest;
 
       expect(result.request.systemInstruction?.parts[0]!.text).toBe(
         "You are helpful."
@@ -172,7 +172,7 @@ describe("AntigravityProvider", () => {
         tools: [createUnifiedTool("test_tool", "A test tool")],
       });
 
-      const result = provider.transform(request) as AntigravityRequest;
+      const result = provider.transform(request, 'claude-sonnet-4-5') as AntigravityRequest;
 
       expect(result.request.tools).toHaveLength(1);
       expect(result.request.toolConfig?.functionCallingConfig?.mode).toBe(
@@ -187,7 +187,7 @@ describe("AntigravityProvider", () => {
         metadata: { model: "claude-sonnet-4-5-thinking" },
       });
 
-      const result = provider.transform(request) as AntigravityRequest;
+      const result = provider.transform(request, 'claude-sonnet-4-5-thinking') as AntigravityRequest;
 
       expect(
         result.request.generationConfig?.thinkingConfig?.include_thoughts
@@ -437,7 +437,7 @@ describe("AntigravityProvider", () => {
         ],
       });
 
-      const providerRequest = provider.transform(request);
+      const providerRequest = provider.transform(request, 'gemini-2.0-flash');
       const parsed = provider.parse(providerRequest);
 
       expect(parsed.tools).toHaveLength(1);

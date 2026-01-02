@@ -128,6 +128,12 @@ function parseGLMThinking(config: OpenAIThinkingConfig): NonNullable<UnifiedRequ
     result.preserveContext = true
   }
 
+  // Parse thinking budget (used by Gemini, Claude via Antigravity)
+  const configAny = config as Record<string, unknown>
+  if (typeof configAny.budget_tokens === 'number') {
+    result.budget = configAny.budget_tokens
+  }
+
   return result
 }
 

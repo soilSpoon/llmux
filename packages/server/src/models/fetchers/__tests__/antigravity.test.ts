@@ -23,8 +23,8 @@ describe('AntigravityFetcher', () => {
       expect(geminiModels.length).toBeGreaterThan(0)
     })
 
-    it('should include gemini-claude thinking models', () => {
-      const thinkingModels = ANTIGRAVITY_MODELS.filter((m) => m.id.includes('gemini-claude'))
+    it('should include antigravity-claude thinking models', () => {
+      const thinkingModels = ANTIGRAVITY_MODELS.filter((m) => m.id.includes('claude') && m.id.includes('thinking'))
       expect(thinkingModels.length).toBeGreaterThan(0)
     })
   })

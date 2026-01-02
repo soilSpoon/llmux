@@ -139,7 +139,7 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
       expect(parts.length).toBe(2); // Only the two text parts remain
     });
 
-    test("also strips thinking blocks for Gemini models (unified behavior)", () => {
+    test("strips thinking blocks for pure Gemini models (managed behavior)", () => {
       const sessionKey = "test-gemini-strip-thinking";
       const requestBody: UnifiedRequestBody = {
         contents: [
@@ -153,13 +153,17 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         ],
       };
 
+      // gemini-2.5-flash is now a managed thinking model (shouldCacheSignatures = true)
+      // So ensuring signatures means stripping unsigned thinking blocks
       ensureThinkingSignatures(requestBody, sessionKey, "gemini-2.5-flash");
 
       const parts = requestBody.contents?.[0]?.parts as { thought?: boolean; text?: string }[];
 
-      // For Gemini, thinking IS now stripped (unified stripping behavior)
-      // but may be re-injected if there's tool_use with cached signature
+      // Expect thinking block to be removed because it had no signature
+      // and none could be restored from cache
       expect(parts.some((p) => p.thought === true)).toBe(false);
+      expect(parts.length).toBe(1);
+      expect(parts[0]?.text).toBe("Response");
     });
   });
 

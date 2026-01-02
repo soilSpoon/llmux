@@ -30,47 +30,48 @@ describe("Router", () => {
   };
 
   beforeEach(() => {
-    cooldownManager = new CooldownManager();
-    router = new Router(mockConfig, cooldownManager);
+    // cooldownManager = new CooldownManager();
+    router = new Router(mockConfig);
+    cooldownManager = (router as any).cooldownManager;
   });
 
-  it("should resolve primary model by default", () => {
-    const result = router.resolveModel("gpt-4");
+  it("should resolve primary model by default", async () => {
+    const result = await router.resolveModel("gpt-4");
     expect(result).toEqual({ provider: "openai", model: "gpt-4" });
   });
 
-  it("should resolve fallback when primary is cooled down", () => {
+  it("should resolve fallback when primary is cooled down", async () => {
     // Mark primary as rate limited
     router.handleRateLimit("gpt-4");
 
     // Verify cooldown status (indirectly via router logic)
     expect(cooldownManager.isAvailable("openai:gpt-4")).toBe(false);
 
-    const result = router.resolveModel("gpt-4");
+    const result = await router.resolveModel("gpt-4");
     // Should fallback to first fallback: gpt-3.5-turbo
     expect(result).toEqual({ provider: "openai", model: "gpt-3.5-turbo" });
   });
 
-  it("should resolve second fallback when primary and first fallback are cooled down", () => {
+  it("should resolve second fallback when primary and first fallback are cooled down", async () => {
     router.handleRateLimit("gpt-4");
     router.handleRateLimit("gpt-3.5-turbo");
 
-    const result = router.resolveModel("gpt-4");
+    const result = await router.resolveModel("gpt-4");
     expect(result).toEqual({ provider: "anthropic", model: "claude-3-opus" });
   });
 
-  it("should return primary if all fallbacks are exhausted (failure mode)", () => {
+  it("should return primary if all fallbacks are exhausted (failure mode)", async () => {
     router.handleRateLimit("gpt-4");
     router.handleRateLimit("gpt-3.5-turbo");
     router.handleRateLimit("claude-3-opus");
 
-    const result = router.resolveModel("gpt-4");
+    const result = await router.resolveModel("gpt-4");
     // Based on implementation, should return primary
     expect(result).toEqual({ provider: "openai", model: "gpt-4" });
   });
 
-  it("should fallback to default behavior for unmapped models", () => {
-    const result = router.resolveModel("unknown-model");
+  it("should fallback to default behavior for unmapped models", async () => {
+    const result = await router.resolveModel("unknown-model");
     // Default fallback order[0] or openai if not set
     expect(result).toEqual({ provider: "openai", model: "unknown-model" });
   });

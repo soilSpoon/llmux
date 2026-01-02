@@ -1,7 +1,77 @@
+import { type Credential, isOAuthCredential, type OAuthCredential, TokenRefresh } from '@llmux/auth'
 import { createLogger } from '@llmux/core'
+import { accountRotationManager } from '../handlers/account-rotation'
 import { getCodexInstructions } from '../handlers/codex'
 
 const logger = createLogger({ service: 'provider-openai-web' })
+
+const CODEX_ENDPOINT = 'https://chatgpt.com/backend-api/codex/responses'
+
+export interface OpenAIWebRequestContext {
+  headers: Record<string, string>
+  endpoint: string
+  accountIndex: number
+  credentials: Credential[]
+}
+
+export interface PrepareOpenAIWebRequestOptions {
+  model: string
+  accountIndex: number
+  reqId?: string
+}
+
+export async function prepareOpenAIWebRequest(
+  options: PrepareOpenAIWebRequestOptions
+): Promise<OpenAIWebRequestContext | null> {
+  const { reqId } = options
+
+  let credentials: Credential[]
+  try {
+    credentials = await TokenRefresh.ensureFresh('openai-web')
+  } catch (error) {
+    logger.error({ reqId, error }, 'Failed to refresh OpenAI Web tokens')
+    return null
+  }
+
+  if (!credentials || credentials.length === 0) {
+    logger.warn({ reqId }, 'No credentials available for OpenAI Web')
+    return null
+  }
+
+  const resolvedAccountIndex = accountRotationManager.getNextAvailable('openai-web', credentials)
+  const selectedCred = credentials[resolvedAccountIndex]
+
+  if (!selectedCred || !isOAuthCredential(selectedCred)) {
+    logger.warn({ reqId }, 'Selected credential is not OAuth credential')
+    return null
+  }
+
+  const cred = selectedCred as OAuthCredential & { accountId?: string }
+  const currentEmail = cred.email || 'unknown'
+  logger.info(
+    { reqId, email: currentEmail, accountIndex: resolvedAccountIndex },
+    'Using OpenAI Web account for rotation'
+  )
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    Authorization: `Bearer ${cred.accessToken}`,
+    'OpenAI-Beta': 'responses=experimental',
+    originator: 'codex_cli_rs',
+  }
+
+  if (cred.accountId) {
+    headers['chatgpt-account-id'] = cred.accountId
+  }
+
+  return {
+    headers,
+    endpoint: CODEX_ENDPOINT,
+    accountIndex: resolvedAccountIndex,
+    credentials,
+  }
+}
 
 export function transformToolsForCodex(
   tools: Array<{

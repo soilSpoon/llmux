@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { transformStreamChunk } from "../../src/handlers/streaming";
+import { transformStreamChunk } from "../../src/handlers/stream-processor";
 import {
   AnthropicProvider,
   AntigravityProvider,

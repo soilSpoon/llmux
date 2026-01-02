@@ -17,6 +17,7 @@ import type {
   AnthropicStopReason,
   AnthropicTextBlock,
   AnthropicThinkingBlock,
+  AnthropicToolResultBlock,
   AnthropicToolUseBlock,
   AnthropicUsage,
 } from './types'
@@ -120,9 +121,38 @@ function parseContentBlock(block: AnthropicContentBlock): ContentPart | null {
       }
     }
 
-    case 'redacted_thinking':
-      // Skip redacted thinking - cannot be displayed
-      return null
+    case 'redacted_thinking': {
+      return {
+        type: 'thinking',
+        thinking: {
+          text: '',
+          redacted: true,
+        },
+      }
+    }
+
+    case 'tool_result': {
+      const toolResult = block as AnthropicToolResultBlock
+      let content: string
+      if (typeof toolResult.content === 'string') {
+        content = toolResult.content
+      } else if (Array.isArray(toolResult.content)) {
+        content = toolResult.content
+          .filter((c): c is AnthropicTextBlock => c.type === 'text')
+          .map((c) => c.text)
+          .join('\n')
+      } else {
+        content = ''
+      }
+      return {
+        type: 'tool_result',
+        toolResult: {
+          toolCallId: toolResult.tool_use_id,
+          content,
+          isError: toolResult.is_error,
+        },
+      }
+    }
 
     default:
       return null
@@ -130,12 +160,24 @@ function parseContentBlock(block: AnthropicContentBlock): ContentPart | null {
 }
 
 function extractThinkingBlocks(blocks: AnthropicContentBlock[]): ThinkingBlock[] {
-  return blocks
-    .filter((block): block is AnthropicThinkingBlock => block.type === 'thinking')
-    .map((block) => ({
-      text: block.thinking,
-      signature: block.signature,
-    }))
+  const thinkingBlocks: ThinkingBlock[] = []
+
+  for (const block of blocks) {
+    if (block.type === 'thinking') {
+      const thinking = block as AnthropicThinkingBlock
+      thinkingBlocks.push({
+        text: thinking.thinking,
+        signature: thinking.signature,
+      })
+    } else if (block.type === 'redacted_thinking') {
+      thinkingBlocks.push({
+        text: '',
+        redacted: true,
+      })
+    }
+  }
+
+  return thinkingBlocks
 }
 
 function parseStopReason(reason: AnthropicStopReason): StopReason {
@@ -233,10 +275,16 @@ function transformStopReason(reason: StopReason): AnthropicStopReason {
 }
 
 function transformUsage(usage?: UsageInfo): AnthropicUsage {
-  return {
+  const result: AnthropicUsage = {
     input_tokens: usage?.inputTokens ?? 0,
     output_tokens: usage?.outputTokens ?? 0,
   }
+
+  if (usage?.cachedTokens) {
+    result.cache_read_input_tokens = usage.cachedTokens
+  }
+
+  return result
 }
 
 function generateMessageId(): string {

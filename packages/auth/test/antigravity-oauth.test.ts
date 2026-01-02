@@ -131,7 +131,7 @@ describe("refreshAntigravityToken", () => {
     const result = await refreshAntigravityToken(currentCredential);
 
     expect(result.accessToken).toBe("new_token");
-    expect(result.refreshToken).toBe("rotated_token|");
+    expect(result.refreshToken).toMatch(/rotated_token\|[a-z]+-[a-z]+-[a-z0-9]+/);
   });
 
   test("throws error when refresh token is missing", async () => {
@@ -863,7 +863,7 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toBeUndefined();
+    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
   });
 
   test("tries fallback endpoints when first fails", async () => {
@@ -956,7 +956,7 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toBeUndefined();
+    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
   });
 
   test("handles empty string cloudaicompanionProject", async () => {
@@ -1001,7 +1001,7 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toBeUndefined();
+    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
   });
 
   test("handles object with empty id", async () => {
@@ -1047,6 +1047,6 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toBeUndefined();
+    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
   });
 });

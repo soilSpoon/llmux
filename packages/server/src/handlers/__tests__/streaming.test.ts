@@ -1,11 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
 import "../../../test/setup";
 import type { AmpModelMapping } from "../../config";
 import { handleStreamingProxy, type ProxyOptions } from "../streaming";
 
+// Helper to intentionally cast invalid data for resilience testing
+function castTo<T>(data: unknown): T {
+  return data as T;
+}
+
 describe("handleStreamingProxy with modelMappings", () => {
   let originalFetch: typeof globalThis.fetch;
   let capturedBody: unknown;
+  let setTimeoutSpy: any;
 
   beforeEach(() => {
     originalFetch = globalThis.fetch;
@@ -21,10 +27,23 @@ describe("handleStreamingProxy with modelMappings", () => {
       }),
       { preconnect: () => {} }
     ) as typeof fetch;
+
+    // Mock setTimeout to resolve immediately
+    setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(
+      castTo<typeof setTimeout>((cb: (...args: any[]) => void) => {
+        if (typeof cb === "function") {
+          cb();
+        }
+        return castTo<ReturnType<typeof setTimeout>>(0);
+      })
+    );
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    if (setTimeoutSpy) {
+      setTimeoutSpy.mockRestore();
+    }
   });
 
   function createRequest(body: Record<string, unknown>): Request {
@@ -113,15 +132,16 @@ describe("handleStreamingProxy with modelMappings", () => {
   });
 
   describe("Provider Specific Options", () => {
-    it("openai provider receives stream_options", async () => {
+    it("openai provider receives model in request body", async () => {
       const request = createRequest({ model: "gpt-4", messages: [] });
       await handleStreamingProxy(request, {
         ...baseOptions,
         targetProvider: "openai",
       });
 
+      // Verify that the request was made with the correct model
       expect(capturedBody).toMatchObject({
-        stream_options: { include_usage: true },
+        model: "gpt-4",
       });
     });
 

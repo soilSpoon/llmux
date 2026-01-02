@@ -7,7 +7,7 @@
 
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
-// Reuse OpenAI implementation logic (Responses API compatible)
+import { isResponsesApiRequest } from '../openai/format-detector'
 import { parse, transform } from '../openai/request'
 import { parseResponse, transformResponse } from '../openai/response'
 import { parseStreamChunk, transformStreamChunk } from '../openai/streaming'
@@ -38,18 +38,12 @@ export class OpenAIWebProvider extends BaseProvider {
   readonly name: ProviderName = 'openai-web'
   readonly config: ProviderConfig = OPENAI_WEB_CONFIG
 
-  private defaultModel: string = 'gpt-5.1'
+  isSupportedRequest(request: unknown): boolean {
+    return isOpenAIRequest(request) && isResponsesApiRequest(request)
+  }
 
-  /**
-   * Create a new OpenAI Web provider instance.
-   *
-   * @param options - Optional configuration
-   */
-  constructor(options?: { defaultModel?: string }) {
-    super()
-    if (options?.defaultModel) {
-      this.defaultModel = options.defaultModel
-    }
+  isSupportedModel(model: string): boolean {
+    return model.startsWith('gpt-5') || model.includes('codex')
   }
 
   /**
@@ -66,9 +60,9 @@ export class OpenAIWebProvider extends BaseProvider {
    * Transform a UnifiedRequest into OpenAI Responses API format.
    * The /backend-api/codex endpoint uses the same format as /v1/responses
    */
-  transform(request: UnifiedRequest, model?: string): OpenAIRequest {
+  transform(request: UnifiedRequest, model: string): OpenAIRequest {
     // Use standard OpenAI transformation - the /codex endpoint uses Responses API format
-    return transform(request, model || this.defaultModel)
+    return transform(request, model)
   }
 
   /**

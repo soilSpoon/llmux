@@ -1,4 +1,4 @@
-import type { AmpModelMapping } from '../config'
+import type { AmpModelMapping, AmpTarget } from '../config'
 
 /**
  * Parsed model mapping result with optional provider
@@ -7,18 +7,33 @@ export interface ParsedModelMapping {
   model: string
   provider?: string
   thinking?: boolean
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'
+  thinkingBudget?: number
 }
 
 /**
  * Parse a shorthand mapping string "model:provider" into components.
  * Uses the LAST colon as the separator to allow models with colons in their names.
+ * Also handles AmpTarget objects directly.
  *
  * Examples:
  * - "gpt-5.1:openai" -> { model: "gpt-5.1", provider: "openai" }
  * - "gpt-5.1" -> { model: "gpt-5.1", provider: undefined }
  * - "model:with:colons:openai" -> { model: "model:with:colons", provider: "openai" }
+ * - { model: "gpt-5.1", provider: "openai" } -> { model: "gpt-5.1", provider: "openai" }
  */
-export function parseModelMapping(mapping: string): ParsedModelMapping {
+export function parseModelMapping(mapping: string | AmpTarget): ParsedModelMapping {
+  // Handle AmpTarget object directly
+  if (typeof mapping === 'object') {
+    return {
+      model: mapping.model,
+      provider: mapping.provider,
+      thinking: mapping.thinking,
+      thinkingLevel: mapping.thinkingLevel,
+      thinkingBudget: mapping.thinkingBudget,
+    }
+  }
+
   const lastColonIndex = mapping.lastIndexOf(':')
 
   // No colon found, or colon is at the end (e.g., "model:")
@@ -54,9 +69,25 @@ export function applyModelMappingV2(
   }
 
   const to = mapping.to
-  const targetString = Array.isArray(to) ? (to[0] ?? model) : to
+  const firstTarget = Array.isArray(to) ? to[0] : to
 
-  const parsed = parseModelMapping(targetString)
+  if (!firstTarget) {
+    return { model }
+  }
+
+  // Handle object mapping
+  if (typeof firstTarget === 'object') {
+    return {
+      model: firstTarget.model,
+      provider: firstTarget.provider,
+      thinking: firstTarget.thinking ?? mapping.thinking,
+      thinkingLevel: firstTarget.thinkingLevel,
+      thinkingBudget: firstTarget.thinkingBudget,
+    }
+  }
+
+  // Handle string mapping
+  const parsed = parseModelMapping(firstTarget)
   return {
     ...parsed,
     thinking: mapping.thinking,
@@ -78,9 +109,15 @@ export function applyModelMapping(model: string, mappings: AmpModelMapping[] | u
   }
 
   const to = mapping.to
-  if (Array.isArray(to)) {
-    return to.length > 0 ? (to[0] ?? model) : model
+  const firstTarget = Array.isArray(to) ? to[0] : to
+
+  if (!firstTarget) {
+    return model
   }
 
-  return to
+  if (typeof firstTarget === 'object') {
+    return firstTarget.model
+  }
+
+  return firstTarget
 }

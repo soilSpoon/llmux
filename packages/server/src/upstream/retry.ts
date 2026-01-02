@@ -1,4 +1,6 @@
-export function parseRetryAfterMs(response: Response, body?: string): number {
+export function parseRetryAfterMs(response?: Response | null, body?: string): number {
+  if (!response || !response.headers) return 30000
+
   // 1. Check retry-after-ms header
   const retryAfterMsHeader = response.headers.get('retry-after-ms')
   if (retryAfterMsHeader) {
@@ -21,4 +23,11 @@ export function parseRetryAfterMs(response: Response, body?: string): number {
 
   // 4. Default fallback (30 seconds)
   return 30000
+}
+
+/**
+ * Check if a response indicates rate limiting (429)
+ */
+export function isRateLimited(response: Response): boolean {
+  return response.status === 429
 }

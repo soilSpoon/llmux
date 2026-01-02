@@ -16,7 +16,7 @@ import type {
   UnifiedTool,
   UnifiedToolChoice,
 } from '../../types/unified'
-import { stripSignaturesFromContents } from '../../utils/signature-strip'
+import { createLogger } from '../../util/logger'
 import type {
   GeminiContent,
   GeminiFunctionDeclaration,
@@ -26,6 +26,7 @@ import type {
   GeminiTool,
   GeminiToolConfig,
 } from '../gemini/types'
+import { cleanJSONSchemaForAntigravity } from './schema/antigravity-json-schema-clean'
 import type {
   AntigravityGenerationConfig,
   AntigravityInnerRequest,
@@ -34,10 +35,7 @@ import type {
 } from './types'
 import { isAntigravityRequest } from './types'
 
-type TransformOptions = {
-  stripSignatures?: boolean
-  sourceModel?: string
-}
+const logger = createLogger({ service: 'antigravity-transform' })
 
 /**
  * Parse an Antigravity request into UnifiedRequest format.
@@ -100,49 +98,76 @@ export function parse(request: unknown): UnifiedRequest {
 /**
  * Transform a UnifiedRequest into Antigravity request format.
  * Wraps the Gemini-style request in an Antigravity envelope.
+ *
+ * @param request - The unified request to transform
+ * @param model - Model name to use
  */
-export function transform(request: UnifiedRequest, options?: TransformOptions): AntigravityRequest {
+export function transform(request: UnifiedRequest, model: string): AntigravityRequest {
   const { messages, system, tools, toolChoice, config, thinking, metadata } = request
+
+  logger.debug(
+    {
+      metadataKeys: metadata ? Object.keys(metadata) : [],
+      metadataProject: metadata?.project,
+    },
+    'Antigravity transform input metadata'
+  )
 
   // Extract wrapper fields from metadata
   // Project ID should be from credentials or use the default Antigravity project
   const project = (metadata?.project as string) || 'rising-fact-p41fc'
 
-  // Model Aliases defined in Antigravity API schema
-  const MODEL_ALIASES: Record<string, string> = {
-    'gemini-2.5-computer-use-preview-10-2025': 'rev19-uic3-1p',
-    'gemini-3-pro-image-preview': 'gemini-3-pro-image',
-    'gemini-3-pro-preview': 'gemini-3-pro-high',
-    'gemini-claude-sonnet-4-5': 'claude-sonnet-4-5',
-    'gemini-claude-sonnet-4-5-thinking': 'claude-sonnet-4-5-thinking',
-    'gemini-claude-opus-4-5-thinking': 'claude-opus-4-5-thinking',
-  }
+  // Use model parameter (from Provider interface) directly
+  // NOTE: Model aliasing is handled at the server layer in handlers/streaming.ts
+  // This provider receives the final model name to send to Antigravity
 
-  const rawModel = (metadata?.model as string) || 'gemini-2.0-flash'
-  const model = MODEL_ALIASES[rawModel] || rawModel
+  logger.debug(
+    {
+      inputModel: model,
+      metadataModel: metadata?.model,
+    },
+    'Model resolution'
+  )
 
   const requestId = (metadata?.requestId as string) || `agent-${randomUUID()}`
   const sessionId = metadata?.sessionId as string | undefined
 
   // Check if it's a Claude model for thinking config
-  const isClaudeModel = model?.toLowerCase().includes('claude') ?? false
-  const isThinkingModel = model?.toLowerCase().includes('thinking') ?? false
+  const isClaudeModel = model.toLowerCase().includes('claude')
+  const isThinkingModel = model.toLowerCase().includes('thinking')
 
   // Transform messages to contents
   let contents = transformMessages(messages)
 
-  // Strip thoughtSignature by default (unless explicitly set to false)
-  // This is important for cross-model fallback scenarios
-  const shouldStripSignatures = options?.stripSignatures !== false
+  // Note: stripSignatures option was removed when changing to Provider interface signature
+  // Signature stripping is now default to false (preserve signatures for Gemini 2.0)
+  const shouldStripSignatures = false
+
   if (shouldStripSignatures) {
     // Cast to compatible types for signature stripping
     type ContentWithOptionalSignature = {
       role: string
-      parts: Array<{ thoughtSignature?: string; [key: string]: unknown }>
+      parts: Array<{ thoughtSignature?: string; thought?: boolean; [key: string]: unknown }>
     }
     const contentsForStripping = contents as ContentWithOptionalSignature[]
-    const strippedContents = stripSignaturesFromContents(contentsForStripping)
-    contents = strippedContents as GeminiContent[]
+
+    // Custom stripping logic that converts thinking to text
+    contentsForStripping.forEach((content) => {
+      content.parts = content.parts.map((part) => {
+        if (part.thought) {
+          const { thought: _thought, thoughtSignature: _sig1, ...rest } = part
+          return rest
+        }
+        // Remove thoughtSignature from other parts if present
+        if (part.thoughtSignature) {
+          const { thoughtSignature: _sig2, ...rest } = part
+          return rest
+        }
+        return part
+      })
+    })
+
+    contents = contentsForStripping as GeminiContent[]
   }
 
   // Transform system instruction
@@ -157,7 +182,7 @@ export function transform(request: UnifiedRequest, options?: TransformOptions): 
   if (tools && tools.length > 0) {
     transformedTools = transformTools(tools)
     // Transform toolChoice to toolConfig
-    toolConfig = transformToolConfig(toolChoice, tools)
+    toolConfig = transformToolConfig(toolChoice, isClaudeModel)
   } else if (toolChoice === 'none') {
     toolConfig = {
       functionCallingConfig: {
@@ -199,13 +224,28 @@ export function transform(request: UnifiedRequest, options?: TransformOptions): 
     innerRequest.sessionId = sessionId
   }
 
-  return {
+  const result: AntigravityRequest = {
     project,
     model,
     userAgent: 'antigravity',
     requestId,
     request: innerRequest,
   }
+
+  logger.debug(
+    {
+      project,
+      model,
+      requestId,
+      hasSystemInstruction: !!systemInstruction,
+      toolCount: transformedTools?.length || 0,
+      messageCount: messages.length,
+      hasThinking: thinking?.enabled,
+    },
+    'Antigravity request final'
+  )
+
+  return result
 }
 
 // =============================================================================
@@ -423,6 +463,12 @@ function parseThinkingConfig(thinkingConfig?: AntigravityThinkingConfig) {
 
 /**
  * Transform UnifiedMessages to Gemini contents
+ *
+ * Pattern from Go CLIProxyAPI:
+ * 1. Build toolCallId -> toolName map for resolving tool responses
+ * 2. Capture signatures from thinking blocks to pass to subsequent tool calls
+ * 3. Filter out thinking blocks from model messages (Gemini doesn't need to preserve them)
+ * 4. Always add skip_thought_signature_validator to functionCall if no valid signature
  */
 function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
   // Build a map of toolCallId -> toolName from all messages in the request
@@ -437,16 +483,45 @@ function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
     }
   }
 
-  return messages.map((message) => ({
-    role: message.role === 'assistant' ? 'model' : 'user',
-    parts: message.parts.map((part) => transformPart(part, toolNameMap)),
-  }))
+  let latestSessionSignature: string | undefined
+
+  return messages.map((message) => {
+    // Capture signature from thinking parts to pass to subsequent tool calls
+    // We maintain latestSessionSignature across messages to handle cases where
+    // thinking and tool usage might be split across turns or in history
+
+    // First pass: capture any signatures from thinking blocks
+    for (const part of message.parts) {
+      if (part.type === 'thinking' && part.thinking?.signature) {
+        latestSessionSignature = part.thinking.signature
+      }
+    }
+
+    // Second pass: transform parts
+    // Do NOT filter thinking blocks - they are now managed by server's ensureThinkingSignatures()
+    // The server handles:
+    // - STEP 1: Stripping invalid thinking blocks from Amp history
+    // - STEP 2: Injecting cached signatures before tool calls
+    // Our job here is just to transform what the server provides
+    const parts = message.parts.map((part) =>
+      transformPart(part, toolNameMap, latestSessionSignature)
+    )
+
+    return {
+      role: message.role === 'assistant' ? 'model' : 'user',
+      parts,
+    }
+  })
 }
 
 /**
  * Transform a ContentPart to Gemini part
  */
-function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): GeminiPart {
+function transformPart(
+  part: ContentPart,
+  toolNameMap?: Map<string, string>,
+  fallbackSignature?: string
+): GeminiPart {
   switch (part.type) {
     case 'thinking':
       return {
@@ -455,7 +530,18 @@ function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): Ge
         thoughtSignature: part.thinking?.signature,
       }
 
-    case 'tool_call':
+    case 'tool_call': {
+      // Gemini 2.0 requires thoughtSignature field on functionCall parts
+      // Strategy: Use fallback signature from preceding thinking block, or skip sentinel
+      // The server's ensureThinkingSignatures() should have injected valid signatures
+      // for tool-use cases before this transform, but we keep the sentinel as safety net
+      const SKIP_SENTINEL = 'skip_thought_signature_validator'
+      const MIN_SIGNATURE_LENGTH = 50
+
+      const hasValidSignature =
+        fallbackSignature && fallbackSignature.length >= MIN_SIGNATURE_LENGTH
+      const effectiveSignature = hasValidSignature ? fallbackSignature : SKIP_SENTINEL
+
       return {
         functionCall: {
           name: encodeAntigravityToolName(part.toolCall?.name ?? ''),
@@ -465,7 +551,9 @@ function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): Ge
               : (part.toolCall?.arguments ?? {}),
           id: part.toolCall?.id,
         },
+        thoughtSignature: effectiveSignature,
       }
+    }
 
     case 'tool_result': {
       // Parse content back to object if it's a JSON string
@@ -529,7 +617,7 @@ function transformTools(tools: UnifiedTool[]): GeminiTool[] {
   const functionDeclarations: GeminiFunctionDeclaration[] = tools.map((tool) => ({
     name: encodeAntigravityToolName(tool.name),
     description: tool.description,
-    parameters: transformToGeminiSchema(tool.parameters),
+    parameters: transformToGeminiSchema(cleanJSONSchemaForAntigravity(tool.parameters)),
   }))
 
   return [{ functionDeclarations }]
@@ -615,10 +703,9 @@ function transformToGeminiSchemaProperty(prop: JSONSchemaProperty): GeminiSchema
   }
 
   // Handle const -> enum conversion (Antigravity doesn't support const)
-  const propAny = prop as Record<string, unknown>
-  if (propAny.const !== undefined) {
-    result.enum = [propAny.const as string]
-  } else if (prop.enum) {
+  // Note: cleanJSONSchemaForAntigravity already handles this, but we keep this for safety
+  // if transformToGeminiSchemaProperty is called directly
+  if (prop.enum) {
     result.enum = prop.enum as string[]
   }
 
@@ -675,12 +762,12 @@ function transformGenerationConfig(
  */
 function transformToolConfig(
   toolChoice: UnifiedToolChoice | undefined,
-  _tools: UnifiedTool[]
+  isClaudeModel: boolean = false
 ): GeminiToolConfig | undefined {
   if (!toolChoice) {
     return {
       functionCallingConfig: {
-        mode: 'AUTO',
+        mode: isClaudeModel ? 'VALIDATED' : 'AUTO',
       },
     }
   }

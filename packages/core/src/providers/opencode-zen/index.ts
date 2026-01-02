@@ -18,6 +18,7 @@ export class OpencodeZenProvider extends BaseProvider {
 
   private anthropic: AnthropicProvider
   private openai: OpenAIProvider
+  private lastRequestedModel?: string
 
   constructor(name: ProviderName = 'opencode-zen') {
     super()
@@ -31,6 +32,24 @@ export class OpencodeZenProvider extends BaseProvider {
     }
     this.anthropic = new AnthropicProvider()
     this.openai = new OpenAIProvider()
+  }
+
+  isSupportedRequest(_request: unknown): boolean {
+    // Opencode Zen can handle both formats by delegation,
+    // but for detection purposes we defer to canonical providers
+    // to avoid ambiguity in detectFormat.
+    return false
+  }
+
+  isSupportedModel(model: string): boolean {
+    return (
+      model === 'glm-4.7-free' ||
+      model.startsWith('glm-') ||
+      model === 'big-pickle' ||
+      model.startsWith('qwen-') ||
+      model.startsWith('kimi-') ||
+      model.startsWith('grok-')
+    )
   }
 
   private getDelegate(model?: string) {
@@ -53,17 +72,28 @@ export class OpencodeZenProvider extends BaseProvider {
     return this.openai.parse(request)
   }
 
-  transform(request: UnifiedRequest): unknown {
-    const model = request.metadata?.model as string | undefined
-    return this.getDelegate(model).transform(request)
+  transform(request: UnifiedRequest, model: string): unknown {
+    this.lastRequestedModel = model
+    return this.getDelegate(model).transform(request, model)
   }
 
   parseResponse(response: unknown): UnifiedResponse {
-    // Detect response format
-    if ((response as { type?: unknown }).type === 'message') {
+    // Auto-detect response format
+    const resp = response as Record<string, unknown>
+
+    // Anthropic responses have type: "message"
+    if (resp.type === 'message' && Array.isArray(resp.content)) {
       return this.anthropic.parseResponse(response)
     }
-    return this.openai.parseResponse(response)
+
+    // OpenAI responses have choices array
+    if (Array.isArray(resp.choices)) {
+      return this.openai.parseResponse(response)
+    }
+
+    // Fall back to lastRequestedModel or OpenAI
+    const delegate = this.getDelegate(this.lastRequestedModel)
+    return delegate.parseResponse(response)
   }
 
   transformResponse(response: UnifiedResponse): unknown {

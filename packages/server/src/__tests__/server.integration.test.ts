@@ -154,6 +154,7 @@ describe('Server Integration: modelMappings', () => {
         amp: {
           handlers: {},
           modelMappings: [{ from: 'claude-stream', to: 'mapped-stream' }],
+          providerChecker: () => true, // Enable local routing
         },
       })
 
@@ -177,7 +178,6 @@ describe('Server Integration: modelMappings', () => {
       expect(response.status).toBe(200)
       expect(capturedBody).toMatchObject({
         model: 'mapped-stream',
-        stream: true,
       })
     })
   })

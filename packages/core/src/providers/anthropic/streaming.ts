@@ -9,6 +9,7 @@ import { createLogger } from '../../util/logger'
 import type {
   AnthropicContentBlockDeltaEvent,
   AnthropicContentBlockStartEvent,
+  AnthropicContentBlockStopEvent,
   AnthropicErrorEvent,
   AnthropicMessageDeltaEvent,
   AnthropicMessageStartEvent,
@@ -91,8 +92,7 @@ function convertEventToChunk(event: AnthropicStreamEvent): StreamChunk | null {
       return handleContentBlockDelta(event as AnthropicContentBlockDeltaEvent)
 
     case 'content_block_stop':
-      // No action needed for content_block_stop
-      return null
+      return handleContentBlockStop(event as AnthropicContentBlockStopEvent)
 
     case 'message_delta':
       return handleMessageDelta(event as AnthropicMessageDeltaEvent)
@@ -116,19 +116,22 @@ function handleMessageStart(event: AnthropicMessageStartEvent): StreamChunk {
   return {
     type: 'usage',
     usage: {
-      inputTokens: event.message.usage.input_tokens,
-      outputTokens: event.message.usage.output_tokens,
+      inputTokens: event.message?.usage?.input_tokens ?? 0,
+      outputTokens: event.message?.usage?.output_tokens ?? 0,
     },
   }
 }
 
 function handleContentBlockStart(event: AnthropicContentBlockStartEvent): StreamChunk | null {
   const block = event.content_block
+  const blockIndex = event.index
 
   switch (block.type) {
     case 'tool_use':
       return {
         type: 'tool_call',
+        blockIndex,
+        blockType: 'tool_call',
         delta: {
           toolCall: {
             id: block.id,
@@ -139,9 +142,20 @@ function handleContentBlockStart(event: AnthropicContentBlockStartEvent): Stream
       }
 
     case 'text':
+      return {
+        type: 'content',
+        blockIndex,
+        blockType: 'text',
+        delta: { type: 'text', text: '' },
+      }
+
     case 'thinking':
-      // Text and thinking block starts don't produce chunks
-      return null
+      return {
+        type: 'thinking',
+        blockIndex,
+        blockType: 'thinking',
+        delta: { type: 'thinking', thinking: { text: '' } },
+      }
 
     default:
       return null
@@ -150,11 +164,14 @@ function handleContentBlockStart(event: AnthropicContentBlockStartEvent): Stream
 
 function handleContentBlockDelta(event: AnthropicContentBlockDeltaEvent): StreamChunk | null {
   const delta = event.delta
+  const blockIndex = event.index
 
   switch (delta.type) {
     case 'text_delta':
       return {
         type: 'content',
+        blockIndex,
+        blockType: 'text',
         delta: {
           text: delta.text,
         },
@@ -163,6 +180,8 @@ function handleContentBlockDelta(event: AnthropicContentBlockDeltaEvent): Stream
     case 'thinking_delta':
       return {
         type: 'thinking',
+        blockIndex,
+        blockType: 'thinking',
         delta: {
           thinking: {
             text: delta.thinking,
@@ -173,6 +192,8 @@ function handleContentBlockDelta(event: AnthropicContentBlockDeltaEvent): Stream
     case 'signature_delta':
       return {
         type: 'thinking',
+        blockIndex,
+        blockType: 'thinking',
         delta: {
           thinking: {
             text: '',
@@ -182,9 +203,10 @@ function handleContentBlockDelta(event: AnthropicContentBlockDeltaEvent): Stream
       }
 
     case 'input_json_delta':
-      // Tool input is being streamed as partial JSON
       return {
         type: 'tool_call',
+        blockIndex,
+        blockType: 'tool_call',
         delta: {
           partialJson: delta.partial_json,
         },
@@ -192,6 +214,13 @@ function handleContentBlockDelta(event: AnthropicContentBlockDeltaEvent): Stream
 
     default:
       return null
+  }
+}
+
+function handleContentBlockStop(event: AnthropicContentBlockStopEvent): StreamChunk {
+  return {
+    type: 'block_stop',
+    blockIndex: event.index,
   }
 }
 
@@ -239,11 +268,13 @@ function parseStopReason(reason: string | null): StopReason {
 // =============================================================================
 
 function convertChunkToSSE(chunk: StreamChunk): string | string[] {
+  const blockIndex = chunk.blockIndex ?? 0
+
   switch (chunk.type) {
     case 'content':
       return formatSSE('content_block_delta', {
         type: 'content_block_delta',
-        index: 0,
+        index: blockIndex,
         delta: {
           type: 'text_delta',
           text: chunk.delta?.text || '',
@@ -251,16 +282,13 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
       })
 
     case 'thinking': {
-      // Thinking chunks contain reasoning text
-      // Convert to thinking_delta for clients that support extended thinking
       const thinkingText = chunk.delta?.thinking?.text || ''
       const thinkingSignature = chunk.delta?.thinking?.signature
 
-      // If we have a signature, output signature_delta
       if (thinkingSignature) {
         return formatSSE('content_block_delta', {
           type: 'content_block_delta',
-          index: 0,
+          index: blockIndex,
           delta: {
             type: 'signature_delta',
             signature: thinkingSignature,
@@ -268,20 +296,25 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
         })
       }
 
-      // Skip empty thinking chunks
       if (!thinkingText) {
         return ''
       }
 
       return formatSSE('content_block_delta', {
         type: 'content_block_delta',
-        index: 0,
+        index: blockIndex,
         delta: {
           type: 'thinking_delta',
           thinking: thinkingText,
         },
       })
     }
+
+    case 'block_stop':
+      return formatSSE('content_block_stop', {
+        type: 'content_block_stop',
+        index: blockIndex,
+      })
 
     case 'tool_call': {
       // Check if we have partialJson in delta (streaming mode)
@@ -292,7 +325,7 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
       // This case occurs when upstream provider sends tool ID/Name + incremental arguments
       // Example: OpenAI function_call_arguments_delta gets parsed as partialJson + toolCall
       if (partialJson && toolCall?.id) {
-        logger.debug(
+        logger.trace(
           {
             partialJsonPreview: partialJson.slice(0, 100),
             toolId: toolCall.id,
@@ -305,36 +338,31 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
 
         const events: string[] = []
 
-        // 1. CRITICAL: Send content_block_start FIRST to establish tool_use block ID/Name
-        //    Anthropic streaming protocol requires this before sending input_json_delta
-        //    Without this, clients cannot correlate partial JSON with tool call identity
         if (toolCall.id) {
           const startEvent = {
             type: 'content_block_start',
-            index: 0, // Placeholder, updated by server/streaming.ts
+            index: blockIndex,
             content_block: {
               type: 'tool_use',
               id: toolCall.id,
               name: toolCall.name || '',
-              input: {}, // Input is built via deltas
+              input: {},
             },
           }
-          logger.debug(
+          logger.trace(
             { startEvent },
             '[ANTHROPIC] tool_use content_block_start (from partialJson path)'
           )
           events.push(formatSSE('content_block_start', startEvent))
         }
 
-        // 2. Chunk the partialJson for compatibility with strict clients
-        //    Anthropic normally streams tokens, huge JSON at once can cause parser buffer overflow
         const CHUNK_SIZE = 50
         for (let i = 0; i < partialJson.length; i += CHUNK_SIZE) {
           const chunk = partialJson.slice(i, i + CHUNK_SIZE)
           events.push(
             formatSSE('content_block_delta', {
               type: 'content_block_delta',
-              index: 0,
+              index: blockIndex,
               delta: {
                 type: 'input_json_delta',
                 partial_json: chunk,
@@ -343,23 +371,19 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           )
         }
 
-        logger.debug({ eventsCount: events.length }, '[ANTHROPIC] partialJson chunks with metadata')
+        logger.trace({ eventsCount: events.length }, '[ANTHROPIC] partialJson chunks with metadata')
         if (events.length === 1) return events[0] ?? ''
         return events
       }
 
-      // Handle partialJson-only streaming (no toolCall metadata)
-      // This occurs when upstream partial JSON arrives without tool identification
-      // Server streaming handler will create implicit block start if needed
       if (partialJson) {
-        logger.debug(
+        logger.trace(
           { partialJsonPreview: partialJson.slice(0, 100) },
           '[ANTHROPIC] Received tool_call with partialJson (no metadata)'
         )
 
         if (partialJson.length === 0) return ''
 
-        // Chunk the partialJson for compatibility with strict clients
         const CHUNK_SIZE = 50
         const events: string[] = []
 
@@ -368,7 +392,7 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           events.push(
             formatSSE('content_block_delta', {
               type: 'content_block_delta',
-              index: 0,
+              index: blockIndex,
               delta: {
                 type: 'input_json_delta',
                 partial_json: chunk,
@@ -377,20 +401,18 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
           )
         }
 
-        logger.debug({ eventsCount: events.length }, '[ANTHROPIC] partialJson chunks (no metadata)')
+        logger.trace({ eventsCount: events.length }, '[ANTHROPIC] partialJson chunks (no metadata)')
         if (events.length === 1) return events[0] ?? ''
         return events
       }
 
-      // Handle full tool call with arguments (initial emit mode)
-      logger.debug(
+      logger.trace(
         { toolCallData: JSON.stringify(chunk).slice(0, 500) },
         '[ANTHROPIC] Received tool_call chunk'
       )
       if (!toolCall) return ''
 
-      // Debug logging for tool call transformation
-      logger.debug(
+      logger.trace(
         {
           toolId: toolCall.id,
           toolName: toolCall.name,
@@ -401,48 +423,42 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
 
       const events: string[] = []
 
-      // 1. Start event (if ID provided) - this signals a new tool call
       if (toolCall.id) {
         const startEvent = {
           type: 'content_block_start',
-          index: 0, // Placeholder, updated by server/streaming.ts
+          index: blockIndex,
           content_block: {
             type: 'tool_use',
             id: toolCall.id,
             name: toolCall.name,
-            input: {}, // Input is built via deltas
+            input: {},
           },
         }
-        logger.debug({ startEvent }, '[ANTHROPIC] tool_use content_block_start')
+        logger.trace({ startEvent }, '[ANTHROPIC] tool_use content_block_start')
         events.push(formatSSE('content_block_start', startEvent))
       }
 
-      // 2. Delta event (if arguments provided) - this accumulates the JSON
-      // arguments is typed as Record | string
       const args = toolCall.arguments
       if (args) {
         let jsonString: string
         if (typeof args === 'string') {
           jsonString = args
         } else if (typeof args === 'object') {
-          // Serialize object arguments to JSON string
           jsonString = JSON.stringify(args)
         } else {
           jsonString = ''
         }
 
-        logger.debug({ argsPreview: jsonString.slice(0, 100) }, '[ANTHROPIC] tool_call arguments')
+        logger.trace({ argsPreview: jsonString.slice(0, 100) }, '[ANTHROPIC] tool_call arguments')
 
         if (jsonString.length > 0) {
-          // Chunking implementation for better compatibility with strict Anthropic clients (e.g. Ampcode)
-          // Anthropic normally streams tokens (small chunks), sending a huge JSON string at once can cause parser buffers to overflow.
           const CHUNK_SIZE = 50
           for (let i = 0; i < jsonString.length; i += CHUNK_SIZE) {
             const chunk = jsonString.slice(i, i + CHUNK_SIZE)
             events.push(
               formatSSE('content_block_delta', {
                 type: 'content_block_delta',
-                index: 0, // Placeholder
+                index: blockIndex,
                 delta: {
                   type: 'input_json_delta',
                   partial_json: chunk,
@@ -453,39 +469,58 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
         }
       }
 
-      logger.debug({ eventsCount: events.length }, '[ANTHROPIC] tool_call events count')
+      logger.trace({ eventsCount: events.length }, '[ANTHROPIC] tool_call events count')
       if (events.length === 0) return ''
       if (events.length === 1) return events[0] ?? ''
       return events
     }
 
-    case 'usage':
-      // Usage is often sent with the done signal or separately.
-      // We'll send a message_delta.
+    case 'usage': {
+      const usage = {
+        input_tokens: chunk.usage?.inputTokens ?? 0,
+        output_tokens: chunk.usage?.outputTokens ?? 0,
+        ...(chunk.usage?.cachedTokens && { cache_read_input_tokens: chunk.usage.cachedTokens }),
+      }
+
+      const hasStopReason = !!chunk.stopReason
+
+      if (!hasStopReason) {
+        // Initial usage (from message_start) → emit message_start only
+        return formatSSE('message_start', {
+          type: 'message_start',
+          message: {
+            id: 'msg_proxy',
+            type: 'message',
+            role: 'assistant',
+            model: chunk.model ?? 'claude-3-5-sonnet-20241022',
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage,
+          },
+        })
+      }
+
+      // Final usage (from message_delta with stop_reason) → emit message_delta only
       return formatSSE('message_delta', {
         type: 'message_delta',
         delta: {
-          stop_reason: chunk.stopReason || null,
+          stop_reason: chunk.stopReason,
           stop_sequence: null,
         },
-        usage: {
-          output_tokens: chunk.usage?.outputTokens || 0,
-        },
+        usage,
       })
+    }
 
     case 'done': {
-      // When done, we MUST send message_delta with stop_reason if not sent yet, then message_stop.
-      // If we finished with a tool call, we also need to close the content block.
-
       const stopReason = chunk.stopReason || 'end_turn'
       const doneEvents: string[] = []
 
-      // If stop reason is tool_use, we imply the last content block (tool) is finished
       if (stopReason === 'tool_use') {
         doneEvents.push(
           formatSSE('content_block_stop', {
             type: 'content_block_stop',
-            index: 0,
+            index: blockIndex,
           })
         )
       }
@@ -498,6 +533,7 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
             stop_sequence: null,
           },
           usage: {
+            input_tokens: chunk.usage?.inputTokens || 0,
             output_tokens: chunk.usage?.outputTokens || 0,
           },
         })

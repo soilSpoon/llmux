@@ -91,9 +91,14 @@ describe("signature-integration", () => {
       expect(shouldCacheSignatures("claude-3-opus")).toBe(true);
     });
 
-    test("should return true for Gemini models but false for OpenAI", () => {
+    test("should return true for Gemini models with thinking support, false for OpenAI", () => {
+      // Gemini 2.0+ models - true (requires thoughtSignature when thinking enabled)
       expect(shouldCacheSignatures("gemini-2.5-flash")).toBe(true);
+      expect(shouldCacheSignatures("gemini-2.0-flash")).toBe(true);
+      // OpenAI - false (throws 400 Bad Request on unknown fields like thoughtSignature)
       expect(shouldCacheSignatures("gpt-4")).toBe(false);
+      // gemini-claude models - true (Claude thinking models need signature caching)
+      expect(shouldCacheSignatures("gemini-claude-thinking")).toBe(true);
     });
 
     test("should return false for undefined/empty", () => {

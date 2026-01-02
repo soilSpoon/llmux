@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { generatePKCE } from '@openauthjs/openauth/pkce'
 import type { OAuthCredential } from '../types'
 import {
@@ -105,6 +106,8 @@ export async function fetchAntigravityProjectID(accessToken: string): Promise<st
       // ignore
     }
   }
+  // Return empty string to trigger fallback to default project (rising-fact-p41fc)
+  // without x-goog-user-project header in streaming.ts
   return ''
 }
 
@@ -188,7 +191,15 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
 
         let effectiveProjectId = projectId
         if (!effectiveProjectId) {
-          effectiveProjectId = await fetchAntigravityProjectID(tokenPayload.access_token)
+          try {
+            effectiveProjectId = await fetchAntigravityProjectID(tokenPayload.access_token)
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!effectiveProjectId) {
+          effectiveProjectId = generateSyntheticProjectId()
         }
 
         const credential: OAuthCredential = {
@@ -197,7 +208,7 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
           refreshToken: refreshToken,
           expiresAt: Date.now() + tokenPayload.expires_in * 1000,
           email: userInfo.email,
-          projectId: effectiveProjectId || undefined,
+          projectId: effectiveProjectId,
         }
 
         return {
@@ -258,6 +269,10 @@ export async function refreshAntigravityToken(
     }
   }
 
+  if (!effectiveProjectId) {
+    effectiveProjectId = generateSyntheticProjectId()
+  }
+
   const storedRefresh = `${newRefreshToken}|${effectiveProjectId || ''}`
 
   return {
@@ -265,6 +280,19 @@ export async function refreshAntigravityToken(
     accessToken: tokenPayload.access_token,
     refreshToken: storedRefresh,
     expiresAt: Date.now() + tokenPayload.expires_in * 1000,
-    projectId: effectiveProjectId || undefined,
+    projectId: effectiveProjectId,
   }
+}
+
+/**
+ * Generate a synthetic project ID when Antigravity does not return one.
+ * Mirroring behavior from opencode-antigravity-auth.
+ */
+function generateSyntheticProjectId(): string {
+  const adjectives = ['useful', 'bright', 'swift', 'calm', 'bold']
+  const nouns = ['fuze', 'wave', 'spark', 'flow', 'core']
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]
+  const noun = nouns[Math.floor(Math.random() * nouns.length)]
+  const randomPart = randomUUID().slice(0, 5).toLowerCase()
+  return `${adj}-${noun}-${randomPart}`
 }

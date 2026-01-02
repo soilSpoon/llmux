@@ -32,55 +32,101 @@ const signatureCache = new SignatureCache({
 })
 
 // Fallback: Last signed thinking per session key (for tool use cases)
-const lastSignedThinkingBySessionKey = new Map<string, { text: string; signature: string }>()
+const lastSignedThinkingBySessionKey = new Map<
+  string,
+  { text: string; signature: string; contextHash?: string }
+>()
 
 // ============================================================================
 // LAYER 2: Global Signature Store (Antigravity method)
 // ============================================================================
-// Captures the most recent valid thoughtSignature globally.
+// Captures valid thoughtSignatures indexed by contextHash.
 // Used as fallback when session-specific cache misses.
-const globalThoughtSignatureStore: {
-  text: string | null
-  signature: string | null
+interface GlobalSignatureEntry {
+  text: string
+  signature: string
   model: string | null
   timestamp: number
-} = {
-  text: null,
-  signature: null,
-  model: null,
-  timestamp: 0,
 }
 
+const MAX_GLOBAL_ENTRIES = 50
+const MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
+
+// Map from contextHash to signature entry
+const globalThoughtSignatureStore = new Map<string, GlobalSignatureEntry>()
+
 /**
- * Store a signature in the global store (overwrites previous).
+ * Store a signature in the global store indexed by contextHash.
  * Used to capture signatures from streaming responses.
+ * @param contextHash - Hash of the conversation context (messages before this response)
  */
-export function storeGlobalThoughtSignature(signature: string, text: string, model?: string): void {
-  if (signature && signature.length >= MIN_SIGNATURE_LENGTH && text) {
-    globalThoughtSignatureStore.signature = signature
-    globalThoughtSignatureStore.text = text
-    globalThoughtSignatureStore.model = model || null
-    globalThoughtSignatureStore.timestamp = Date.now()
-    logger.debug(
-      {
-        signatureLength: signature.length,
-        textLength: text.length,
-        timestamp: globalThoughtSignatureStore.timestamp,
-      },
-      'Stored signature + text in global store (Layer 2 fallback)'
-    )
+export function storeGlobalThoughtSignature(
+  signature: string,
+  text: string,
+  model?: string,
+  contextHash?: string
+): void {
+  if (!signature || signature.length < MIN_SIGNATURE_LENGTH || !text || !contextHash) {
+    return
   }
+
+  // Cleanup expired entries periodically
+  const now = Date.now()
+  for (const [hash, entry] of globalThoughtSignatureStore) {
+    if (now - entry.timestamp > MAX_AGE_MS) {
+      globalThoughtSignatureStore.delete(hash)
+    }
+  }
+
+  // Enforce max entries (remove oldest if needed)
+  if (globalThoughtSignatureStore.size >= MAX_GLOBAL_ENTRIES) {
+    let oldestHash: string | null = null
+    let oldestTimestamp = Infinity
+    for (const [hash, entry] of globalThoughtSignatureStore) {
+      if (entry.timestamp < oldestTimestamp) {
+        oldestTimestamp = entry.timestamp
+        oldestHash = hash
+      }
+    }
+    if (oldestHash) {
+      globalThoughtSignatureStore.delete(oldestHash)
+    }
+  }
+
+  globalThoughtSignatureStore.set(contextHash, {
+    text,
+    signature,
+    model: model || null,
+    timestamp: now,
+  })
+
+  logger.debug(
+    {
+      signatureLength: signature.length,
+      textLength: text.length,
+      contextHash: contextHash.slice(0, 8),
+      storeSize: globalThoughtSignatureStore.size,
+    },
+    'Stored signature in global store (Layer 2 fallback)'
+  )
 }
 
 /**
- * Get the most recent global thought signature.
- * Returns undefined if signature is older than 10 minutes.
+ * Get the global thought signature for a specific context.
+ * Returns undefined if signature is older than 10 minutes or context hash not found.
+ * @param targetModel - The target model to check for family compatibility
+ * @param currentContextHash - Hash of the current conversation context to lookup
  */
 export function getGlobalThoughtSignature(
-  targetModel?: string
+  targetModel?: string,
+  currentContextHash?: string
 ): { text: string; signature: string } | undefined {
-  const { signature, text, model, timestamp } = globalThoughtSignatureStore
-  if (!signature || !text) return undefined
+  if (!currentContextHash) return undefined
+
+  const entry = globalThoughtSignatureStore.get(currentContextHash)
+  if (!entry) return undefined
+
+  const { signature, text, model, timestamp } = entry
 
   // Prevent cross-model pollution (e.g. injecting Claude signature into Gemini)
   if (targetModel && model && getModelFamily(targetModel) !== getModelFamily(model)) {
@@ -92,9 +138,8 @@ export function getGlobalThoughtSignature(
   }
 
   const age = Date.now() - timestamp
-  const MAX_AGE_MS = 10 * 60 * 1000 // 10 minutes
-
   if (age > MAX_AGE_MS) {
+    globalThoughtSignatureStore.delete(currentContextHash)
     logger.debug(
       { ageSeconds: Math.floor(age / 1000) },
       'Global signature expired (Layer 2 fallback timeout)'
@@ -109,14 +154,59 @@ export function getGlobalThoughtSignature(
  * Clear the global signature store.
  */
 export function clearGlobalThoughtSignature(): void {
-  globalThoughtSignatureStore.signature = null
-  globalThoughtSignatureStore.text = null
-  globalThoughtSignatureStore.model = null
-  globalThoughtSignatureStore.timestamp = 0
+  globalThoughtSignatureStore.clear()
   logger.debug({}, 'Cleared global signature store')
 }
 
 const MIN_SIGNATURE_LENGTH = 50
+
+/**
+ * Create a hash of the conversation context (all messages except the last assistant message).
+ * This hash is used to validate that a cached signature belongs to the same conversation.
+ */
+export function createConversationContextHash(contents?: Content[], messages?: Message[]): string {
+  const parts: string[] = []
+
+  if (contents && Array.isArray(contents)) {
+    for (const content of contents) {
+      if (!content || typeof content !== 'object') continue
+      const role = content.role || 'unknown'
+      const textParts: string[] = []
+
+      if (Array.isArray(content.parts)) {
+        for (const part of content.parts) {
+          if (part && typeof part.text === 'string') {
+            textParts.push(part.text.slice(0, 100))
+          }
+        }
+      }
+
+      parts.push(`${role}:${textParts.join('|')}`)
+    }
+  }
+
+  if (messages && Array.isArray(messages)) {
+    for (const message of messages) {
+      if (!message || typeof message !== 'object') continue
+      const role = message.role || 'unknown'
+      let textContent = ''
+
+      if (typeof message.content === 'string') {
+        textContent = message.content.slice(0, 100)
+      } else if (Array.isArray(message.content)) {
+        const texts = message.content
+          .filter((b): b is Block => b?.type === 'text' && typeof b.text === 'string')
+          .map((b) => b.text?.slice(0, 100) || '')
+        textContent = texts.join('|')
+      }
+
+      parts.push(`${role}:${textContent}`)
+    }
+  }
+
+  const contextString = parts.join('\n')
+  return createTextHash(contextString)
+}
 
 /**
  * The stable session ID for this server instance.
@@ -301,8 +391,7 @@ function hashConversationSeed(seed: string): string {
 
 /**
  * Check if a model should use signature caching.
- * Relaxed policy: Allow for ALL models except OpenAI (which errors on unknown fields).
- * This supports Claude, Gemini, and any future models that support thinking signatures.
+ * Supports Claude thinking models and Gemini models with thinking support.
  */
 export function shouldCacheSignatures(model?: string): boolean {
   if (typeof model !== 'string') return false
@@ -314,14 +403,10 @@ export function shouldCacheSignatures(model?: string): boolean {
     return false
   }
 
-  // Only cache signatures for Claude thinking models through Antigravity
-  // Native Gemini models don't need/validate thinking signatures
-  if (family === 'gemini' && !model.includes('claude')) {
-    return false
-  }
-
-  // Allow Claude native models and gemini-claude-thinking models
-  return true
+  // Gemini 2.0+ requires thoughtSignature when thinking mode is active
+  // Claude thinking models also require signature caching
+  // Both families need this for proper tool-use with thinking
+  return family === 'claude' || family === 'gemini'
 }
 
 // ============================================================================
@@ -331,6 +416,7 @@ export function shouldCacheSignatures(model?: string): boolean {
 /**
  * Process a streaming chunk and cache any thoughtSignatures found.
  * Call this for each transformed chunk in the streaming handler.
+ * @param contextHash - Hash of the conversation context at request time
  */
 export function cacheSignatureFromChunk(
   sessionKey: string,
@@ -338,7 +424,8 @@ export function cacheSignatureFromChunk(
     thinking?: { text?: string; signature?: string }
   },
   thoughtBuffer: Map<number, string>,
-  candidateIndex = 0
+  candidateIndex = 0,
+  contextHash?: string
 ): void {
   if (!chunkData.thinking) return
 
@@ -381,11 +468,13 @@ export function cacheSignatureFromChunk(
       lastSignedThinkingBySessionKey.set(sessionKey, {
         text: fullText,
         signature,
+        contextHash,
       })
 
       // 🔧 LAYER 2: Store in global signature store (Antigravity method)
       // This is used as fallback when session-specific cache misses on subsequent requests
-      storeGlobalThoughtSignature(signature, fullText, family)
+      // Now includes contextHash for cross-conversation validation
+      storeGlobalThoughtSignature(signature, fullText, family, contextHash)
 
       logger.debug(
         {
@@ -462,27 +551,38 @@ export function ensureThinkingSignatures(
   // Note: Removed the block for Gemini. We WANT to restore signatures for Gemini
   // if they involve tool use, provided we have the correct signature/text.
 
+  // Generate context hash for signature validation
+  const contextHash = createConversationContextHash(typedBody.contents, typedBody.messages)
+
   // STEP 2: Inject cached thinking only for tool-use cases
   // (Only inject before tool_use blocks to prevent invalid signatures)
   if (Array.isArray(typedBody.contents)) {
-    typedBody.contents = ensureSignaturesInContents(typedBody.contents, sessionKey)
+    typedBody.contents = ensureSignaturesInContents(typedBody.contents, sessionKey, contextHash)
   }
   if (Array.isArray(typedBody.messages)) {
-    typedBody.messages = ensureSignaturesInMessages(typedBody.messages, sessionKey)
+    typedBody.messages = ensureSignaturesInMessages(typedBody.messages, sessionKey, contextHash)
   }
 
   // Handle wrapped request format (step 2)
   if (typedBody.request && typeof typedBody.request === 'object') {
-    if (Array.isArray(typedBody.request.contents)) {
-      typedBody.request.contents = ensureSignaturesInContents(
-        typedBody.request.contents,
-        sessionKey
+    const nestedRequest = typedBody.request as Record<string, unknown>
+    // Generate context hash for nested request
+    const nestedContextHash = createConversationContextHash(
+      nestedRequest.contents as Message[] | undefined,
+      nestedRequest.messages as Message[] | undefined
+    )
+    if (Array.isArray(nestedRequest.contents)) {
+      nestedRequest.contents = ensureSignaturesInContents(
+        nestedRequest.contents,
+        sessionKey,
+        nestedContextHash
       )
     }
-    if (Array.isArray(typedBody.request.messages)) {
-      typedBody.request.messages = ensureSignaturesInMessages(
-        typedBody.request.messages,
-        sessionKey
+    if (Array.isArray(nestedRequest.messages)) {
+      nestedRequest.messages = ensureSignaturesInMessages(
+        nestedRequest.messages,
+        sessionKey,
+        nestedContextHash
       )
     }
   }
@@ -617,7 +717,11 @@ function stripAllThinkingFromMessages(messages: Message[], _sessionKey: string):
   })
 }
 
-function ensureSignaturesInContents(contents: Content[], sessionKey: string): Content[] {
+function ensureSignaturesInContents(
+  contents: Content[],
+  sessionKey: string,
+  contextHash?: string
+): Content[] {
   // Find the last model/assistant message index
   const lastModelIndex = findLastIndex(
     contents,
@@ -663,7 +767,11 @@ function ensureSignaturesInContents(contents: Content[], sessionKey: string): Co
 
     // 🔧 LAYER 1: Try session-specific cache first (highest priority)
     const lastThinking = lastSignedThinkingBySessionKey.get(sessionKey)
-    if (lastThinking) {
+    // Only use if context hash matches (if provided)
+    if (
+      lastThinking &&
+      (!contextHash || !lastThinking.contextHash || lastThinking.contextHash === contextHash)
+    ) {
       const injected: Part = {
         thought: true,
         text: lastThinking.text,
@@ -677,7 +785,8 @@ function ensureSignaturesInContents(contents: Content[], sessionKey: string): Co
     // Uses the most recent valid signature from any session
     // Must apply to BOTH tool_use cases AND the last model message
     // (Claude API requires: thinking before tool_use AND final assistant must start with thinking)
-    const globalData = getGlobalThoughtSignature(sessionKey.split(':')[1])
+    // Now includes contextHash validation to prevent cross-conversation pollution
+    const globalData = getGlobalThoughtSignature(sessionKey.split(':')[1], contextHash)
     if (globalData && (hasToolUse || isLastModelMessage)) {
       const injected: Part = {
         thought: true,
@@ -694,7 +803,11 @@ function ensureSignaturesInContents(contents: Content[], sessionKey: string): Co
   })
 }
 
-function ensureSignaturesInMessages(messages: Message[], sessionKey: string): Message[] {
+function ensureSignaturesInMessages(
+  messages: Message[],
+  sessionKey: string,
+  contextHash?: string
+): Message[] {
   // Find the last assistant message index
   const lastAssistantIndex = findLastIndex(messages, (m: Message) => m?.role === 'assistant')
 
@@ -751,7 +864,8 @@ function ensureSignaturesInMessages(messages: Message[], sessionKey: string): Me
 
     // 🔧 LAYER 2: Try global signature store (Antigravity fallback)
     // Uses the most recent valid signature from any session
-    const globalData = getGlobalThoughtSignature()
+    // Now includes contextHash validation to prevent cross-conversation pollution
+    const globalData = getGlobalThoughtSignature(sessionKey.split(':')[1], contextHash)
     if (globalData && hasToolUse) {
       const injected: Block = {
         type: 'thinking',

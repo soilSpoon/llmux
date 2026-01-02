@@ -426,7 +426,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.project).toBeDefined();
         expect(result.model).toBeDefined();
@@ -435,6 +435,26 @@ describe("Antigravity Request Transformations", () => {
         expect(result.request.contents).toHaveLength(1);
         expect(result.request.contents[0]!.role).toBe("user");
         expect(result.request.contents[0]!.parts[0]!.text).toBe("Hello");
+      });
+
+      it("should PRESERVE gemini-3 model IDs with suffixes", () => {
+        const unifiedRequest = createUnifiedRequest({
+          messages: [createUnifiedMessage("user", "Hello")],
+        });
+
+        const result = transform(unifiedRequest, 'gemini-3-pro-high') as AntigravityRequest;
+
+        expect(result.model).toBe("gemini-3-pro-high");
+      });
+
+      it("should PRESERVE all model IDs as-is (no more replace)", () => {
+        const unifiedRequest = createUnifiedRequest({
+          messages: [createUnifiedMessage("user", "Hello")],
+        });
+
+        const result = transform(unifiedRequest, 'claude-3-5-sonnet-high') as AntigravityRequest;
+
+        expect(result.model).toBe("claude-3-5-sonnet-high");
       });
 
       it("should transform multi-turn conversation", () => {
@@ -446,7 +466,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.contents).toHaveLength(3);
         expect(result.request.contents[0]!.role).toBe("user");
@@ -459,7 +479,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("assistant", "Hello from assistant")],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.contents[0]!.role).toBe("model");
       });
@@ -472,7 +492,7 @@ describe("Antigravity Request Transformations", () => {
           system: "You are a helpful assistant.",
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.systemInstruction).toBeDefined();
         expect(result.request.systemInstruction?.parts).toHaveLength(1);
@@ -495,7 +515,7 @@ describe("Antigravity Request Transformations", () => {
           },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.generationConfig?.temperature).toBe(0.7);
         expect(result.request.generationConfig?.topP).toBe(0.9);
@@ -514,10 +534,9 @@ describe("Antigravity Request Transformations", () => {
             budget: 8192,
             includeThoughts: true,
           },
-          metadata: { model: "gemini-2.5-pro" },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.5-pro') as AntigravityRequest;
 
         expect(
           result.request.generationConfig?.thinkingConfig?.includeThoughts
@@ -535,10 +554,9 @@ describe("Antigravity Request Transformations", () => {
             budget: 16384,
             includeThoughts: true,
           },
-          metadata: { model: "claude-sonnet-4-5-thinking" },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityRequest;
 
         expect(
           result.request.generationConfig?.thinkingConfig?.include_thoughts
@@ -558,10 +576,9 @@ describe("Antigravity Request Transformations", () => {
           config: {
             maxTokens: 1000,
           },
-          metadata: { model: "claude-sonnet-4-5-thinking" },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityRequest;
 
         expect(
           result.request.generationConfig?.maxOutputTokens
@@ -584,7 +601,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.tools).toHaveLength(1);
         expect(result.request.tools![0]!.functionDeclarations).toHaveLength(1);
@@ -593,13 +610,26 @@ describe("Antigravity Request Transformations", () => {
         );
       });
 
-      it("should enforce VALIDATED mode in toolConfig", () => {
+      it("should enforce AUTO mode in toolConfig", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [createUnifiedMessage("user", "Hello")],
           tools: [createUnifiedTool("test_tool", "A test tool")],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
+
+        expect(result.request.toolConfig?.functionCallingConfig?.mode).toBe(
+          "AUTO"
+        );
+      });
+
+      it("should enforce VALIDATED mode in toolConfig for Claude models", () => {
+        const unifiedRequest = createUnifiedRequest({
+          messages: [createUnifiedMessage("user", "Hello")],
+          tools: [createUnifiedTool("test_tool", "A test tool")],
+        });
+
+        const result = transform(unifiedRequest, 'claude-sonnet-4-5') as AntigravityRequest;
 
         expect(result.request.toolConfig?.functionCallingConfig?.mode).toBe(
           "VALIDATED"
@@ -609,11 +639,17 @@ describe("Antigravity Request Transformations", () => {
 
     describe("tool call/result transformation", () => {
       it("should transform tool_call to functionCall", () => {
+        // Use a valid signature (>= 50 characters)
+        const validSig = 'valid_signature_that_is_at_least_fifty_characters_long_for_test'
         const unifiedRequest = createUnifiedRequest({
           messages: [
             {
               role: "assistant",
               parts: [
+                {
+                  type: 'thinking',
+                  thinking: { text: 'Thinking...', signature: validSig },
+                },
                 {
                   type: "tool_call",
                   toolCall: {
@@ -627,19 +663,99 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.request.contents[0]!.parts[0]!.functionCall?.name).toBe(
+        // Thinking blocks are now preserved (server's ensureThinkingSignatures handles filtering)
+        // Thinking is at index 0, tool_call at index 1
+        expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
+        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(validSig);
+        
+        expect(result.request.contents[0]!.parts[1]!.functionCall?.name).toBe(
           "get_weather"
         );
         expect(
-          result.request.contents[0]!.parts[0]!.functionCall?.args
+          result.request.contents[0]!.parts[1]!.functionCall?.args
         ).toEqual({
           location: "NYC",
         });
-        expect(result.request.contents[0]!.parts[0]!.functionCall?.id).toBe(
+        expect(result.request.contents[0]!.parts[1]!.functionCall?.id).toBe(
           "call-123"
         );
+        // Signature from thinking block should be propagated to functionCall
+        expect(result.request.contents[0]!.parts[1]!.thoughtSignature).toBe(validSig);
+      });
+
+      it("should add skip_thought_signature_validator when signature is missing", () => {
+        // Go CLIProxyAPI pattern: always add skip sentinel instead of downgrading to text
+        const unifiedRequest = createUnifiedRequest({
+          messages: [
+            {
+              role: "assistant", // "model" in Antigravity
+              parts: [
+                {
+                  type: "tool_call",
+                  toolCall: {
+                    id: "call-missing-sig",
+                    name: "danger_tool",
+                    arguments: { key: "value" },
+                  },
+                },
+              ],
+            },
+          ],
+        });
+
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
+        
+        // Should be functionCall with skip sentinel (not downgraded to text)
+        const part = result.request.contents[0]!.parts[0]!;
+        expect(part.functionCall).toBeDefined();
+        expect(part.functionCall?.name).toBe("danger_tool");
+        expect(part.thoughtSignature).toBe("skip_thought_signature_validator");
+      });
+
+      it("should transform tool_result to functionResponse even without signature", () => {
+        // Go CLIProxyAPI pattern: tool_result is always transformed, not downgraded
+        const unifiedRequest = createUnifiedRequest({
+          messages: [
+            {
+              role: "assistant",
+              parts: [
+                {
+                  type: "tool_call",
+                  toolCall: {
+                    id: "call-test",
+                    name: "test_tool",
+                    arguments: {},
+                  },
+                },
+              ],
+            },
+            {
+              role: "user",
+              parts: [
+                {
+                  type: "tool_result",
+                  toolResult: {
+                    toolCallId: "call-test",
+                    content: "Simulated result",
+                  },
+                },
+              ],
+            },
+          ],
+        });
+
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
+        
+        // Tool Call should be functionCall with skip sentinel
+        expect(result.request.contents[0]!.parts[0]!.functionCall).toBeDefined();
+        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe("skip_thought_signature_validator");
+        
+        // Tool Result should be functionResponse (not downgraded to text)
+        const resultPart = result.request.contents[1]!.parts[0]!;
+        expect(resultPart.functionResponse).toBeDefined();
+        expect(resultPart.functionResponse?.response).toEqual({ result: "Simulated result" });
       });
 
       it("should transform tool_result to functionResponse", () => {
@@ -660,7 +776,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(
           result.request.contents[0]!.parts[0]!.functionResponse?.name
@@ -688,7 +804,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(
           result.request.contents[0]!.parts[0]!.functionResponse?.response
@@ -697,7 +813,10 @@ describe("Antigravity Request Transformations", () => {
     });
 
     describe("thinking blocks transformation", () => {
-      it("should transform thinking parts with signatures", () => {
+      it("should preserve thinking blocks in model messages (server handles filtering)", () => {
+        // B-option: Server's ensureThinkingSignatures handles stripping invalid thinking blocks
+        // request.ts just transforms what the server provides
+        const validSig = "valid_sig_that_is_at_least_fifty_characters_long_to_be_valid"
         const unifiedRequest = createUnifiedRequest({
           messages: [
             {
@@ -707,7 +826,7 @@ describe("Antigravity Request Transformations", () => {
                   type: "thinking",
                   thinking: {
                     text: "Let me think...",
-                    signature: "sig123",
+                    signature: validSig,
                   },
                 },
                 { type: "text", text: "Here is my answer." },
@@ -716,17 +835,50 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, {
-          stripSignatures: false,
-        }) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
+        // Thinking block is preserved (server handles stripping invalid ones)
+        expect(result.request.contents[0]!.parts).toHaveLength(2);
         expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
-        expect(result.request.contents[0]!.parts[0]!.text).toBe(
-          "Let me think..."
-        );
-        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(
-          "sig123"
-        );
+        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[1]!.text).toBe("Here is my answer.");
+      });
+
+      it("should propagate signature from thinking to subsequent tool calls", () => {
+        const validSig = "valid_sig_that_is_at_least_fifty_characters_long_to_be_valid"
+        const unifiedRequest = createUnifiedRequest({
+          messages: [
+            {
+              role: "assistant",
+              parts: [
+                {
+                  type: "thinking",
+                  thinking: {
+                    text: "Let me think...",
+                    signature: validSig,
+                  },
+                },
+                {
+                  type: "tool_call",
+                  toolCall: {
+                    id: "call-1",
+                    name: "test_tool",
+                    arguments: {},
+                  },
+                },
+              ],
+            },
+          ],
+        });
+
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
+
+        // Both thinking block and tool call preserved, with signature propagated to tool
+        expect(result.request.contents[0]!.parts).toHaveLength(2);
+        expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
+        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[1]!.functionCall?.name).toBe("test_tool");
+        expect(result.request.contents[0]!.parts[1]!.thoughtSignature).toBe(validSig);
       });
     });
 
@@ -737,20 +889,20 @@ describe("Antigravity Request Transformations", () => {
           metadata: { sessionId: "session-abc123" },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.sessionId).toBe("session-abc123");
       });
 
-      it("should use model from metadata", () => {
+      it("should use model from argument (ignoring metadata override)", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [createUnifiedMessage("user", "Hello")],
-          metadata: { model: "claude-sonnet-4-5" },
+          metadata: { model: "claude-sonnet-4-5-ignored" },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.model).toBe("claude-sonnet-4-5");
+        expect(result.model).toBe("gemini-2.0-flash");
       });
 
       it("should use project from metadata", () => {
@@ -759,7 +911,7 @@ describe("Antigravity Request Transformations", () => {
           metadata: { project: "my-project" },
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.project).toBe("my-project");
       });
@@ -769,7 +921,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.model).toBe("gemini-2.0-flash");
       });
@@ -779,7 +931,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.project).toBe("rising-fact-p41fc");
       });
@@ -802,7 +954,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest) as AntigravityRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.contents[0]!.parts[0]!.inlineData?.mimeType).toBe(
           "image/png"
@@ -825,7 +977,7 @@ describe("Antigravity Request Transformations", () => {
         config: { temperature: 0.7, maxTokens: 1000 },
       });
 
-      const antigravityRequest = transform(unifiedRequest);
+      const antigravityRequest = transform(unifiedRequest, 'gemini-2.0-flash');
       const parsedBack = parse(antigravityRequest as AntigravityRequest);
 
       expect(parsedBack.messages[0]!.parts[0]!.text).toBe("Hello");
@@ -836,8 +988,61 @@ describe("Antigravity Request Transformations", () => {
     });
   });
 
-  describe("stripSignatures option", () => {
-    it("should strip thoughtSignature when stripSignatures is true", () => {
+  describe("Signature caching integration (B-option)", () => {
+    // New behavior: Thinking blocks are now preserved (handled by server's ensureThinkingSignatures)
+    // Server handles stripping invalid blocks and injecting cached signatures
+    // request.ts just transforms what the server provides
+
+    it('should preserve thinking blocks and propagate signatures to tool calls', () => {
+      const validSig = 'sig_that_is_at_least_fifty_characters_long_for_validation'
+      const unifiedRequest = createUnifiedRequest({
+        messages: [
+          {
+            role: 'assistant',
+            parts: [
+              {
+                type: 'thinking',
+                thinking: { text: 'Thinking...', signature: validSig },
+              },
+              {
+                type: 'tool_call',
+                toolCall: { id: 'call_1', name: 'tool_1', arguments: {} },
+              },
+            ],
+          },
+          {
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool_call',
+                toolCall: { id: 'call_2', name: 'tool_2', arguments: {} },
+              },
+            ],
+          },
+        ],
+      })
+
+      const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest
+      const contents = result.request.contents
+      
+      if (!contents) throw new Error('Contents should be defined')
+
+      // First message: thinking block PRESERVED, plus tool_call with propagated signature
+      const msg1Parts = contents[0]?.parts
+      expect(msg1Parts).toHaveLength(2)
+      expect(msg1Parts?.[0]?.thought).toBe(true)
+      expect(msg1Parts?.[0]?.thoughtSignature).toBe(validSig)
+      expect(msg1Parts?.[1]?.functionCall?.name).toBe('tool_1')
+      expect(msg1Parts?.[1]?.thoughtSignature).toBe(validSig)
+      
+      // Second message: tool_call has signature propagated from first message
+      const msg2Parts = contents[1]?.parts
+      expect(msg2Parts).toHaveLength(1)
+      expect(msg2Parts?.[0]?.functionCall?.name).toBe('tool_2')
+      expect(msg2Parts?.[0]?.thoughtSignature).toBe(validSig)
+    })
+
+    it("should preserve thinking blocks with signatures (server handles filtering)", () => {
       const unifiedRequest = createUnifiedRequest({
         messages: [
           createUnifiedMessage("user", "What is 2+2?"),
@@ -848,7 +1053,7 @@ describe("Antigravity Request Transformations", () => {
                 type: "thinking",
                 thinking: {
                   text: "I need to calculate 2+2",
-                  signature: "claude-signature-12345",
+                  signature: "claude-signature-12345678901234567890123456789012",
                 },
               },
               {
@@ -861,136 +1066,84 @@ describe("Antigravity Request Transformations", () => {
         metadata: { model: "gemini-2.0-flash" },
       });
 
-      const antigravityRequest = transform(unifiedRequest, {
-        stripSignatures: true,
-      });
+      const antigravityRequest = transform(unifiedRequest, 'gemini-2.0-flash');
 
       const contents = antigravityRequest.request.contents;
       const secondContent = contents[1];
-      const thinkingPart = secondContent?.parts.find((p) => p.thought);
-
-      // Signature should be removed
-      expect(thinkingPart).toBeDefined();
-      expect(thinkingPart?.thought).toBe(true);
-      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
-      expect(thinkingPart?.thoughtSignature).toBeUndefined();
+      
+      // Thinking block PRESERVED (server's ensureThinkingSignatures handles stripping invalid ones)
+      expect(secondContent?.parts).toHaveLength(2);
+      expect(secondContent?.parts?.[0]?.thought).toBe(true);
+      expect(secondContent?.parts?.[0]?.thoughtSignature).toBe("claude-signature-12345678901234567890123456789012");
+      expect(secondContent?.parts?.[1]?.text).toBe("The answer is 4");
     });
 
-    it("should preserve thoughtSignature when stripSignatures is false", () => {
+    it("should use skip_thought_signature_validator when signature is too short", () => {
       const unifiedRequest = createUnifiedRequest({
         messages: [
-          createUnifiedMessage("user", "What is 2+2?"),
           {
             role: "assistant",
             parts: [
               {
                 type: "thinking",
                 thinking: {
-                  text: "I need to calculate 2+2",
-                  signature: "claude-signature-12345",
+                  text: "Short thinking",
+                  signature: "short_sig", // Less than 50 characters
                 },
               },
               {
-                type: "text",
-                text: "The answer is 4",
+                type: "tool_call",
+                toolCall: { id: 'call_1', name: 'test_tool', arguments: {} },
               },
             ],
           },
         ],
-        metadata: { model: "gemini-2.0-flash" },
       });
 
-      const antigravityRequest = transform(unifiedRequest, {
-        stripSignatures: false,
-      });
+      const antigravityRequest = transform(unifiedRequest, 'gemini-2.0-flash');
 
       const contents = antigravityRequest.request.contents;
-      const secondContent = contents[1];
-      const thinkingPart = secondContent?.parts.find((p) => p.thought);
-
-      // Signature should be preserved
-      expect(thinkingPart).toBeDefined();
-      expect(thinkingPart?.thought).toBe(true);
-      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
-      expect(thinkingPart?.thoughtSignature).toBe("claude-signature-12345");
+      // Thinking preserved, tool call uses skip sentinel because signature is too short
+      expect(contents[0]?.parts).toHaveLength(2);
+      expect(contents[0]?.parts?.[0]?.thought).toBe(true);
+      expect(contents[0]?.parts?.[1]?.functionCall?.name).toBe('test_tool');
+      expect(contents[0]?.parts?.[1]?.thoughtSignature).toBe('skip_thought_signature_validator');
     });
 
-    it("should strip signatures by default when not specified", () => {
+    it("should use valid signature when it meets minimum length", () => {
+      const validSig = 'valid_signature_that_is_at_least_fifty_characters_long_for_validation'
       const unifiedRequest = createUnifiedRequest({
         messages: [
-          createUnifiedMessage("user", "What is 2+2?"),
           {
             role: "assistant",
             parts: [
               {
                 type: "thinking",
                 thinking: {
-                  text: "I need to calculate 2+2",
-                  signature: "claude-signature-12345",
+                  text: "Thinking...",
+                  signature: validSig,
                 },
               },
               {
-                type: "text",
-                text: "The answer is 4",
+                type: "tool_call",
+                toolCall: { id: 'call_1', name: 'test_tool', arguments: {} },
               },
             ],
           },
         ],
-        metadata: { model: "gemini-2.0-flash" },
       });
 
-      const antigravityRequest = transform(unifiedRequest);
+      const antigravityRequest = transform(unifiedRequest, 'gemini-2.0-flash');
 
       const contents = antigravityRequest.request.contents;
-      const secondContent = contents[1];
-      const thinkingPart = secondContent?.parts.find((p) => p.thought);
-
-      // Signature should be removed by default
-      expect(thinkingPart).toBeDefined();
-      expect(thinkingPart?.thought).toBe(true);
-      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
-      expect(thinkingPart?.thoughtSignature).toBeUndefined();
+      expect(contents[0]?.parts).toHaveLength(2);
+      expect(contents[0]?.parts?.[0]?.thought).toBe(true);
+      expect(contents[0]?.parts?.[1]?.functionCall?.name).toBe('test_tool');
+      expect(contents[0]?.parts?.[1]?.thoughtSignature).toBe(validSig);
     });
 
-    it("should only strip signatures when different model fallback", () => {
-      const unifiedRequest = createUnifiedRequest({
-        messages: [
-          createUnifiedMessage("user", "What is 2+2?"),
-          {
-            role: "assistant",
-            parts: [
-              {
-                type: "thinking",
-                thinking: {
-                  text: "I need to calculate 2+2",
-                  signature: "claude-signature-12345",
-                },
-              },
-              {
-                type: "text",
-                text: "The answer is 4",
-              },
-            ],
-          },
-        ],
-        metadata: { model: "gemini-2.0-flash" },
-      });
-
-      // When falling back from claude-opus to gemini
-      const antigravityRequest = transform(unifiedRequest, {
-        stripSignatures: true,
-        sourceModel: "claude-opus-4-5-thinking",
-      });
-
-      const contents = antigravityRequest.request.contents;
-      const secondContent = contents[1];
-      const thinkingPart = secondContent?.parts.find((p) => p.thought);
-
-      expect(thinkingPart?.thoughtSignature).toBeUndefined();
-      expect(thinkingPart?.text).toBe("I need to calculate 2+2");
-    });
-
-    it("should preserve other part properties when stripping signatures", () => {
+    it("should preserve both thinking and text parts (server handles validation)", () => {
+      const validSig = 'sig_that_is_at_least_fifty_characters_long_for_validation'
       const unifiedRequest = createUnifiedRequest({
         messages: [
           createUnifiedMessage("user", "Test"),
@@ -1001,7 +1154,7 @@ describe("Antigravity Request Transformations", () => {
                 type: "thinking",
                 thinking: {
                   text: "Thinking...",
-                  signature: "sig123",
+                  signature: validSig,
                 },
               },
               {
@@ -1014,21 +1167,16 @@ describe("Antigravity Request Transformations", () => {
         metadata: { model: "gemini-2.0-flash" },
       });
 
-      const antigravityRequest = transform(unifiedRequest, {
-        stripSignatures: true,
-      });
+      const antigravityRequest = transform(unifiedRequest, 'gemini-2.0-flash');
 
       const contents = antigravityRequest.request.contents;
       const parts = contents[1]?.parts;
 
-      // Both parts should exist
+      // Both thinking and text parts preserved (server handles filtering invalid ones)
       expect(parts).toHaveLength(2);
-      // Text part should be unchanged
-      expect(parts?.[1]?.text).toBe("Response");
-      // Thinking part should have thought and text but no signature
       expect(parts?.[0]?.thought).toBe(true);
-      expect(parts?.[0]?.text).toBe("Thinking...");
-      expect(parts?.[0]?.thoughtSignature).toBeUndefined();
+      expect(parts?.[0]?.thoughtSignature).toBe(validSig);
+      expect(parts?.[1]?.text).toBe("Response");
     });
   });
 });

@@ -45,34 +45,40 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (!candidate?.content) {
     // Handle done chunk (finishReason but no content)
     if (candidate?.finishReason) {
-      return parseDoneChunk(candidate.finishReason, data.usageMetadata)
+      return parseDoneChunk(candidate.finishReason, data.usageMetadata, candidate.index)
     }
     return null
   }
 
   const parts = candidate.content.parts ?? []
+  const blockIndex = candidate.index ?? 0
 
   // Check for thinking parts
   const thinkingPart = parts.find((p) => p.thought === true)
   if (thinkingPart) {
-    return parseThinkingChunk(thinkingPart, candidate.finishReason, data.usageMetadata)
+    return parseThinkingChunk(thinkingPart, candidate.finishReason, data.usageMetadata, blockIndex)
   }
 
   // Check for function call
   const functionCallPart = parts.find((p) => p.functionCall)
   if (functionCallPart) {
-    return parseFunctionCallChunk(functionCallPart, candidate.finishReason, data.usageMetadata)
+    return parseFunctionCallChunk(
+      functionCallPart,
+      candidate.finishReason,
+      data.usageMetadata,
+      blockIndex
+    )
   }
 
   // Check for text content
   const textParts = parts.filter((p) => p.text !== undefined && !p.thought)
   if (textParts.length > 0) {
-    return parseTextChunk(textParts, candidate.finishReason, data.usageMetadata)
+    return parseTextChunk(textParts, candidate.finishReason, data.usageMetadata, blockIndex)
   }
 
   // Handle done chunk (finishReason but no content)
   if (candidate.finishReason) {
-    return parseDoneChunk(candidate.finishReason, data.usageMetadata)
+    return parseDoneChunk(candidate.finishReason, data.usageMetadata, blockIndex)
   }
 
   return null
@@ -93,13 +99,16 @@ export function transformStreamChunk(chunk: StreamChunk): string {
 function parseTextChunk(
   textParts: GeminiPart[],
   finishReason?: GeminiFinishReason,
-  usageMetadata?: GeminiUsageMetadata
+  usageMetadata?: GeminiUsageMetadata,
+  blockIndex = 0
 ): StreamChunk {
   // Concatenate all text parts
   const text = textParts.map((p) => p.text ?? '').join('')
 
   const result: StreamChunk = {
     type: 'content',
+    blockIndex,
+    blockType: 'text',
     delta: { type: 'text', text },
   }
 
@@ -117,7 +126,8 @@ function parseTextChunk(
 function parseFunctionCallChunk(
   part: GeminiPart,
   _finishReason?: GeminiFinishReason,
-  usageMetadata?: GeminiUsageMetadata
+  usageMetadata?: GeminiUsageMetadata,
+  blockIndex = 0
 ): StreamChunk {
   const args = part.functionCall?.args ?? {}
 
@@ -144,6 +154,8 @@ function parseFunctionCallChunk(
   // Create the result with original args preserved
   const result: StreamChunk = {
     type: 'tool_call',
+    blockIndex,
+    blockType: 'tool_call',
     delta: {
       type: 'tool_call',
       toolCall: {
@@ -168,10 +180,13 @@ function parseFunctionCallChunk(
 function parseThinkingChunk(
   part: GeminiPart,
   finishReason?: GeminiFinishReason,
-  usageMetadata?: GeminiUsageMetadata
+  usageMetadata?: GeminiUsageMetadata,
+  blockIndex = 0
 ): StreamChunk {
   const result: StreamChunk = {
     type: 'thinking',
+    blockIndex,
+    blockType: 'thinking',
     delta: {
       type: 'thinking',
       thinking: {
@@ -194,10 +209,12 @@ function parseThinkingChunk(
 
 function parseDoneChunk(
   finishReason: GeminiFinishReason,
-  usageMetadata?: GeminiUsageMetadata
+  usageMetadata?: GeminiUsageMetadata,
+  blockIndex = 0
 ): StreamChunk {
   const result: StreamChunk = {
     type: 'done',
+    blockIndex,
     stopReason: mapFinishReason(finishReason, false),
   }
 

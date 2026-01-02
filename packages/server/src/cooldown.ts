@@ -55,10 +55,29 @@ export class CooldownManager {
     return this.cooldowns.get(key)?.resetAt || 0
   }
 
+  getAll(): Array<{ key: string; resetAt: number; backoffLevel: number }> {
+    const result: Array<{ key: string; resetAt: number; backoffLevel: number }> = []
+    for (const [key, state] of this.cooldowns.entries()) {
+      if (state.resetAt > 0) {
+        result.push({ key, resetAt: state.resetAt, backoffLevel: state.backoffLevel })
+      }
+    }
+    return result
+  }
+
   /**
    * Reset the backoff level for a model (e.g. after a successful request)
    */
   reset(key: string): void {
     this.cooldowns.delete(key)
   }
+
+  /**
+   * Clear all cooldowns (useful for testing)
+   */
+  clear(): void {
+    this.cooldowns.clear()
+  }
 }
+
+export const globalCooldownManager = new CooldownManager()

@@ -294,6 +294,22 @@ describe("Anthropic Response Transformations", () => {
       expect(result.usage.output_tokens).toBe(50);
     });
 
+    it("should transform cachedTokens to cache_read_input_tokens", () => {
+      const unified = createUnifiedResponse({
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          cachedTokens: 30, // should be mapped to cache_read_input_tokens
+        },
+      });
+
+      const result = transformResponse(unified) as AnthropicResponse;
+
+      expect(result.usage.input_tokens).toBe(100);
+      expect(result.usage.output_tokens).toBe(50);
+      expect(result.usage.cache_read_input_tokens).toBe(30);
+    });
+
     it("should transform tool_call content parts to tool_use blocks", () => {
       const unified: UnifiedResponse = {
         id: "msg_123",

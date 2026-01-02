@@ -94,6 +94,8 @@ export interface ThinkingBlock {
   text: string
   signature?: string
   signatureValid?: boolean
+  /** True if this thinking block was redacted (e.g., Anthropic redacted_thinking) */
+  redacted?: boolean
 }
 
 /**
@@ -155,6 +157,8 @@ export interface UsageInfo {
   totalTokens?: number
   thinkingTokens?: number
   cachedTokens?: number
+  /** Amp-specific: Logical credit consumption */
+  credits?: number
 }
 
 /**
@@ -209,13 +213,34 @@ export interface JSONSchemaProperty {
 
 /**
  * StreamChunk - Represents a single streaming chunk
+ *
+ * Multi-block streaming support:
+ * - blockIndex: 0-based index identifying which content block this chunk belongs to
+ * - blockType: The type of content block (text, tool_call, thinking, etc.)
+ * - type: 'block_stop' signals the end of a specific content block
  */
 export interface StreamChunk {
-  type: 'content' | 'tool_call' | 'thinking' | 'usage' | 'done' | 'error'
+  type:
+    | 'content'
+    | 'tool_call'
+    | 'tool_result'
+    | 'thinking'
+    | 'usage'
+    | 'block_stop'
+    | 'done'
+    | 'error'
+
+  /** 0-based block index for multi-block streaming (defaults to 0 for single-block providers) */
+  blockIndex?: number
+
+  /** Type of the content block this chunk belongs to */
+  blockType?: ContentPart['type']
+
   delta?: StreamDelta
   usage?: UsageInfo
   stopReason?: StopReason
   error?: string
+  model?: string
 }
 
 /**

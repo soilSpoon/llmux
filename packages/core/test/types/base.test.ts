@@ -44,6 +44,8 @@ describe('Provider interface', () => {
         supportsThinking: false,
         supportsTools: true,
       },
+      isSupportedRequest: () => true,
+      isSupportedModel: () => true,
       parse: (_request: unknown) => ({
         messages: [],
       }),
@@ -72,6 +74,8 @@ describe('Provider interface', () => {
         supportsThinking: true,
         supportsTools: true,
       },
+      isSupportedRequest: () => true,
+      isSupportedModel: () => true,
       parse: () => ({ messages: [] }),
       transform: () => ({}),
       parseResponse: () => ({ id: 'test', content: [], stopReason: 'end_turn' }),
@@ -94,6 +98,14 @@ describe('BaseProvider', () => {
         supportsStreaming: true,
         supportsThinking: false,
         supportsTools: true,
+      }
+
+      isSupportedRequest(_request: unknown): boolean {
+        return true
+      }
+
+      isSupportedModel(_model: string): boolean {
+        return true
       }
 
       parse(_request: unknown): UnifiedRequest {
@@ -126,6 +138,14 @@ describe('BaseProvider', () => {
         supportsStreaming: true,
         supportsThinking: true,
         supportsTools: true,
+      }
+
+      isSupportedRequest(_request: unknown): boolean {
+        return true
+      }
+
+      isSupportedModel(_model: string): boolean {
+        return true
       }
 
       parse(): UnifiedRequest {
