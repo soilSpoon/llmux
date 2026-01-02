@@ -158,6 +158,13 @@ export type {
 } from './types'
 // Logging
 export { createLogger, logger } from './util/logger'
+// Model Capabilities & Utilities
+export {
+  extractThinkingTier,
+  hasThinkingTierSuffix,
+  isGemini3WithTierSuffix,
+  supportsThinking,
+} from './util/model-capabilities'
 // Utilities
 export {
   stripSignaturesFromContents,

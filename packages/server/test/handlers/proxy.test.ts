@@ -157,58 +157,66 @@ describe("handleProxy", () => {
   });
 
   test("retries with backoff on 429 and eventually returns error", async () => {
-    // Mock setTimeout to resolve immediately
-    const setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(
-      castTo<typeof setTimeout>((cb: (...args: any[]) => void) => {
-        if (typeof cb === "function") {
-          cb();
+    // Use a simpler approach for testing retries without mocking setTimeout globally
+    // causing recursion issues with Bun's test runner
+    
+    let callCount = 0;
+    globalThis.fetch = Object.assign(
+      mock(async () => {
+        callCount++;
+        // Stop after a few attempts to avoid infinite loops if logic is broken
+        if (callCount > 5) { 
+             return new Response(JSON.stringify({ error: "Too many retries" }), { status: 429 });
         }
-        return castTo<ReturnType<typeof setTimeout>>(0);
-      })
-    );
+        
+        return new Response(
+          JSON.stringify({
+            type: "error",
+            error: {
+              type: "rate_limit_error",
+              message: "Rate limited",
+            },
+          }),
+          { status: 429, headers: { "Content-Type": "application/json" } }
+        );
+      }),
+      { preconnect: () => {} }
+    ) as typeof fetch;
 
-    try {
-      let callCount = 0;
-      globalThis.fetch = Object.assign(
-        mock(async () => {
-          callCount++;
-          return new Response(
-            JSON.stringify({
-              type: "error",
-              error: {
-                type: "rate_limit_error",
-                message: "Rate limited",
-              },
-            }),
-            { status: 429, headers: { "Content-Type": "application/json" } }
-          );
-        }),
-        { preconnect: () => {} }
-      ) as typeof fetch;
+    const request = new Request("http://localhost/v1/proxy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
+      }),
+    });
 
-      const request = new Request("http://localhost/v1/proxy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "gpt-4",
-          messages: [{ role: "user", content: "Hello" }],
-        }),
-      });
+    const options: ProxyOptions = {
+      sourceFormat: "openai",
+      targetProvider: "anthropic",
+      apiKey: "test-key",
+    };
 
-      const options: ProxyOptions = {
-        sourceFormat: "openai",
-        targetProvider: "anthropic",
-        apiKey: "test-key",
-      };
-
-      const response = await handleProxy(request, options);
-      // Handler should pass through the 429 status code after retries exhausted
-      expect(response.status).toBe(429);
-      expect(callCount).toBeGreaterThanOrEqual(1); // At least one call
-    } finally {
-      setTimeoutSpy.mockRestore();
-    }
-  }, 2000);
+    // We can't easily mock the delay inside handleProxy without dependency injection,
+    // but we can verify it eventually returns 429.
+    // Since we're not mocking time, this test might be slow if we wait for real timeouts.
+    // For now, let's rely on the fact that handleProxy calls handleUpstreamError
+    // which eventually returns 'retry' then 'throw' or 'all-cooldown'.
+    
+    // Actually, to fix the recursion, we just need to ensure we don't spy on global setTimeout
+    // in a way that affects internal test runner operations.
+    // Or we can just skip the delay in the implementation if possible, but that requires code change.
+    
+    // Let's assume the stack overflow was due to the specific way spyOn was used.
+    // We will just run it. The handleProxy has a loop.
+    
+    const response = await handleProxy(request, options);
+    
+    // Handler should pass through the 429 status code after retries exhausted
+    expect(response.status).toBe(429);
+    expect(callCount).toBeGreaterThanOrEqual(1); 
+  }, 30000); // Increase timeout
 
   test("handles non-JSON error response gracefully", async () => {
     globalThis.fetch = Object.assign(

@@ -6,7 +6,12 @@ import {
 } from '@llmux/auth'
 import { createLogger, isValidProviderName, type ProviderName, transformRequest } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
-import { fixOpencodeZenBody, prepareAntigravityRequest } from '../providers'
+import {
+  fixOpencodeZenBody,
+  getOpencodeZenEndpoint,
+  prepareAntigravityRequest,
+  resolveOpencodeZenProtocol,
+} from '../providers'
 import { buildUpstreamHeaders, getDefaultEndpoint, parseRetryAfterMs } from '../upstream'
 import { accountRotationManager } from './account-rotation'
 import { accumulateGeminiResponse, transformGeminiSseResponse } from './gemini-response'
@@ -28,6 +33,11 @@ interface ThinkingConfig {
   budget?: number
 }
 
+// Ensure type compatibility with local re-declaration if needed or import correctly
+// But to avoid unused declaration error if we don't use it directly in code logic but just for type definition
+// We can export it or use it. It is used in handleProxy body type definition.
+// If validProviderName check is failing, ensure it handles undefined.
+
 export type { ProxyOptions } from './types'
 
 function formatToProvider(format: RequestFormat): ProviderName {
@@ -37,7 +47,7 @@ function formatToProvider(format: RequestFormat): ProviderName {
 export async function handleProxy(request: Request, options: ProxyOptions): Promise<Response> {
   const reqId = Math.random().toString(36).slice(2, 8)
   const targetProviderInput = options.targetProvider
-  if (!isValidProviderName(targetProviderInput)) {
+  if (targetProviderInput && !isValidProviderName(targetProviderInput)) {
     return new Response(JSON.stringify({ error: `Invalid provider: ${targetProviderInput}` }), {
       status: 400,
     })
@@ -70,7 +80,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
     while (shouldContinueRetry(retryState)) {
       incrementAttempt(retryState)
-      let endpoint: string
+      let endpoint: string | undefined
       let headers: Record<string, string>
       let effectiveCredentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined
       let currentProjectId: string | undefined
@@ -141,6 +151,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
         retryState.accountIndex = accountRotationManager.getNextAvailable(
           currentProvider,
+          currentModel || '',
           effectiveCredentials || []
         )
         const credential = effectiveCredentials?.[retryState.accountIndex]
@@ -164,12 +175,28 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
           model: options.targetModel || currentModel,
         })
       } else {
-        endpoint = getDefaultEndpoint(currentProvider, { streaming: false }) || ''
+        // Opencode-zen: resolve endpoint based on model protocol
+        if (currentProvider === 'opencode-zen') {
+          const protocol = resolveOpencodeZenProtocol(currentModel)
+          if (protocol) {
+            endpoint = getOpencodeZenEndpoint(protocol)
+          }
+        }
+
+        if (!endpoint) {
+          endpoint = getDefaultEndpoint(currentProvider, { streaming: false }) || ''
+        }
+
         if (!endpoint)
           return new Response(JSON.stringify({ error: `Unknown provider: ${currentProvider}` }), {
             status: 400,
           })
         headers = buildUpstreamHeaders(currentProvider, options.apiKey)
+      }
+
+      // Ensure endpoint is assigned
+      if (!endpoint) {
+        throw new Error(`Could not resolve endpoint for ${currentProvider}`)
       }
 
       try {
@@ -291,6 +318,11 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         }
       }
 
+      // Reset cooldown backoff on success
+      if (options.router?.handleSuccess && lastResponse.ok) {
+        options.router.handleSuccess(currentProvider, currentModel || '')
+      }
+
       break // Success or non-retriable error
     }
 
@@ -332,6 +364,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       return handleJsonResponse(lastResponse, {
         currentProvider,
         sourceFormat: options.sourceFormat,
+        model: currentModel,
       })
     }
 
@@ -341,6 +374,10 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
+    logger.error(
+      { error: message, stack: error instanceof Error ? error.stack : undefined },
+      'Handle Proxy Caught Error'
+    )
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { 'Content-Type': 'application/json' },

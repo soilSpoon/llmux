@@ -229,6 +229,15 @@ function transformStopReason(reason: StopReason): OpenAIFinishReason {
 // =============================================================================
 
 function parseUsage(usage: OpenAIUsage): UsageInfo {
+  // Defensive check for usage object
+  if (!usage) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    }
+  }
+
   const result: UsageInfo = {
     inputTokens: usage.prompt_tokens ?? 0,
     outputTokens: usage.completion_tokens ?? 0,

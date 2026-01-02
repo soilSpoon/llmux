@@ -117,6 +117,7 @@ export interface ThinkingConfig {
   enabled: boolean
   budget?: number
   effort?: 'none' | 'low' | 'medium' | 'high'
+  level?: 'low' | 'medium' | 'high' // Gemini 3 specific
   preserveContext?: boolean // GLM clear_thinking 반대
   includeThoughts?: boolean
 }

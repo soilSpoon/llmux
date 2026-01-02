@@ -83,6 +83,9 @@ export function cleanJSONSchemaForAntigravity<T extends SchemaInput>(schema: T):
   // Phase 3: Filter out required fields that are not in properties
   cleaned = filterUndefinedRequired(cleaned)
 
+  // Phase 4: Ensure object schemas are non-empty (Claude VALIDATED compat)
+  cleaned = ensureNonEmptyObjectSchemas(cleaned)
+
   return cleaned as T
 }
 
@@ -91,6 +94,63 @@ export function cleanJSONSchemaForAntigravity<T extends SchemaInput>(schema: T):
  */
 function isSchemaObject(value: unknown): value is MutableSchemaNode {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Phase 4: Ensure object schemas are non-empty.
+ * Claude VALIDATED mode requires tool parameters to be an object schema with at least one property.
+ */
+function ensureNonEmptyObjectSchemas(schema: MutableSchemaNode): MutableSchemaNode {
+  if (!isSchemaObject(schema)) {
+    return schema
+  }
+
+  if (Array.isArray(schema)) {
+    return (schema as unknown as MutableSchemaNode[]).map((item) =>
+      ensureNonEmptyObjectSchemas(item)
+    ) as unknown as MutableSchemaNode
+  }
+
+  const result: MutableSchemaNode = { ...schema }
+
+  // If this is an object with no properties, add a placeholder
+  if (result.type === 'object') {
+    const props = result.properties ?? {}
+    const propKeys = Object.keys(props)
+
+    if (propKeys.length === 0) {
+      const placeholderProp: MutableSchemaNode = {
+        type: 'boolean',
+        description: 'Placeholder field required by Claude VALIDATED tool schema; do not use.',
+      }
+
+      result.properties = {
+        ...props,
+        _placeholder: placeholderProp,
+      }
+
+      // Ensure required includes _placeholder
+      const existingRequired = Array.isArray(result.required) ? result.required : []
+      if (!existingRequired.includes('_placeholder')) {
+        result.required = [...existingRequired, '_placeholder']
+      }
+    }
+  }
+
+  // Recurse into nested objects
+  if (result.properties) {
+    for (const [key, value] of Object.entries(result.properties)) {
+      if (isSchemaObject(value)) {
+        result.properties[key] = ensureNonEmptyObjectSchemas(value)
+      }
+    }
+  }
+
+  if (result.items && isSchemaObject(result.items)) {
+    result.items = ensureNonEmptyObjectSchemas(result.items)
+  }
+
+  return result
 }
 
 /**

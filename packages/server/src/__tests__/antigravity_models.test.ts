@@ -9,7 +9,8 @@ describe('Antigravity 모델명 검증 (TDD)', () => {
       // Should exist (Official IDs)
       expect(ids).toContain('gemini-3-pro-high')
       expect(ids).toContain('gemini-3-pro-low')
-      expect(ids).toContain('gemini-3-flash-preview')
+      expect(ids).toContain('gemini-3-flash')
+      expect(ids).toContain('gemini-3-flash-high')
       
       // Should NOT exist (Broken or unofficial IDs)
       expect(ids).not.toContain('gemini-3-pro-preview')

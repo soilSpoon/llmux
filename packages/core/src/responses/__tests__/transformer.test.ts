@@ -266,6 +266,27 @@ describe('transformToResponsesResponse', () => {
         total_tokens: 15,
       })
     })
+
+    it('should handle missing usage gracefully', () => {
+      const chatResponse: ChatCompletionsResponse = {
+        id: 'chatcmpl-123',
+        object: 'chat.completion',
+        created: 1700000000,
+        model: 'gpt-4o',
+        choices: [
+          {
+            index: 0,
+            message: { role: 'assistant', content: 'Hi' },
+            finish_reason: 'stop',
+          },
+        ],
+        usage: undefined,
+      }
+
+      const result = transformToResponsesResponse(chatResponse)
+
+      expect(result.usage).toBeUndefined()
+    })
   })
 
   describe('output structure', () => {

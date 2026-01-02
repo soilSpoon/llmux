@@ -6,27 +6,32 @@ interface AccountState {
 }
 
 export class AccountRotationManager {
-  // Provider -> List of Account States
+  // Key (provider:model) -> List of Account States
   private states: Map<string, AccountState[]> = new Map()
 
-  private getStates(provider: string): AccountState[] {
-    if (!this.states.has(provider)) {
-      this.states.set(provider, [])
+  private getKey(provider: string, model: string): string {
+    return `${provider}:${model}`
+  }
+
+  private getStates(provider: string, model: string): AccountState[] {
+    const key = this.getKey(provider, model)
+    if (!this.states.has(key)) {
+      this.states.set(key, [])
     }
-    const states = this.states.get(provider)
+    const states = this.states.get(key)
     return states ?? []
   }
 
   /**
-   * Get the next available account index for the provider.
+   * Get the next available account index for the provider/model.
    * If all accounts are rate-limited, returns the one with the earliest reset time
    * (or currently available one if any).
    */
-  getNextAvailable(provider: string, credentials: Credential[]): number {
+  getNextAvailable(provider: string, model: string, credentials: Credential[]): number {
     if (!credentials || credentials.length === 0) return 0
     if (credentials.length === 1) return 0
 
-    const states = this.getStates(provider)
+    const states = this.getStates(provider, model)
     const now = Date.now()
 
     // 1. Find first available account (not rate limited)
@@ -66,8 +71,8 @@ export class AccountRotationManager {
   /**
    * Mark an account as rate-limited.
    */
-  markRateLimited(provider: string, index: number, durationMs: number): void {
-    const states = this.getStates(provider)
+  markRateLimited(provider: string, model: string, index: number, durationMs: number): void {
+    const states = this.getStates(provider, model)
     const existing = states.find((s) => s.index === index)
     const rateLimitedUntil = Date.now() + durationMs
 
@@ -81,10 +86,10 @@ export class AccountRotationManager {
   /**
    * Check if all accounts for a provider are rate-limited.
    */
-  areAllRateLimited(provider: string, credentials: Credential[]): boolean {
+  areAllRateLimited(provider: string, model: string, credentials: Credential[]): boolean {
     if (!credentials || credentials.length === 0) return false
 
-    const states = this.getStates(provider)
+    const states = this.getStates(provider, model)
     const now = Date.now()
 
     // If we have fewer states than credentials, it means some credentials haven't been rate limited
@@ -106,10 +111,10 @@ export class AccountRotationManager {
    * Get the minimum wait time if all accounts are rate limited.
    * Returns 0 if at least one account is available.
    */
-  getMinWaitTime(provider: string, credentials: Credential[]): number {
-    if (!this.areAllRateLimited(provider, credentials)) return 0
+  getMinWaitTime(provider: string, model: string, credentials: Credential[]): number {
+    if (!this.areAllRateLimited(provider, model, credentials)) return 0
 
-    const states = this.getStates(provider)
+    const states = this.getStates(provider, model)
     const now = Date.now()
     let minWait = Infinity
 
@@ -130,14 +135,14 @@ export class AccountRotationManager {
    */
   async getCredential(
     provider: string,
-    _model: string,
+    model: string,
     currentIndex: number
   ): Promise<{ credentials: Credential[]; accountId?: string; accountIndex: number } | null> {
     const freshCredentials = await TokenRefresh.ensureFresh(provider)
     if (!freshCredentials || freshCredentials.length === 0) return null
 
     let accountIndex: number
-    const states = this.getStates(provider)
+    const states = this.getStates(provider, model)
     const now = Date.now()
 
     // If we have a currentIndex, try to find the next available account starting after currentIndex
@@ -163,10 +168,10 @@ export class AccountRotationManager {
       }
       // If still not found, fallback to getNextAvailable
       if (accountIndex === -1) {
-        accountIndex = this.getNextAvailable(provider, freshCredentials)
+        accountIndex = this.getNextAvailable(provider, model, freshCredentials)
       }
     } else {
-      accountIndex = this.getNextAvailable(provider, freshCredentials)
+      accountIndex = this.getNextAvailable(provider, model, freshCredentials)
     }
 
     const credential = freshCredentials[accountIndex] as Credential

@@ -150,6 +150,9 @@ describe("handleStreamingProxy", () => {
     // Handler wraps all errors in 500 with { error: message } format
     expect(response.status).toBe(500);
     const body = await response.json() as { error: string };
+    // The error message might vary, just check it exists
+    expect(body.error).toBeDefined();
+    expect(typeof body.error).toBe("string");
     expect(body.error).toContain("Upstream error 500");
   });
 
@@ -266,8 +269,8 @@ describe("handleStreamingProxy", () => {
 
     // Verify wrapper structure
     expect(capturedBody).toHaveProperty("project");
-    // Note: gemini-3-pro-preview is aliased to gemini-3-pro-high by ANTIGRAVITY_MODEL_ALIASES
-    expect(capturedBody).toHaveProperty("model", "gemini-3-pro-high");
+    // Note: gemini-3-pro-preview is passed through as-is (aliasing removed)
+    expect(capturedBody).toHaveProperty("model", "gemini-3-pro-preview");
     expect(capturedBody).toHaveProperty("request");
     expect(capturedBody).toHaveProperty("requestId");
     expect(capturedBody.request).toHaveProperty("contents");
@@ -304,6 +307,7 @@ describe("handleStreamingProxy", () => {
     // Handler wraps all errors in 500
     expect(response.status).toBe(500);
     const body = (await response.json()) as { error: string };
+    expect(body.error).toBeDefined();
     expect(body.error).toContain("Upstream error 404");
   });
 

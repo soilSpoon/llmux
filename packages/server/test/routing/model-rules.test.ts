@@ -10,6 +10,7 @@ import {
   registerProvider,
 } from '@llmux/core'
 import {
+  getHardcodedModelFallback,
   inferProviderFromModel,
   isOpenAICompatibleProvider,
   isOpenAIModel,
@@ -64,6 +65,7 @@ describe('model-rules', () => {
   describe('inferProviderFromModel', () => {
     it('infers antigravity models', () => {
       expect(inferProviderFromModel('gemini-claude-sonnet')).toBe('antigravity')
+      expect(inferProviderFromModel('gemini-claude-opus-4-5-thinking')).toBe('antigravity')
       expect(inferProviderFromModel('some-model-antigravity')).toBe('antigravity')
       // Internal models that should default to antigravity
       expect(inferProviderFromModel('gemini-3-pro-high')).toBe('antigravity')
@@ -81,6 +83,7 @@ describe('model-rules', () => {
 
     it('infers anthropic models', () => {
       expect(inferProviderFromModel('claude-3-opus')).toBe('anthropic')
+      expect(inferProviderFromModel('claude-3-sonnet-20240229')).toBe('anthropic')
       expect(inferProviderFromModel('claude-2')).toBe('anthropic')
     })
 
@@ -100,6 +103,7 @@ describe('model-rules', () => {
     it('infers gemini models', () => {
       expect(inferProviderFromModel('gemini-pro')).toBe('gemini')
       expect(inferProviderFromModel('gemini-1.5-flash')).toBe('gemini')
+      expect(inferProviderFromModel('gemini-1.5-pro')).toBe('gemini')
     })
 
     it('defaults to openai for unknown models', () => {
@@ -130,6 +134,21 @@ describe('model-rules', () => {
     it('rejects incompatible providers', () => {
       expect(isOpenAICompatibleProvider('anthropic')).toBe(false)
       expect(isOpenAICompatibleProvider('gemini')).toBe(false)
+    })
+  })
+
+  describe('getHardcodedModelFallback', () => {
+    it('returns fallback for gemini-claude-opus-4-5-thinking', () => {
+      expect(getHardcodedModelFallback('gemini-claude-opus-4-5-thinking')).toEqual({
+        model: 'gemini-3-pro-high',
+        provider: 'antigravity',
+      })
+    })
+
+    it('returns null for other models', () => {
+      expect(getHardcodedModelFallback('gpt-4')).toBeNull()
+      expect(getHardcodedModelFallback('claude-3-opus')).toBeNull()
+      expect(getHardcodedModelFallback('gemini-pro')).toBeNull()
     })
   })
 })

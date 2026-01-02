@@ -1,55 +1,13 @@
-import { describe, expect, it, beforeEach } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import {
   buildSignatureSessionKey,
   shouldCacheSignatures,
-  storeGlobalThoughtSignature,
-  getGlobalThoughtSignature,
-  clearGlobalThoughtSignature,
   ensureThinkingSignatures,
   type Content,
   type Part,
 } from "../signature-integration";
 
 describe("Signature Integration - Layer 3 (Turn Separation)", () => {
-  beforeEach(() => {
-    clearGlobalThoughtSignature();
-  });
-
-  describe("Global Signature Store (Layer 2)", () => {
-    it("should store and retrieve global thought signature", () => {
-      const testSig = "x".repeat(100);
-      const testText = "some text";
-
-      storeGlobalThoughtSignature(testSig, testText);
-      const result = getGlobalThoughtSignature();
-      expect(result).toBeDefined();
-      expect(result?.signature).toBe(testSig);
-      expect(result?.text).toBe(testText);
-    });
-
-    it("should ignore signatures shorter than MIN_SIGNATURE_LENGTH", () => {
-      const shortSig = "too_short";
-      const testText = "some text";
-
-      storeGlobalThoughtSignature(shortSig, testText);
-      expect(getGlobalThoughtSignature()).toBeUndefined();
-    });
-
-    it("should expire signatures older than 10 minutes", async () => {
-      const testSig = "x".repeat(100);
-      const testText = "some text";
-      storeGlobalThoughtSignature(testSig, testText);
-
-      // Verify it's stored
-      expect(getGlobalThoughtSignature()?.signature).toBe(testSig);
-
-      // Simulate time passage (10 minutes + 1 second)
-      // Note: In real tests, we'd use a time mock library
-      // For now, we test the clear functionality
-      clearGlobalThoughtSignature();
-      expect(getGlobalThoughtSignature()).toBeUndefined();
-    });
-  });
 
   describe("Layer 3 - Turn Separation Recovery", () => {
     it("should separate turn when in tool loop without thinking", () => {
@@ -124,15 +82,12 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       expect((syntheticUser.parts![0] as Part).text).toBe("[Continue]");
     });
 
-    it("should still strip thinking but not separate turn if thinking will be re-injected", () => {
+    it("should strip thinking and add synthetic messages (opencode strategy)", () => {
       const sessionKey = buildSignatureSessionKey(
         "claude-3-5-sonnet-thinking",
         "test-conv-2",
         "proj-1"
       );
-
-      // First, simulate a response that cached thinking
-      storeGlobalThoughtSignature("x".repeat(100), "Thinking about this...");
 
       const requestBody = {
         contents: [
@@ -177,18 +132,15 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
         "claude-3-5-sonnet-thinking"
       );
 
-      // Step 1 strips thinking, so we still have 3 items
-      // But Layer 2 re-injects thinking before tool call
-      // Layer 3 shouldn't trigger because the turn will have thinking after Layer 2
-      // So total should still be 3 (no synthetic messages)
-      expect(requestBody.contents.length).toBe(3);
+      // opencode strategy: strip all thinking, add synthetic messages for tool loop recovery
+      // Original 3 items + 2 synthetic = 5
+      expect(requestBody.contents.length).toBe(5);
 
-      // Verify thinking was re-injected in the model message
+      // Verify thinking was stripped from model message
       const modelContent = requestBody.contents![1]!;
       expect(modelContent.role).toBe("model");
       const parts = modelContent.parts as Part[];
-      expect(parts[0]!.thought).toBe(true);
-      expect(parts[0]!.thoughtSignature).toBeDefined();
+      expect(parts.some((p) => p.thought === true)).toBe(false);
     });
 
     it("should not separate turn if thinking is disabled", () => {
@@ -239,17 +191,12 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       expect(requestBody.contents.length).toBe(originalLength);
     });
 
-    it("should use Layer 2 global signature before Layer 3 separation", () => {
+    it("should add synthetic messages for tool loop (opencode strategy, no re-injection)", () => {
       const sessionKey = buildSignatureSessionKey(
         "claude-3-5-sonnet-thinking",
         "test-conv-4",
         "proj-1"
       );
-
-      // Pre-populate global signature store
-      const globalSig = "global_sig_" + "x".repeat(90);
-      const globalText = "[Thinking from global store]";
-      storeGlobalThoughtSignature(globalSig, globalText);
 
       const requestBody = {
         contents: [
@@ -291,21 +238,15 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
 
       const contents = requestBody.contents as Content[];
 
-      // Should have injected thinking from Layer 2 global store
-      // So original 3 items should still be 3 (no Layer 3 separation)
-      expect(contents.length).toBe(3);
+      // opencode strategy: no signature injection, but add synthetic messages
+      // Original 3 items + 2 synthetic = 5
+      expect(contents.length).toBe(5);
 
-      // The tool function call should now have thinking injected before it
+      // The tool function call should NOT have thinking injected
       const toolMessage = contents[1]!;
       expect(Array.isArray(toolMessage.parts)).toBe(true);
       const parts = toolMessage.parts!;
-
-      // First part should be the injected thinking
-      expect((parts[0] as Part).thought).toBe(true);
-      expect((parts[0] as Part).thoughtSignature).toBe(globalSig);
-
-      // Second part should be the function call
-      expect((parts[1] as Part).functionCall).toBeDefined();
+      expect(parts.some((p) => (p as Part).thought === true)).toBe(false);
     });
 
     it("should count trailing tool results from user messages", () => {
@@ -426,16 +367,12 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       expect(shouldCacheSignatures("o1-preview")).toBe(false);
     });
 
-    it("should strip signatures for gemini-claude and restore with tool_use present", () => {
+    it("should strip all thinking for gemini-claude (opencode strategy)", () => {
       const sessionKey = buildSignatureSessionKey(
         "gemini-claude-thinking",
         "test-conv-gemini-claude",
         "proj-1"
       );
-
-      // Setup global signature - must be at least 50 characters to be stored
-      const globalSig = "a".repeat(60); // 60 characters > MIN_SIGNATURE_LENGTH (50)
-      storeGlobalThoughtSignature(globalSig, "Some thinking text", "gemini-claude-thinking");
 
       const requestBody = {
         contents: [
@@ -461,21 +398,15 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       // Run ensureThinkingSignatures
       ensureThinkingSignatures(requestBody, sessionKey, "gemini-claude-thinking");
 
-      // Verify:
-      // 1. Thinking part is RESTORED when tool_use is present
-      // 2. It should have the global signature we stored
-
+      // opencode strategy: strip all thinking, no re-injection
       const parts = requestBody.contents?.[0]?.parts;
       expect(parts).toBeDefined();
       if (!parts) return;
 
-      expect(parts.length).toBeGreaterThan(0);
-      const thinkingPart = parts[0] as {
-        thought: boolean;
-        thoughtSignature: string;
-      };
-      expect(thinkingPart.thought).toBe(true);
-      expect(thinkingPart.thoughtSignature).toBe(globalSig);
+      // Thinking should be stripped
+      expect(parts.some((p: any) => p.thought === true)).toBe(false);
+      // functionCall should remain
+      expect(parts.some((p: any) => p.functionCall)).toBe(true);
     });
   });
 });

@@ -109,44 +109,27 @@ interface BuildProxyOptionsParams {
   router?: Router
 }
 
-async function buildProxyOptions({
-  request,
-  body,
-  defaultTargetProvider = 'anthropic',
-  overrideSourceFormat,
-  modelMappings,
-  router,
-}: BuildProxyOptionsParams): Promise<ProxyOptions> {
+async function createProxyLikeHandler(
+  request: Request,
+  params: BuildProxyOptionsParams
+): Promise<Response> {
+  const { body, overrideSourceFormat, defaultTargetProvider, modelMappings, router } = params
   const sourceFormat = overrideSourceFormat ?? detectFormat(body)
-  let targetProvider = request.headers.get('X-Target-Provider')
+  const targetProvider = request.headers.get('X-Target-Provider') || defaultTargetProvider
 
-  if (!targetProvider && body.model && router) {
-    const resolution = await router.resolveModel(body.model)
-    targetProvider = resolution.provider
-  } else if (!targetProvider && body.model) {
-    // Basic fallback logic if router is not available (should rarely happen in production with config)
-    if (body.model.includes(':')) {
-      const parts = body.model.split(':')
-      const candidate = parts[parts.length - 1]
-      if (
-        candidate &&
-        ['openai', 'anthropic', 'gemini', 'antigravity', 'opencode-zen', 'openai-web'].includes(
-          candidate
-        )
-      ) {
-        targetProvider = candidate
-      }
-    }
-  }
-
-  return {
+  const options: ProxyOptions = {
     sourceFormat,
-    targetProvider: targetProvider ?? defaultTargetProvider,
+    targetProvider: targetProvider,
     targetModel: request.headers.get('X-Target-Model') ?? undefined,
     apiKey: request.headers.get('X-API-Key') ?? undefined,
     modelMappings,
     router,
   }
+
+  if (body.stream) {
+    return handleStreamingProxy(request, options)
+  }
+  return handleProxy(request, options)
 }
 
 function createProxyHandler(
@@ -157,7 +140,7 @@ function createProxyHandler(
 ) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
-    const options = await buildProxyOptions({
+    return createProxyLikeHandler(request, {
       request,
       body,
       defaultTargetProvider: defaultProvider,
@@ -165,11 +148,6 @@ function createProxyHandler(
       modelMappings,
       router,
     })
-
-    if (body.stream) {
-      return handleStreamingProxy(request, options)
-    }
-    return handleProxy(request, options)
   }
 }
 
@@ -177,7 +155,7 @@ function createAutoHandler(modelMappings?: AmpConfig['modelMappings'], router?: 
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
     const detectedFormat = detectFormat(body)
-    const proxyOptions = await buildProxyOptions({
+    return createProxyLikeHandler(request, {
       request,
       body,
       defaultTargetProvider: detectedFormat,
@@ -185,10 +163,6 @@ function createAutoHandler(modelMappings?: AmpConfig['modelMappings'], router?: 
       modelMappings,
       router,
     })
-    if (body.stream) {
-      return handleStreamingProxy(request, proxyOptions)
-    }
-    return handleProxy(request, proxyOptions)
   }
 }
 
@@ -202,17 +176,13 @@ function createExplicitHandler(modelMappings?: AmpConfig['modelMappings'], route
       })
     }
     const body = (await request.clone().json()) as RequestBody
-    const proxyOptions = await buildProxyOptions({
+    return createProxyLikeHandler(request, {
       request,
       body,
       defaultTargetProvider: targetProvider,
       modelMappings,
       router,
     })
-    if (body.stream) {
-      return handleStreamingProxy(request, proxyOptions)
-    }
-    return handleProxy(request, proxyOptions)
   }
 }
 
@@ -331,7 +301,7 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
     let upstreamProxy: UpstreamProxy | null = null
     let fallbackHandler: FallbackHandler | undefined
 
-    if (ampConfig.upstreamUrl || ampConfig.providerChecker) {
+    if (ampConfig.upstreamUrl || ampConfig.providerChecker || modelMappings || modelRouter) {
       upstreamProxy = ampConfig.upstreamUrl
         ? createUpstreamProxy({
             targetUrl: ampConfig.upstreamUrl,

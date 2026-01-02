@@ -25,15 +25,15 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   }
 
   // Must start with "data: ", but we also allow raw JSON for non-compliant providers (like Opencode Zen)
+  // Handle "data:" prefix with optional whitespace
   let data = ''
-  if (trimmed.startsWith('data: ')) {
-    data = trimmed.slice(6)
+  if (trimmed.startsWith('data:')) {
+    data = trimmed.slice(5).trim()
   } else if (trimmed.startsWith('{')) {
     // If it starts with {, it's a raw JSON object string
     data = trimmed
   } else {
-    // Other lines are ignored (like "event: ..." lines in some SSE formats,
-    // though OpenAI typically doesn't use those)
+    // Other lines are ignored
     return null
   }
 
@@ -49,6 +49,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   let parsed: {
     content?: string
     usage?: OpenAIUsage
+    model?: string // Extract model from response
     choices?: {
       index?: number
       delta?: OpenAIDelta
@@ -73,6 +74,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (parsed.content !== undefined && typeof parsed.content === 'string') {
     return {
       type: 'content',
+      model: parsed.model,
       delta: {
         type: 'text',
         text: parsed.content,
@@ -84,6 +86,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (parsed.usage && (!parsed.choices || parsed.choices.length === 0)) {
     return {
       type: 'usage',
+      model: parsed.model,
       usage: parseUsage(parsed.usage),
     }
   }
@@ -94,6 +97,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     if (parsed.finish_reason) {
       return {
         type: 'done',
+        model: parsed.model,
         stopReason: parseFinishReason(parsed.finish_reason),
       }
     }
@@ -112,6 +116,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     return {
       type: 'done',
       blockIndex,
+      model: parsed.model,
       stopReason: parseFinishReason(choice.finish_reason),
     }
   }
@@ -124,7 +129,9 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   if (delta.tool_calls && delta.tool_calls.length > 0) {
     const firstToolCall = delta.tool_calls[0]
     if (firstToolCall) {
-      return parseToolCallDelta(firstToolCall, blockIndex)
+      const toolChunk = parseToolCallDelta(firstToolCall, blockIndex)
+      toolChunk.model = parsed.model
+      return toolChunk
     }
   }
 
@@ -134,6 +141,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
       type: 'content',
       blockIndex,
       blockType: 'text',
+      model: parsed.model,
       delta: {
         type: 'text',
         text: delta.content,
@@ -147,6 +155,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
       type: 'thinking',
       blockIndex,
       blockType: 'thinking',
+      model: parsed.model,
       delta: {
         type: 'thinking',
         thinking: {
@@ -441,6 +450,15 @@ function transformStopReason(reason: StopReason): OpenAIFinishReason {
 // =============================================================================
 
 function parseUsage(usage: OpenAIUsage): UsageInfo {
+  // Defensive check for usage object
+  if (!usage) {
+    return {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+    }
+  }
+
   return {
     inputTokens: usage.prompt_tokens ?? 0,
     outputTokens: usage.completion_tokens ?? 0,

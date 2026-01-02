@@ -140,6 +140,15 @@ export class Router {
     const key = `${result.providerId}:${result.targetModel}`
     this.cooldownManager.markRateLimited(key, retryAfterMs)
   }
+
+  /**
+   * Reset cooldown state for a provider:model after a successful request.
+   * This clears the backoffLevel so future rate limits start fresh.
+   */
+  handleSuccess(provider: string, model: string): void {
+    const key = `${provider}:${model}`
+    this.cooldownManager.reset(key)
+  }
 }
 
 export function createRouter(

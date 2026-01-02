@@ -336,6 +336,27 @@ describe("OpenAI Response Transform", () => {
       expect(result.content).toEqual([]);
       expect(result.stopReason).toBeNull();
     });
+
+    it("handles response without usage gracefully", () => {
+      const openaiResponse: any = {
+        id: "chatcmpl-123",
+        object: "chat.completion",
+        created: 1694268190,
+        model: "gpt-4",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "Hello" },
+            finish_reason: "stop",
+          },
+        ],
+        // usage: undefined
+      };
+
+      const result = parseResponse(openaiResponse);
+
+      expect(result.usage).toBeUndefined();
+    });
   });
 
   describe("transformResponse (UnifiedResponse → OpenAIResponse)", () => {

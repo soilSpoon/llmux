@@ -11,12 +11,14 @@ import type {
   ContentPart,
   JSONSchema,
   JSONSchemaProperty,
+  ThinkingConfig,
   UnifiedMessage,
   UnifiedRequest,
   UnifiedTool,
   UnifiedToolChoice,
 } from '../../types/unified'
 import { createLogger } from '../../util/logger'
+import { extractThinkingTier, hasThinkingTierSuffix } from '../../util/model-capabilities'
 import type {
   GeminiContent,
   GeminiFunctionDeclaration,
@@ -26,6 +28,7 @@ import type {
   GeminiTool,
   GeminiToolConfig,
 } from '../gemini/types'
+import { fixAntigravityToolPairing } from './pairing-fix'
 import { cleanJSONSchemaForAntigravity } from './schema/antigravity-json-schema-clean'
 import type {
   AntigravityGenerationConfig,
@@ -100,7 +103,7 @@ export function parse(request: unknown): UnifiedRequest {
  * Wraps the Gemini-style request in an Antigravity envelope.
  *
  * @param request - The unified request to transform
- * @param model - Model name to use
+ * @param model - Model name to use (can include suffixes like -high)
  */
 export function transform(request: UnifiedRequest, model: string): AntigravityRequest {
   const { messages, system, tools, toolChoice, config, thinking, metadata } = request
@@ -138,6 +141,9 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
   // Transform messages to contents
   let contents = transformMessages(messages)
+
+  // Fix tool pairing (Orphan recovery & structure fix)
+  contents = fixAntigravityToolPairing(contents)
 
   // Note: stripSignatures option was removed when changing to Provider interface signature
   // Signature stripping is now default to false (preserve signatures for Gemini 2.0)
@@ -181,9 +187,23 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
   if (tools && tools.length > 0) {
     transformedTools = transformTools(tools)
-    // Transform toolChoice to toolConfig
-    toolConfig = transformToolConfig(toolChoice, isClaudeModel)
+    // For Claude models, MUST use VALIDATED mode (Antigravity requirement)
+    // For Gemini models, toolConfig is not needed (optional)
+    if (isClaudeModel) {
+      toolConfig = {
+        functionCallingConfig: {
+          mode: 'VALIDATED',
+        },
+      }
+      // Allow specific tool selection for Claude
+      if (toolChoice?.type === 'tool' && toolChoice.name) {
+        const encodedName = encodeAntigravityToolName(toolChoice.name)
+        toolConfig.functionCallingConfig.allowedFunctionNames = [encodedName]
+      }
+    }
   } else if (toolChoice === 'none') {
+    // Only set toolConfig for 'none' mode (disable tool calling)
+    // Omit for default behavior
     toolConfig = {
       functionCallingConfig: {
         mode: 'NONE',
@@ -196,7 +216,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     config,
     thinking,
     isClaudeModel,
-    isThinkingModel
+    isThinkingModel,
+    model
   )
 
   // Build inner request
@@ -226,7 +247,7 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
   const result: AntigravityRequest = {
     project,
-    model,
+    model: model, // Send full model name as requested
     userAgent: 'antigravity',
     requestId,
     request: innerRequest,
@@ -235,7 +256,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   logger.debug(
     {
       project,
-      model,
+      model: result.model,
+      originalModel: model,
       requestId,
       hasSystemInstruction: !!systemInstruction,
       toolCount: transformedTools?.length || 0,
@@ -449,14 +471,23 @@ function parseThinkingConfig(thinkingConfig?: AntigravityThinkingConfig) {
   // Check for either camelCase or snake_case
   const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
   const budget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
+  // thinkingLevel is no longer supported in AntigravityThinkingConfig
+  // const level = thinkingConfig.thinkingLevel
 
   if (includeThoughts === undefined && budget === undefined) {
     return undefined
   }
 
+  // Map thinkingLevel to effort
+  // let effort: ThinkingConfig['effort']
+  // if (level) {
+  //   effort = level as 'low' | 'medium' | 'high'
+  // }
+
   return {
     enabled: includeThoughts ?? true,
     budget,
+    // effort,
     includeThoughts,
   }
 }
@@ -714,12 +745,18 @@ function transformToGeminiSchemaProperty(prop: JSONSchemaProperty): GeminiSchema
 
 /**
  * Transform generation config for Antigravity
+ *
+ * NOTE: This function does NOT infer thinking settings from model names.
+ * All thinking configuration must come from the UnifiedRequest.thinking field.
+ * - thinkingLevel: string ('low', 'medium', 'high') for Gemini 3
+ * - thinkingBudget: number for Gemini 2.5 and Claude
  */
 function transformGenerationConfig(
   config?: UnifiedRequest['config'],
   thinking?: UnifiedRequest['thinking'],
   isClaudeModel?: boolean,
-  isThinkingModel?: boolean
+  isThinkingModel?: boolean,
+  fullModelName: string = ''
 ): AntigravityGenerationConfig | undefined {
   if (!config && !thinking) return undefined
 
@@ -734,76 +771,71 @@ function transformGenerationConfig(
   }
 
   if (thinking?.enabled) {
-    const thinkingConfig: AntigravityThinkingConfig = {}
+    const isGemini3 = fullModelName.includes('gemini-3')
+    const hasGemini3Tier = hasThinkingTierSuffix(fullModelName)
 
-    // Use snake_case for Claude models, camelCase for Gemini
+    // Claude thinking models: always use snake_case keys
     if (isClaudeModel && isThinkingModel) {
+      const thinkingConfig: AntigravityThinkingConfig = {}
       thinkingConfig.include_thoughts = thinking.includeThoughts ?? true
       if (thinking.budget) {
         thinkingConfig.thinking_budget = thinking.budget
       }
       // Claude thinking models need minimum maxOutputTokens
       result.maxOutputTokens = Math.max(result.maxOutputTokens || 0, 64000)
-    } else {
+      result.thinkingConfig = thinkingConfig
+    }
+    // Gemini 3 with tier suffix: uses thinkingLevel string (low/medium/high)
+    else if (isGemini3 && hasGemini3Tier) {
+      const thinkingConfig: AntigravityThinkingConfig = {}
       thinkingConfig.includeThoughts = thinking.includeThoughts ?? true
+
+      // Extract tier from model name suffix (e.g., gemini-3-pro-high -> 'high')
+      const modelTier = extractThinkingTier(fullModelName)
+
+      // Map tier/level to budget (ANTIGRAVITY_API_SPEC requires thinkingBudget)
+      let budget: number
       if (thinking.budget) {
-        thinkingConfig.thinkingBudget = thinking.budget
+        budget = thinking.budget
+      } else {
+        const level = thinking.level || modelTier || 'high'
+        // Map levels to budgets based on typical values
+        switch (level) {
+          case 'low':
+            budget = 8192
+            break
+          case 'medium':
+            budget = 16384
+            break
+          case 'high':
+          default:
+            budget = 32768
+            break
+        }
+      }
+
+      thinkingConfig.thinkingBudget = budget
+      result.thinkingConfig = thinkingConfig
+
+      // Ensure maxOutputTokens > thinkingBudget as per spec
+      if (budget && (result.maxOutputTokens ?? 0) <= budget) {
+        result.maxOutputTokens = budget + 2048 // Add buffer
       }
     }
-
-    result.thinkingConfig = thinkingConfig
+    // Gemini 2.5 and other models: use numeric thinkingBudget
+    else if (thinking.budget) {
+      const thinkingConfig: AntigravityThinkingConfig = {}
+      thinkingConfig.includeThoughts = thinking.includeThoughts ?? true
+      thinkingConfig.thinkingBudget = thinking.budget
+      result.thinkingConfig = thinkingConfig
+    }
+    // Default: just enable thinking without specific config
+    else if (thinking.includeThoughts !== false) {
+      const thinkingConfig: AntigravityThinkingConfig = {}
+      thinkingConfig.includeThoughts = thinking.includeThoughts ?? true
+      result.thinkingConfig = thinkingConfig
+    }
   }
 
   return Object.keys(result).length > 0 ? result : undefined
-}
-
-/**
- * Transform UnifiedToolChoice to GeminiToolConfig
- */
-function transformToolConfig(
-  toolChoice: UnifiedToolChoice | undefined,
-  isClaudeModel: boolean = false
-): GeminiToolConfig | undefined {
-  if (!toolChoice) {
-    return {
-      functionCallingConfig: {
-        mode: isClaudeModel ? 'VALIDATED' : 'AUTO',
-      },
-    }
-  }
-
-  if (typeof toolChoice === 'string') {
-    switch (toolChoice) {
-      case 'auto':
-        return {
-          functionCallingConfig: {
-            mode: 'AUTO',
-          },
-        }
-      case 'none':
-        return {
-          functionCallingConfig: {
-            mode: 'NONE',
-          },
-        }
-      case 'required':
-        return {
-          functionCallingConfig: {
-            mode: 'ANY',
-          },
-        }
-    }
-  }
-
-  if (toolChoice.type === 'tool' && toolChoice.name) {
-    const encodedName = encodeAntigravityToolName(toolChoice.name)
-    return {
-      functionCallingConfig: {
-        mode: 'ANY',
-        allowedFunctionNames: [encodedName],
-      },
-    }
-  }
-
-  return undefined
 }

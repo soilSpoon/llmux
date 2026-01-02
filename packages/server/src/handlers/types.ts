@@ -4,7 +4,7 @@ import type { Router } from '../routing'
 
 export interface ProxyOptions {
   sourceFormat: RequestFormat
-  targetProvider: string
+  targetProvider?: string
   targetModel?: string
   apiKey?: string
   thinking?: boolean

@@ -2,7 +2,6 @@ import { createLogger, type ProviderName } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import {
   type BlockType,
-  cacheSignatureFromSSEChunk,
   createBlockStartEvent,
   createBlockStopEvent,
   createMessageStartEvent,
@@ -47,21 +46,10 @@ export interface StreamTransformerOptions {
   sourceFormat: RequestFormat
   targetProvider: ProviderName
   streamContext: StreamContext
-  shouldCacheSignaturesForModel: boolean
-  signatureSessionKey?: string
-  contextHash?: string
 }
 
 export function createStreamTransformer(options: StreamTransformerOptions) {
-  const {
-    startTime,
-    sourceFormat,
-    targetProvider,
-    streamContext,
-    shouldCacheSignaturesForModel,
-    signatureSessionKey,
-    contextHash,
-  } = options
+  const { startTime, sourceFormat, targetProvider, streamContext } = options
 
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
@@ -69,7 +57,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
   let currentBlockType: BlockType = null
   let currentBlockIndex = 0
-  const thoughtBuffer = new Map<number, string>()
   let messageStartSent = false
 
   // provider might change based on protocol resolution, but here we assume targetProvider is effective
@@ -159,20 +146,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
               }
             }
 
-            if (
-              shouldCacheSignaturesForModel &&
-              signatureSessionKey &&
-              (chunkBlockType === 'thinking' || currentBlockType === 'thinking')
-            ) {
-              cacheSignatureFromSSEChunk(
-                chunkStr,
-                signatureSessionKey,
-                thoughtBuffer,
-                currentBlockIndex,
-                contextHash
-              )
-            }
-
             const updatedChunk = updateChunkIndex(chunkStr, currentBlockIndex)
             const content = extractContentFromChunk(chunkStr)
             if (content.text) streamContext.accumulatedText += content.text
@@ -206,7 +179,14 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     },
     flush(controller) {
       if (buffer.trim()) {
-        const events = buffer.split('\n\n').filter((e) => e.trim())
+        parserType = getParserType(parsingProvider)
+        let events: string[] = []
+        if (parserType === 'sse-line-delimited') {
+          events = buffer.split('\n').filter((e) => e.trim())
+        } else {
+          events = buffer.split('\n\n').filter((e) => e.trim())
+        }
+
         for (const event of events) {
           const eventWithNewline = `${event}\n\n`
           try {
@@ -264,20 +244,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 }
               }
 
-              if (
-                shouldCacheSignaturesForModel &&
-                signatureSessionKey &&
-                (chunkBlockType === 'thinking' || currentBlockType === 'thinking')
-              ) {
-                cacheSignatureFromSSEChunk(
-                  chunkStr,
-                  signatureSessionKey,
-                  thoughtBuffer,
-                  currentBlockIndex,
-                  contextHash
-                )
-              }
-
               const updatedChunk = updateChunkIndex(chunkStr, currentBlockIndex)
               streamContext.chunkCount++
               streamContext.fullResponse += updatedChunk
@@ -318,7 +284,12 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
         toolsCount: 0,
         bodyLength: 0,
       }
-      const logMsg = `[Streaming] ${streamContext.reqId} | ${ri.model} (${ri.provider}) | Tools:${ri.toolsCount} | ReqLen:${ri.bodyLength} | ${streamContext.duration}ms | Chunks:${streamContext.chunkCount} | Bytes:${streamContext.totalBytes}${streamContext.error ? ` | Error: ${sanitize(streamContext.error)}` : ''} | Text: "${sanitize(streamContext.accumulatedText)}" | Thinking: "${sanitize(streamContext.accumulatedThinking)}"`
+      let logMsg = `[Streaming] ${streamContext.reqId} | ${ri.model} (${ri.provider}) | Tools:${ri.toolsCount} | ReqLen:${ri.bodyLength} | ${streamContext.duration}ms | Chunks:${streamContext.chunkCount} | Bytes:${streamContext.totalBytes}${streamContext.error ? ` | Error: ${sanitize(streamContext.error)}` : ''} | Text: "${sanitize(streamContext.accumulatedText)}" | Thinking: "${sanitize(streamContext.accumulatedThinking)}"`
+
+      if (!streamContext.accumulatedText && !streamContext.accumulatedThinking) {
+        logMsg += ` | Raw: "${sanitize(streamContext.fullResponse.slice(0, 1000))}"`
+      }
+
       logger.info(logMsg)
     },
   })

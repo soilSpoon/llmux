@@ -184,9 +184,9 @@ export function transformToResponsesResponse(res: ChatCompletionsResponse): Resp
 
   if (res.usage) {
     response.usage = {
-      input_tokens: res.usage.prompt_tokens ?? 0,
-      output_tokens: res.usage.completion_tokens ?? 0,
-      total_tokens: res.usage.total_tokens ?? 0,
+      input_tokens: res.usage?.prompt_tokens ?? 0,
+      output_tokens: res.usage?.completion_tokens ?? 0,
+      total_tokens: res.usage?.total_tokens ?? 0,
     }
   }
 

@@ -10,8 +10,10 @@ import type { RequestFormat } from '../middleware/format'
 import {
   buildCodexBody,
   fixOpencodeZenBody,
+  getOpencodeZenEndpoint,
   prepareAntigravityRequest,
   prepareOpenAIWebRequest,
+  resolveOpencodeZenProtocol,
 } from '../providers'
 import { buildUpstreamHeaders, getDefaultEndpoint, parseRetryAfterMs } from '../upstream'
 import {
@@ -25,7 +27,6 @@ import {
 } from './request-handler'
 import {
   buildSignatureSessionKey,
-  createConversationContextHash,
   ensureThinkingSignatures,
   extractConversationKey,
   shouldCacheSignatures,
@@ -41,6 +42,48 @@ function formatToProvider(format: RequestFormat): ProviderName {
   return format as ProviderName
 }
 
+class NonRetriableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'NonRetriableError'
+  }
+}
+
+function resolveStreamEndpoint(
+  provider: string,
+  model: string,
+  retryState: { antigravityEndpointIndex: number },
+  openaiWebEndpoint?: string
+): string {
+  // 1. OpenAI Web
+  if (provider === 'openai-web' && openaiWebEndpoint) {
+    return openaiWebEndpoint
+  }
+
+  // 2. Opencode Zen (Dynamic Protocol)
+  if (provider === 'opencode-zen') {
+    const protocol = resolveOpencodeZenProtocol(model)
+    if (protocol) {
+      return getOpencodeZenEndpoint(protocol)
+    }
+  }
+
+  // 3. Antigravity (Endpoint Rotation)
+  if (provider === 'antigravity') {
+    const baseUrl =
+      ANTIGRAVITY_ENDPOINT_FALLBACKS[retryState.antigravityEndpointIndex] ||
+      ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
+    return `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
+  }
+
+  // 4. Default
+  const endpoint = getDefaultEndpoint(provider, { streaming: true })
+  if (!endpoint) {
+    throw new Error(`No endpoint for ${provider}`)
+  }
+  return endpoint
+}
+
 export async function handleStreamingProxy(
   request: Request,
   options: ProxyOptions
@@ -51,7 +94,7 @@ export async function handleStreamingProxy(
   const streamContext: StreamContext = {
     reqId,
     fromFormat: options.sourceFormat,
-    targetProvider: options.targetProvider,
+    targetProvider: options.targetProvider || 'unknown',
     targetModel: options.targetModel || 'unknown',
     originalModel: 'unknown',
     finalModel: 'unknown',
@@ -97,14 +140,6 @@ export async function handleStreamingProxy(
 
     while (shouldContinueRetry(retryState)) {
       incrementAttempt(retryState)
-      // console.log('DEBUG: Loop start, attempt:', retryState.attempt)
-
-      if (options.router) {
-        const resolution = await options.router.resolveModel(currentModel)
-        currentProvider = resolution.provider as ProviderName
-        currentModel = resolution.model
-      }
-      effectiveTargetProvider = currentProvider
 
       if (isThinkingEnabled !== true) {
         removeThinkingFromBody(body)
@@ -231,7 +266,6 @@ export async function handleStreamingProxy(
       // Signature Integration
       const shouldCacheSignaturesForModel = shouldCacheSignatures(currentModel)
       let signatureSessionKey: string | undefined
-      let contextHash: string | undefined
       if (shouldCacheSignaturesForModel) {
         const conversationKey = extractConversationKey(body)
         signatureSessionKey = buildSignatureSessionKey(
@@ -239,28 +273,16 @@ export async function handleStreamingProxy(
           conversationKey,
           effectiveTargetProvider
         )
-        // Generate context hash for signature validation
-        const typedBody = body as { contents?: unknown[]; messages?: unknown[] }
-        contextHash = createConversationContextHash(
-          typedBody.contents as Parameters<typeof createConversationContextHash>[0],
-          typedBody.messages as Parameters<typeof createConversationContextHash>[1]
-        )
         await ensureThinkingSignatures(requestBody, signatureSessionKey, currentModel)
       }
 
-      // Endpoint
-      let endpoint =
-        openaiWebEndpoint || getDefaultEndpoint(effectiveTargetProvider, { streaming: true })
-      if (!endpoint) throw new Error(`No endpoint for ${effectiveTargetProvider}`)
-
-      // Antigravity Specific Post-Transform Logic
-      if (effectiveTargetProvider === 'antigravity') {
-        // Endpoint rotation for antigravity
-        const baseUrl =
-          ANTIGRAVITY_ENDPOINT_FALLBACKS[retryState.antigravityEndpointIndex] ||
-          ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
-        endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
-      }
+      // Endpoint Resolution
+      const endpoint = resolveStreamEndpoint(
+        effectiveTargetProvider,
+        currentModel,
+        retryState,
+        openaiWebEndpoint
+      )
 
       const controller = new AbortController()
       const signal = controller.signal
@@ -350,11 +372,24 @@ export async function handleStreamingProxy(
             )
           }
 
-          throw new Error(`Upstream error ${status}: ${errorText}`)
+          // If action is throw (non-retriable error), stop retrying and return error
+          // We throw here to be caught by the outer catch, but we add a flag or specific error type
+          // to avoid it being treated as a network error if we wanted to distinguish.
+          // However, the outer catch wraps in 500.
+          // To avoid the retry loop catching it, we must NOT throw inside the try block that has the catch for retries?
+          // The try/catch is inside the while loop.
+          // We should break the loop or return directly.
+
+          throw new NonRetriableError(`Upstream error ${status}: ${errorText}`)
         }
 
         // Success! Transform stream
         if (!upstreamResponse.body) throw new Error('No response body')
+
+        // Reset cooldown backoff on success
+        if (options.router?.handleSuccess) {
+          options.router.handleSuccess(effectiveTargetProvider, currentModel)
+        }
 
         const transformStream = createStreamTransformer({
           reqId,
@@ -362,12 +397,10 @@ export async function handleStreamingProxy(
           sourceFormat: options.sourceFormat,
           targetProvider: effectiveTargetProvider,
           streamContext,
-          shouldCacheSignaturesForModel,
-          signatureSessionKey,
-          contextHash,
         })
 
-        upstreamResponse.body.pipeTo(transformStream.writable).catch((error) => {
+        const bodyStream = upstreamResponse.body
+        bodyStream.pipeTo(transformStream.writable).catch((error) => {
           streamContext.error = error instanceof Error ? error.message : String(error)
           logger.error({ reqId, error: streamContext.error }, '[Streaming] Pipe Error')
         })
@@ -381,6 +414,11 @@ export async function handleStreamingProxy(
           },
         })
       } catch (error) {
+        // Handle NonRetriableError by re-throwing to exit the loop
+        if (error instanceof NonRetriableError) {
+          throw error
+        }
+
         // Loop continue for retries handled by 'continue' in try block
         // If we are here, it's a hard error or rethrow
 

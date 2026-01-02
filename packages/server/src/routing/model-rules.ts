@@ -17,14 +17,26 @@ export function parseExplicitProvider(model: string): {
   const providerCandidate = parts[parts.length - 1] ?? ''
   const baseModel = parts.slice(0, -1).join(':')
 
-  // Validate against registered providers
+  // Validate against registered providers OR known providers that might not be registered in core
+  // but are valid in our routing context (e.g. opencode-zen, openai-web)
+  const knownProviders = [
+    'openai',
+    'anthropic',
+    'gemini',
+    'antigravity',
+    'opencode-zen',
+    'openai-web',
+    'github-copilot',
+  ]
+
   if (
-    isValidProviderName(providerCandidate) &&
-    getRegisteredProviders().includes(providerCandidate)
+    (isValidProviderName(providerCandidate) &&
+      getRegisteredProviders().includes(providerCandidate)) ||
+    knownProviders.includes(providerCandidate)
   ) {
     return {
       model: baseModel,
-      provider: providerCandidate,
+      provider: providerCandidate as UpstreamProvider,
     }
   }
 
@@ -44,6 +56,14 @@ export function parseExplicitProvider(model: string): {
  * Used as a fallback when ModelLookup fails or is not available
  */
 export function inferProviderFromModel(model: string): UpstreamProvider {
+  // Specific pattern matching overrides
+  if (model.includes('gemini-claude')) return 'antigravity'
+  if (model.startsWith('gemini-3-')) return 'antigravity'
+  if (model.endsWith('-antigravity')) return 'antigravity'
+
+  if (model.startsWith('claude-')) return 'anthropic'
+  if (model.startsWith('gemini-')) return 'gemini'
+
   // Priority order for inference (more specific first)
   const priorityOrder: UpstreamProvider[] = [
     'antigravity',
@@ -97,6 +117,15 @@ export function isOpenAIModel(model: string): boolean {
     model.startsWith('o4') ||
     model.includes('codex')
   )
+}
+
+export function getHardcodedModelFallback(
+  model: string
+): { model: string; provider?: UpstreamProvider } | null {
+  if (model === 'gemini-claude-opus-4-5-thinking') {
+    return { model: 'gemini-3-pro-high', provider: 'antigravity' }
+  }
+  return null
 }
 
 /**

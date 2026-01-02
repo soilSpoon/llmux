@@ -1,7 +1,6 @@
 import { createLogger, getProvider, type ProviderName, type StreamChunk } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import { normalizeBashArguments } from './bash-normalization'
-import { cacheSignatureFromChunk } from './signature-integration'
 
 const logger = createLogger({ service: 'stream-processor' })
 
@@ -287,80 +286,6 @@ export function extractContentFromChunk(chunk: string): { text?: string; thinkin
     // Ignore
   }
   return result
-}
-
-export function cacheSignatureFromSSEChunk(
-  chunk: string,
-  signatureSessionKey: string,
-  thoughtBuffer: Map<number, string>,
-  currentBlockIndex: number,
-  contextHash?: string
-): void {
-  try {
-    const lines = chunk.trim().split('\n')
-    const dataLine = lines.find((line) => line.startsWith('data: '))
-    if (!dataLine) return
-
-    const dataContent = dataLine.slice(6)
-    if (dataContent.trim() === '[DONE]') return
-
-    const json = JSON.parse(dataContent)
-
-    let thinking: string | undefined
-    let signature: string | undefined
-
-    // Handle standard Anthropic streaming format
-    if (json.type === 'content_block_delta' && json.delta) {
-      if (typeof json.delta.thinking === 'string') thinking = json.delta.thinking
-      if (typeof json.delta.signature === 'string') signature = json.delta.signature
-    } else if (json.type === 'content_block_start' && json.content_block) {
-      if (typeof json.content_block.thinking === 'string') thinking = json.content_block.thinking
-      if (typeof json.content_block.signature === 'string') signature = json.content_block.signature
-    }
-    // Fallback: Check for top-level properties (legacy or other formats)
-    else {
-      if (typeof json.thinking === 'string') thinking = json.thinking
-      if (typeof json.signature === 'string') signature = json.signature
-    }
-
-    if (thinking || signature) {
-      cacheSignatureFromChunk(
-        signatureSessionKey,
-        {
-          thinking: {
-            text: thinking,
-            signature: signature,
-          },
-        },
-        thoughtBuffer,
-        currentBlockIndex,
-        contextHash
-      )
-    }
-  } catch {
-    // Fallback to regex if JSON parsing fails (e.g. malformed data),
-    // but use a robust regex that handles escaped quotes
-    const thinkingMatch = chunk.match(/"thinking"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1]
-    const signatureMatch = chunk.match(/"signature"\s*:\s*"((?:[^"\\]|\\.)*)"/)?.[1]
-
-    if (thinkingMatch || signatureMatch) {
-      // Unescape the regex match to get actual string content
-      const unescapeStr = (s: string | undefined) => (s ? s.replace(/\\(["\\])/g, '$1') : undefined)
-
-      cacheSignatureFromChunk(
-        signatureSessionKey,
-        {
-          thinking: {
-            text: unescapeStr(thinkingMatch),
-            signature: unescapeStr(signatureMatch),
-          },
-        },
-        thoughtBuffer,
-        currentBlockIndex,
-        contextHash
-      )
-    }
-  }
 }
 
 export function patchStopReasonForToolUse(chunk: string): string {

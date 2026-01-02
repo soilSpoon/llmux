@@ -489,10 +489,10 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
         return formatSSE('message_start', {
           type: 'message_start',
           message: {
-            id: 'msg_proxy',
+            id: `msg_${generateMessageId()}`,
             type: 'message',
             role: 'assistant',
-            model: chunk.model ?? 'claude-3-5-sonnet-20241022',
+            model: chunk.model ?? 'unknown',
             content: [],
             stop_reason: null,
             stop_sequence: null,
@@ -564,4 +564,8 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
 
 function formatSSE(eventType: string, data: object): string {
   return `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`
+}
+
+function generateMessageId(): string {
+  return Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
 }

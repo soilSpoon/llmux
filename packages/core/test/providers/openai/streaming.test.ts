@@ -261,6 +261,24 @@ describe('OpenAI Streaming', () => {
       })
     })
 
+    it('handles usage chunk with undefined usage', () => {
+      const chunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'gpt-4',
+        choices: [],
+        usage: undefined,
+      })
+
+      const result = parseStreamChunk(`data: ${chunk}`)
+
+      // If usage is undefined in a usage chunk, it might return null or a specific error chunk.
+      // Based on current implementation, it skips choices and if usage is truthy it returns usage,
+      // otherwise it checks top-level finish_reason or returns null.
+      expect(result).toBeNull()
+    })
+
     it('handles malformed JSON gracefully', () => {
       const result = parseStreamChunk('data: {invalid json')
 

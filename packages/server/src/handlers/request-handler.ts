@@ -9,6 +9,7 @@ import {
   shouldFallbackToDefaultProject,
 } from '../providers'
 import type { Router } from '../routing'
+import { getHardcodedModelFallback } from '../routing/model-rules'
 import { accountRotationManager } from './account-rotation'
 import { applyModelMappingV2 } from './model-mapping'
 
@@ -31,6 +32,7 @@ export interface PrepareContextOptions {
   router?: Router
   modelMappings?: AmpModelMapping[]
   headerTargetProvider?: string | null
+  apiKey?: string
 }
 
 export async function prepareRequestContext(
@@ -89,22 +91,31 @@ export async function prepareRequestContext(
   }
 
   // Router Resolution
-  let effectiveProvider: ProviderName =
-    (initialTargetProvider as ProviderName) || ('openai' as ProviderName)
+  let effectiveProvider: ProviderName | undefined
 
   if (router && currentModel) {
-    // If provider is already fixed by header or options, we might still want to resolve model
-    // But typically router resolves both.
     // If targetProvider is NOT set, use router.
+    // If targetProvider IS set, we generally trust it, BUT we might still want to resolve the model alias.
+    // E.g. "claude-3-opus" -> "claude-3-opus-20240229" even if provider is "anthropic".
+
+    // Use router to resolve model aliases and provider
+    const routeResult = await router.resolveModel(currentModel)
+
+    // If initialTargetProvider was NOT set, we accept the router's provider.
     if (!initialTargetProvider) {
-      const routeResult = await router.resolveModel(currentModel)
       effectiveProvider = routeResult.provider as ProviderName
-      currentModel = routeResult.model
     }
+
+    // We ALWAYS accept the router's resolved model (it handles aliases)
+    currentModel = routeResult.model
   }
 
   if (initialTargetProvider && isValidProviderName(initialTargetProvider)) {
     effectiveProvider = initialTargetProvider as ProviderName
+  }
+
+  if (!effectiveProvider) {
+    effectiveProvider = 'openai'
   }
 
   return {
@@ -206,7 +217,28 @@ export async function handleUpstreamError(
   if (status === 429) {
     const retryAfter = context.retryAfterMs !== undefined ? context.retryAfterMs : 30000
 
-    logger.warn({ reqId, status, retryAfter }, 'Rate limited')
+    logger.warn(
+      { reqId, status, retryAfter, originalRetryAfter: context.retryAfterMs },
+      'Rate limited'
+    )
+
+    // Check hardcoded fallback first (for tests or specific known overrides)
+    const hardcodedFallback = getHardcodedModelFallback(model)
+    if (hardcodedFallback) {
+      logger.warn(
+        {
+          reqId,
+          current: { provider, model },
+          fallback: hardcodedFallback,
+        },
+        'Rate limited, using hardcoded fallback'
+      )
+      return {
+        action: 'switch-model',
+        newModel: hardcodedFallback.model,
+        newProvider: (hardcodedFallback.provider || provider) as ProviderName,
+      }
+    }
 
     // Antigravity: Try rotating endpoints before marking account as limited
     // Different endpoints (Daily vs Prod) might have separate quotas/limits
@@ -223,41 +255,46 @@ export async function handleUpstreamError(
 
     // Mark current as rate limited (all providers)
     // For Antigravity, we only reach here if we've exhausted all endpoints for the current account
-    accountRotationManager.markRateLimited(provider, retryState.accountIndex, retryAfter)
+    accountRotationManager.markRateLimited(provider, model, retryState.accountIndex, retryAfter)
 
     // Check if all accounts are limited
-    const credentials = await TokenRefresh.ensureFresh(provider)
-    if (credentials && accountRotationManager.areAllRateLimited(provider, credentials)) {
-      // Router handling: Only mark the model as globally limited if ALL accounts are limited
-      if (router && model) {
-        router.handleRateLimit(model, retryAfter)
-      }
+    try {
+      const credentials = await TokenRefresh.ensureFresh(provider)
+      if (credentials && accountRotationManager.areAllRateLimited(provider, model, credentials)) {
+        // Router handling: Only mark the model as globally limited if ALL accounts are limited
+        if (router && model) {
+          router.handleRateLimit(model, retryAfter)
+        }
 
-      // 2. Try Router Smart Fallback
-      if (router && context.originalModel) {
-        const routeResult = await router.resolveModel(context.originalModel)
+        // 2. Try Router Smart Fallback
+        if (router && context.originalModel) {
+          const routeResult = await router.resolveModel(context.originalModel)
 
-        // If router found a different provider or model that is NOT the current one
-        // (resolveModel checks cooldowns, so it should return a non-cooled-down option if available)
-        if (routeResult.provider !== provider || routeResult.model !== model) {
-          logger.warn(
-            {
-              reqId,
-              current: { provider, model },
-              fallback: { provider: routeResult.provider, model: routeResult.model },
-            },
-            'All accounts rate limited, router suggested fallback'
-          )
-          return {
-            action: 'switch-model',
-            newModel: routeResult.model,
-            newProvider: routeResult.provider as ProviderName,
+          // If router found a different provider or model that is NOT the current one
+          // (resolveModel checks cooldowns, so it should return a non-cooled-down option if available)
+          if (routeResult.provider !== provider || routeResult.model !== model) {
+            logger.warn(
+              {
+                reqId,
+                current: { provider, model },
+                fallback: { provider: routeResult.provider, model: routeResult.model },
+              },
+              'All accounts rate limited, router suggested fallback'
+            )
+            return {
+              action: 'switch-model',
+              newModel: routeResult.model,
+              newProvider: routeResult.provider as ProviderName,
+            }
           }
         }
-      }
 
-      // If all limited and no fallback found, return 429 to client
-      return { action: 'all-cooldown' }
+        // If all limited and no fallback found, return 429 to client
+        return { action: 'all-cooldown' }
+      }
+    } catch (err) {
+      // Ignore credential errors (e.g. when using API key)
+      logger.debug({ err }, 'Failed to check credentials for rate limit')
     }
 
     if (accountRotationManager.hasNext(provider, model, retryState.accountIndex)) {

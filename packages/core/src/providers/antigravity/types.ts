@@ -60,7 +60,8 @@ export interface AntigravityThinkingConfig {
   // Gemini-style (camelCase)
   includeThoughts?: boolean
   thinkingBudget?: number
-  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'
+  // thinkingLevel is NOT supported by Antigravity API spec, use thinkingBudget instead
+  // thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'
 
   // Claude-style via Antigravity (snake_case)
   include_thoughts?: boolean
