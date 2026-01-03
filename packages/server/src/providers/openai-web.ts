@@ -38,7 +38,11 @@ export async function prepareOpenAIWebRequest(
     return null
   }
 
-  const resolvedAccountIndex = accountRotationManager.getNextAvailable('openai-web', credentials)
+  const resolvedAccountIndex = accountRotationManager.getNextAvailable(
+    'openai-web',
+    options.model,
+    credentials
+  )
   const selectedCred = credentials[resolvedAccountIndex]
 
   if (!selectedCred || !isOAuthCredential(selectedCred)) {

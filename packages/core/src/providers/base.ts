@@ -10,6 +10,7 @@ export type ProviderName =
   | 'antigravity'
   | 'opencode-zen'
   | 'openai-web'
+  | 'github-copilot'
 
 const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'openai',

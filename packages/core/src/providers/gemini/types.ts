@@ -62,6 +62,8 @@ export interface GeminiPart {
 
   // Thinking blocks (Gemini 2.5/3)
   thought?: boolean
+  thought_signature?: string
+  // Internal convenience alias for transforms (camelCase)
   thoughtSignature?: string
 
   // Media resolution hint

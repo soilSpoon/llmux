@@ -1,5 +1,20 @@
 import type { ProviderName } from '@llmux/core'
-import type { ModelLookup } from '../models/lookup'
+
+/**
+ * Model lookup interface for resolving models to providers
+ */
+export interface ModelLookup {
+  /**
+   * Get provider for a given model ID.
+   * Returns the provider name if found, undefined otherwise.
+   */
+  getProviderForModel(modelId: string): Promise<string | undefined>
+
+  /**
+   * Force refresh the model cache.
+   */
+  refresh(): Promise<void>
+}
 
 /**
  * Extended provider names including virtual/upstream providers

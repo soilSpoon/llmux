@@ -5,7 +5,7 @@ describe('callUpstream', () => {
   it('should call fetch with correct arguments', async () => {
     const originalFetch = global.fetch
     const mockFetch = mock(() => Promise.resolve(new Response('ok')))
-    global.fetch = mockFetch
+    global.fetch = mockFetch as unknown as typeof fetch
 
     await callUpstream({
       provider: 'openai',
@@ -15,11 +15,15 @@ describe('callUpstream', () => {
     })
 
     expect(mockFetch).toHaveBeenCalled()
-    const args = mockFetch.mock.calls[0]
-    expect(args[0]).toBe('https://api.openai.com/v1/chat/completions')
-    expect(args[1].method).toBe('POST')
-    expect(args[1].headers).toEqual({ 'Content-Type': 'application/json' })
-    expect(JSON.parse(args[1].body as string)).toEqual({ model: 'gpt-4' })
+    const calls = mockFetch.mock.calls
+    expect(calls.length).toBeGreaterThan(0)
+    const firstCall = calls[0]
+    expect(firstCall).toBeDefined()
+    const [url, init] = firstCall as unknown as [string, RequestInit]
+    expect(url).toBe('https://api.openai.com/v1/chat/completions')
+    expect(init?.method).toBe('POST')
+    expect(init?.headers).toEqual({ 'Content-Type': 'application/json' })
+    expect(JSON.parse(init?.body as string)).toEqual({ model: 'gpt-4' })
 
     global.fetch = originalFetch
   })

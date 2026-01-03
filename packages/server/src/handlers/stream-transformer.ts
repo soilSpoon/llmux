@@ -1,5 +1,7 @@
 import { createLogger, type ProviderName } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
+import type { SignatureStore } from '../stores'
+import { extractSignaturesFromSSE } from './signature-response'
 import {
   type BlockType,
   createBlockStartEvent,
@@ -46,10 +48,18 @@ export interface StreamTransformerOptions {
   sourceFormat: RequestFormat
   targetProvider: ProviderName
   streamContext: StreamContext
+  signatureContext?: {
+    projectId: string
+    provider: string
+    endpoint: string
+    account: string
+    signatureStore: SignatureStore
+    onSave?: (count: number) => void
+  }
 }
 
 export function createStreamTransformer(options: StreamTransformerOptions) {
-  const { startTime, sourceFormat, targetProvider, streamContext } = options
+  const { startTime, sourceFormat, targetProvider, streamContext, signatureContext } = options
 
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
@@ -75,6 +85,23 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
       for (const rawEvent of rawEvents) {
         if (!rawEvent.trim()) continue
+
+        // Extract and save signatures from response
+        if (signatureContext) {
+          const signatures = extractSignaturesFromSSE(`data: ${rawEvent}`)
+          for (const sig of signatures) {
+            signatureContext.signatureStore.saveSignature({
+              signature: sig,
+              projectId: signatureContext.projectId,
+              provider: signatureContext.provider,
+              endpoint: signatureContext.endpoint,
+              account: signatureContext.account,
+            })
+          }
+          if (signatures.length > 0) {
+            signatureContext.onSave?.(signatures.length)
+          }
+        }
 
         logger.trace(
           { rawEvent, currentBlockType, currentBlockIndex },
@@ -116,6 +143,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   }
                   ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
                   currentBlockType = null
+                  currentBlockIndex++ // Increment index after closing block
                 }
                 streamContext.fullResponse += finalChunk
                 ctrl.enqueue(encoder.encode(finalChunk))
@@ -215,6 +243,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                     }
                     ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
                     currentBlockType = null
+                    currentBlockIndex++ // Increment index after closing block
                   }
                   ctrl.enqueue(encoder.encode(finalChunk))
                   return
@@ -284,6 +313,17 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
         toolsCount: 0,
         bodyLength: 0,
       }
+
+      // If we have no chunks and no error, it means the upstream returned an empty success response
+      // This usually happens with Gemini/Antigravity when safety filters trigger or the model refuses to output
+      if (streamContext.chunkCount === 0 && !streamContext.error) {
+        const errorMsg =
+          'Upstream model returned empty response (0 tokens). This may be due to safety filters or internal model refusal.'
+        streamContext.error = errorMsg
+        const errorEvent = `event: error\ndata: {"type":"error","error":{"type":"upstream_error","message":"${errorMsg}"}}\n\n`
+        controller.enqueue(encoder.encode(errorEvent))
+      }
+
       let logMsg = `[Streaming] ${streamContext.reqId} | ${ri.model} (${ri.provider}) | Tools:${ri.toolsCount} | ReqLen:${ri.bodyLength} | ${streamContext.duration}ms | Chunks:${streamContext.chunkCount} | Bytes:${streamContext.totalBytes}${streamContext.error ? ` | Error: ${sanitize(streamContext.error)}` : ''} | Text: "${sanitize(streamContext.accumulatedText)}" | Thinking: "${sanitize(streamContext.accumulatedThinking)}"`
 
       if (!streamContext.accumulatedText && !streamContext.accumulatedThinking) {

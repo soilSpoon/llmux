@@ -44,7 +44,7 @@ export function parseExplicitProvider(model: string): {
   if (providerCandidate === 'github-copilot') {
     return {
       model: baseModel,
-      provider: 'github-copilot' as UpstreamProvider,
+      provider: 'github-copilot',
     }
   }
 
@@ -64,11 +64,14 @@ export function inferProviderFromModel(model: string): UpstreamProvider {
   if (model.startsWith('claude-')) return 'anthropic'
   if (model.startsWith('gemini-')) return 'gemini'
 
-  // Priority order for inference (more specific first)
+  // Priority order for inference (OAuth providers first, then API key providers)
   const priorityOrder: UpstreamProvider[] = [
+    // OAuth providers (free/quota-based)
     'antigravity',
-    'opencode-zen',
     'openai-web',
+    'github-copilot',
+    // API key providers
+    'opencode-zen',
     'anthropic',
     'gemini',
     'openai',

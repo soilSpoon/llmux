@@ -159,6 +159,56 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
       expect(parts.length).toBe(1);
       expect(parts[0]?.text).toBe("Response");
     });
+
+    test("removes residual thoughtSignature and signature from all parts", () => {
+      const sessionKey = "test-residual-signatures";
+      const requestBody: UnifiedRequestBody = {
+        contents: [
+          {
+            role: "model",
+            parts: [
+              {
+                thought: true,
+                text: "Thinking...",
+                thoughtSignature: TEST_SIGNATURE,
+              },
+              { 
+                text: "Final response", 
+                thoughtSignature: TEST_SIGNATURE 
+              },
+              { 
+                type: "tool_use", 
+                id: "call-1", 
+                name: "bash", 
+                input: { cmd: "ls" },
+                signature: TEST_SIGNATURE
+              },
+            ],
+          },
+        ],
+      };
+
+      ensureThinkingSignatures(
+        requestBody,
+        sessionKey,
+        "claude-opus-4-5-thinking"
+      );
+
+      const parts = requestBody.contents?.[0]?.parts as any[];
+
+      // thinking part removed
+      expect(parts.some(p => p.thought === true)).toBe(false);
+
+      // text part remains but WITHOUT thoughtSignature
+      const textPart = parts.find(p => p.text === "Final response");
+      expect(textPart).toBeDefined();
+      expect(textPart.thoughtSignature).toBeUndefined();
+
+      // tool_use part remains but WITHOUT signature
+      const toolPart = parts.find(p => p.type === "tool_use");
+      expect(toolPart).toBeDefined();
+      expect(toolPart.signature).toBeUndefined();
+    });
   });
 
   describe("STEP 1: stripAllThinkingFromMessages - Anthropic Format", () => {
@@ -195,6 +245,45 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
       expect(
         content.some((b: any) => b.type === "text" && b.text === "Final answer")
       ).toBe(true);
+    });
+
+    test("removes residual signature from all blocks", () => {
+      const sessionKey = "test-residual-messages";
+      const requestBody: UnifiedRequestBody = {
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "thinking",
+                thinking: "Reasoning...",
+                signature: TEST_SIGNATURE,
+              },
+              { 
+                type: "text", 
+                text: "Final answer",
+                signature: TEST_SIGNATURE 
+              },
+            ],
+          },
+        ],
+      };
+
+      ensureThinkingSignatures(
+        requestBody,
+        sessionKey,
+        "claude-opus-4-5-thinking"
+      );
+
+      const content = requestBody.messages?.[0]?.content as any[];
+
+      // thinking stripped
+      expect(content.some(b => b.type === "thinking")).toBe(false);
+
+      // text remains but WITHOUT signature
+      const textBlock = content.find(b => b.type === "text");
+      expect(textBlock).toBeDefined();
+      expect(textBlock.signature).toBeUndefined();
     });
 
     test("re-injects thinking when tool_use is present in messages format (valid behavior)", () => {

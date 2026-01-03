@@ -2,7 +2,6 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import "../setup";
 import {
   buildSignatureSessionKey,
-  cacheSignatureFromChunk,
   ensureThinkingSignatures,
   extractConversationKey,
   shouldCacheSignatures,
@@ -10,8 +9,7 @@ import {
 
 describe("signature-integration", () => {
   beforeEach(() => {
-    // Clear the cache between tests
-    // Note: signatureCache is a singleton, so we clear all known sessions
+    // Clear any global state if necessary
   });
 
   describe("buildSignatureSessionKey", () => {
@@ -104,75 +102,6 @@ describe("signature-integration", () => {
     test("should return false for undefined/empty", () => {
       expect(shouldCacheSignatures(undefined)).toBe(false);
       expect(shouldCacheSignatures("")).toBe(false);
-    });
-  });
-
-  describe("cacheSignatureFromChunk", () => {
-    test("should accumulate thinking text in buffer", () => {
-      const sessionKey = "test-session";
-      const thoughtBuffer = new Map<number, string>();
-
-      cacheSignatureFromChunk(
-        sessionKey,
-        { thinking: { text: "Hello " } },
-        thoughtBuffer,
-        0
-      );
-      cacheSignatureFromChunk(
-        sessionKey,
-        { thinking: { text: "world" } },
-        thoughtBuffer,
-        0
-      );
-
-      expect(thoughtBuffer.get(0)).toBe("Hello world");
-    });
-
-    test("should cache signature when received", () => {
-      const sessionKey = `test-cache-${Date.now()}`;
-      const thoughtBuffer = new Map<number, string>();
-      const signature = "a".repeat(60);
-
-      // First accumulate some thinking text
-      cacheSignatureFromChunk(
-        sessionKey,
-        { thinking: { text: "Thinking content here" } },
-        thoughtBuffer,
-        0
-      );
-
-      // Then receive signature
-      cacheSignatureFromChunk(
-        sessionKey,
-        { thinking: { signature } },
-        thoughtBuffer,
-        0
-      );
-
-      // Signature should be cached (verified internally via lastSignedThinkingBySessionKey)
-      // We can't directly test the cache here without exporting more internals
-      expect(thoughtBuffer.get(0)).toBe("Thinking content here");
-    });
-
-    test("should handle separate candidate indices", () => {
-      const sessionKey = "test-multicandidate";
-      const thoughtBuffer = new Map<number, string>();
-
-      cacheSignatureFromChunk(
-        sessionKey,
-        { thinking: { text: "First candidate" } },
-        thoughtBuffer,
-        0
-      );
-      cacheSignatureFromChunk(
-        sessionKey,
-        { thinking: { text: "Second candidate" } },
-        thoughtBuffer,
-        1
-      );
-
-      expect(thoughtBuffer.get(0)).toBe("First candidate");
-      expect(thoughtBuffer.get(1)).toBe("Second candidate");
     });
   });
 

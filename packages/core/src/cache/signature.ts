@@ -104,7 +104,8 @@ export class SignatureCache {
 
 export function getModelFamily(model: string): ModelFamily {
   const lowerModel = model.toLowerCase()
-  if (lowerModel.startsWith('claude')) return 'claude'
+  // gemini-claude-* models use Claude behavior
+  if (lowerModel.includes('claude')) return 'claude'
   if (lowerModel.startsWith('gemini')) return 'gemini'
   if (lowerModel.startsWith('gpt')) return 'openai'
   if (lowerModel.startsWith('o1') || lowerModel.startsWith('o3')) return 'openai'

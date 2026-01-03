@@ -11,11 +11,9 @@ import type {
   ContentPart,
   JSONSchema,
   JSONSchemaProperty,
-  ThinkingConfig,
   UnifiedMessage,
   UnifiedRequest,
   UnifiedTool,
-  UnifiedToolChoice,
 } from '../../types/unified'
 import { createLogger } from '../../util/logger'
 import { extractThinkingTier, hasThinkingTierSuffix } from '../../util/model-capabilities'
@@ -161,12 +159,12 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     contentsForStripping.forEach((content) => {
       content.parts = content.parts.map((part) => {
         if (part.thought) {
-          const { thought: _thought, thoughtSignature: _sig1, ...rest } = part
+          const { thought: _thought, thought_signature: _sig1, ...rest } = part
           return rest
         }
-        // Remove thoughtSignature from other parts if present
-        if (part.thoughtSignature) {
-          const { thoughtSignature: _sig2, ...rest } = part
+        // Remove signatures from other parts if present
+        if (part.thought_signature) {
+          const { thought_signature: _sig2, ...rest } = part
           return rest
         }
         return part
@@ -190,15 +188,36 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     // For Claude models, MUST use VALIDATED mode (Antigravity requirement)
     // For Gemini models, toolConfig is not needed (optional)
     if (isClaudeModel) {
+      // Define toolConfig first with all necessary properties
+      // For Claude models, MUST use VALIDATED mode (Antigravity requirement)
+      const functionCallingConfig: {
+        mode: 'AUTO' | 'ANY' | 'NONE' | 'VALIDATED'
+        allowedFunctionNames?: string[]
+      } = {
+        mode: 'VALIDATED',
+        allowedFunctionNames: undefined,
+      }
+
+      // Allow specific tool selection for Claude
+      if (
+        toolChoice &&
+        typeof toolChoice === 'object' &&
+        'type' in toolChoice &&
+        toolChoice.type === 'tool' &&
+        'name' in toolChoice
+      ) {
+        const encodedName = encodeAntigravityToolName(toolChoice.name)
+        functionCallingConfig.allowedFunctionNames = [encodedName]
+      }
+
+      toolConfig = {
+        functionCallingConfig,
+      }
+    } else {
       toolConfig = {
         functionCallingConfig: {
-          mode: 'VALIDATED',
+          mode: 'AUTO',
         },
-      }
-      // Allow specific tool selection for Claude
-      if (toolChoice?.type === 'tool' && toolChoice.name) {
-        const encodedName = encodeAntigravityToolName(toolChoice.name)
-        toolConfig.functionCallingConfig.allowedFunctionNames = [encodedName]
       }
     }
   } else if (toolChoice === 'none') {
@@ -294,7 +313,7 @@ function parsePart(part: GeminiPart): ContentPart {
       type: 'thinking',
       thinking: {
         text: part.text,
-        signature: part.thoughtSignature,
+        signature: part.thought_signature,
       },
     }
   }
@@ -558,11 +577,11 @@ function transformPart(
       return {
         thought: true,
         text: part.thinking?.text || '',
-        thoughtSignature: part.thinking?.signature,
+        thought_signature: part.thinking?.signature,
       }
 
     case 'tool_call': {
-      // Gemini 2.0 requires thoughtSignature field on functionCall parts
+      // Gemini 2.0 requires thought_signature field on functionCall parts
       // Strategy: Use fallback signature from preceding thinking block, or skip sentinel
       // The server's ensureThinkingSignatures() should have injected valid signatures
       // for tool-use cases before this transform, but we keep the sentinel as safety net
@@ -582,7 +601,7 @@ function transformPart(
               : (part.toolCall?.arguments ?? {}),
           id: part.toolCall?.id,
         },
-        thoughtSignature: effectiveSignature,
+        thought_signature: effectiveSignature,
       }
     }
 
@@ -807,7 +826,6 @@ function transformGenerationConfig(
           case 'medium':
             budget = 16384
             break
-          case 'high':
           default:
             budget = 32768
             break

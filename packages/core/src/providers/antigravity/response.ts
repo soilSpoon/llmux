@@ -59,7 +59,7 @@ export function parseResponse(response: unknown): UnifiedResponse {
       // Thinking block
       thinkingBlocks.push({
         text: part.text,
-        signature: part.thoughtSignature,
+        signature: part.thoughtSignature || part.thought_signature,
       })
     } else if (part.functionCall) {
       // Function call - decode tool name
@@ -118,6 +118,7 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
         thought: true,
         text: block.text,
         thoughtSignature: block.signature,
+        thought_signature: block.signature,
       })
     }
   }
@@ -141,6 +142,7 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
           },
           // Add thoughtSignature for Claude compatibility
           thoughtSignature: 'skip_thought_signature_validator',
+          thought_signature: 'skip_thought_signature_validator',
         })
         break
 
@@ -150,6 +152,7 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
           thought: true,
           text: part.thinking?.text || '',
           thoughtSignature: part.thinking?.signature,
+          thought_signature: part.thinking?.signature,
         })
         break
     }

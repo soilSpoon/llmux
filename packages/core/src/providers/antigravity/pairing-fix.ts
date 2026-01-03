@@ -52,7 +52,7 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
       for (let i = pendingGroups.length - 1; i >= 0; i--) {
         const group = pendingGroups[i]
         // Check if we have all responses needed for this group
-        if (group && group.ids.every((id) => collectedResponses.has(id))) {
+        if (group?.ids.every((id) => collectedResponses.has(id))) {
           // All IDs found - build the response group
           const groupResponses = group.ids.map((id) => {
             const resp = collectedResponses.get(id)
@@ -96,12 +96,7 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
   }
 
   // Handle remaining pending groups with orphan recovery
-  // Process in reverse order so insertions don't shift indices (though splice injects so order matters)
-  // Actually, we are inserting into newContents which is already built.
-  // We need to be careful about insertAfterIdx being valid in newContents.
-  // insertAfterIdx refers to index in newContents because we push to newContents as we go.
-
-  // Sort by index descending to handle insertions from end to start effectively (though matched groups were already removed)
+  // Sort by index descending to handle insertions without shifting following indices
   pendingGroups.sort((a, b) => b.insertAfterIdx - a.insertAfterIdx)
 
   for (const group of pendingGroups) {
@@ -135,16 +130,13 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
 
         if (matchedId) {
           const orphanResp = collectedResponses.get(matchedId)
-          if (!orphanResp) continue // Should not happen given matchedId comes from keys
+          if (!orphanResp) continue
 
           collectedResponses.delete(matchedId)
 
           // Fix the ID and name to match expected
           if (orphanResp.functionResponse) {
             orphanResp.functionResponse.id = expectedId
-            // If known name mismatch, update it? Or keep original?
-            // Reference implementation updates name if original was 'unknown_function'
-            // We can just trust expectedName as explicit truth
             orphanResp.functionResponse.name = expectedName
           }
 
@@ -189,12 +181,22 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
 
     if (groupResponses.length > 0) {
       // Insert at correct position (after the model message that made the calls)
-      // insertAfterIdx is the index of the model message
       newContents.splice(group.insertAfterIdx + 1, 0, {
         role: 'user',
         parts: groupResponses,
       })
     }
+  }
+
+  // Final pass: Push any remaining collected responses as an orphan turn
+  // This ensures we don't drop history parts, even if they are technically malformed (orphans)
+  if (collectedResponses.size > 0) {
+    const orphanParts = Array.from(collectedResponses.values())
+    newContents.push({
+      role: 'user',
+      parts: orphanParts,
+    })
+    collectedResponses.clear()
   }
 
   return newContents

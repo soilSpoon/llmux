@@ -316,7 +316,7 @@ describe("Antigravity Request Transformations", () => {
                   {
                     thought: true,
                     text: "Let me think about this...",
-                    thoughtSignature: "sig123",
+                    thought_signature: "sig123",
                   },
                   { text: "Here is my answer." },
                 ],
@@ -668,7 +668,8 @@ describe("Antigravity Request Transformations", () => {
         // Thinking blocks are now preserved (server's ensureThinkingSignatures handles filtering)
         // Thinking is at index 0, tool_call at index 1
         expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
-        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[0]!.thought_signature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[0]!.thought_signature).toBe(validSig);
         
         expect(result.request.contents[0]!.parts[1]!.functionCall?.name).toBe(
           "get_weather"
@@ -682,7 +683,8 @@ describe("Antigravity Request Transformations", () => {
           "call-123"
         );
         // Signature from thinking block should be propagated to functionCall
-        expect(result.request.contents[0]!.parts[1]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[1]!.thought_signature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[1]!.thought_signature).toBe(validSig);
       });
 
       it("should add skip_thought_signature_validator when signature is missing", () => {
@@ -711,7 +713,8 @@ describe("Antigravity Request Transformations", () => {
         const part = result.request.contents[0]!.parts[0]!;
         expect(part.functionCall).toBeDefined();
         expect(part.functionCall?.name).toBe("danger_tool");
-        expect(part.thoughtSignature).toBe("skip_thought_signature_validator");
+        expect(part.thought_signature).toBe("skip_thought_signature_validator");
+        expect(part.thought_signature).toBe("skip_thought_signature_validator");
       });
 
       it("should transform tool_result to functionResponse even without signature", () => {
@@ -750,7 +753,7 @@ describe("Antigravity Request Transformations", () => {
         
         // Tool Call should be functionCall with skip sentinel
         expect(result.request.contents[0]!.parts[0]!.functionCall).toBeDefined();
-        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe("skip_thought_signature_validator");
+        expect(result.request.contents[0]!.parts[0]!.thought_signature).toBe("skip_thought_signature_validator");
         
         // Tool Result should be functionResponse (not downgraded to text)
         const resultPart = result.request.contents[1]!.parts[0]!;
@@ -840,7 +843,7 @@ describe("Antigravity Request Transformations", () => {
         // Thinking block is preserved (server handles stripping invalid ones)
         expect(result.request.contents[0]!.parts).toHaveLength(2);
         expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
-        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[0]!.thought_signature).toBe(validSig);
         expect(result.request.contents[0]!.parts[1]!.text).toBe("Here is my answer.");
       });
 
@@ -876,9 +879,9 @@ describe("Antigravity Request Transformations", () => {
         // Both thinking block and tool call preserved, with signature propagated to tool
         expect(result.request.contents[0]!.parts).toHaveLength(2);
         expect(result.request.contents[0]!.parts[0]!.thought).toBe(true);
-        expect(result.request.contents[0]!.parts[0]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[0]!.thought_signature).toBe(validSig);
         expect(result.request.contents[0]!.parts[1]!.functionCall?.name).toBe("test_tool");
-        expect(result.request.contents[0]!.parts[1]!.thoughtSignature).toBe(validSig);
+        expect(result.request.contents[0]!.parts[1]!.thought_signature).toBe(validSig);
       });
     });
 
@@ -1031,15 +1034,16 @@ describe("Antigravity Request Transformations", () => {
       const msg1Parts = contents[0]?.parts
       expect(msg1Parts).toHaveLength(2)
       expect(msg1Parts?.[0]?.thought).toBe(true)
-      expect(msg1Parts?.[0]?.thoughtSignature).toBe(validSig)
+      expect(msg1Parts?.[0]?.thought_signature).toBe(validSig)
       expect(msg1Parts?.[1]?.functionCall?.name).toBe('tool_1')
-      expect(msg1Parts?.[1]?.thoughtSignature).toBe(validSig)
+      expect(msg1Parts?.[1]?.thought_signature).toBe(validSig)
       
-      // Second message: tool_call has signature propagated from first message
-      const msg2Parts = contents[1]?.parts
+      // Second message: shifted to contents[2] because of interleaved placeholder response for tool_1
+      // contents[0] = tool_1 call, contents[1] = tool_1 placeholder response, contents[2] = tool_2 call
+      const msg2Parts = contents[2]?.parts
       expect(msg2Parts).toHaveLength(1)
       expect(msg2Parts?.[0]?.functionCall?.name).toBe('tool_2')
-      expect(msg2Parts?.[0]?.thoughtSignature).toBe(validSig)
+      expect(msg2Parts?.[0]?.thought_signature).toBe(validSig)
     })
 
     it("should preserve thinking blocks with signatures (server handles filtering)", () => {
@@ -1074,7 +1078,7 @@ describe("Antigravity Request Transformations", () => {
       // Thinking block PRESERVED (server's ensureThinkingSignatures handles stripping invalid ones)
       expect(secondContent?.parts).toHaveLength(2);
       expect(secondContent?.parts?.[0]?.thought).toBe(true);
-      expect(secondContent?.parts?.[0]?.thoughtSignature).toBe("claude-signature-12345678901234567890123456789012");
+      expect(secondContent?.parts?.[0]?.thought_signature).toBe("claude-signature-12345678901234567890123456789012");
       expect(secondContent?.parts?.[1]?.text).toBe("The answer is 4");
     });
 
@@ -1107,7 +1111,7 @@ describe("Antigravity Request Transformations", () => {
       expect(contents[0]?.parts).toHaveLength(2);
       expect(contents[0]?.parts?.[0]?.thought).toBe(true);
       expect(contents[0]?.parts?.[1]?.functionCall?.name).toBe('test_tool');
-      expect(contents[0]?.parts?.[1]?.thoughtSignature).toBe('skip_thought_signature_validator');
+      expect(contents[0]?.parts?.[1]?.thought_signature).toBe('skip_thought_signature_validator');
     });
 
     it("should use valid signature when it meets minimum length", () => {
@@ -1139,7 +1143,7 @@ describe("Antigravity Request Transformations", () => {
       expect(contents[0]?.parts).toHaveLength(2);
       expect(contents[0]?.parts?.[0]?.thought).toBe(true);
       expect(contents[0]?.parts?.[1]?.functionCall?.name).toBe('test_tool');
-      expect(contents[0]?.parts?.[1]?.thoughtSignature).toBe(validSig);
+      expect(contents[0]?.parts?.[1]?.thought_signature).toBe(validSig);
     });
 
     it("should preserve both thinking and text parts (server handles validation)", () => {
@@ -1175,7 +1179,7 @@ describe("Antigravity Request Transformations", () => {
       // Both thinking and text parts preserved (server handles filtering invalid ones)
       expect(parts).toHaveLength(2);
       expect(parts?.[0]?.thought).toBe(true);
-      expect(parts?.[0]?.thoughtSignature).toBe(validSig);
+      expect(parts?.[0]?.thought_signature).toBe(validSig);
       expect(parts?.[1]?.text).toBe("Response");
     });
   });

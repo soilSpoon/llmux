@@ -19,6 +19,7 @@ export interface AntigravityRequestContext {
   projectId: string
   accountIndex: number
   credentials: Credential[]
+  account: string
 }
 
 export interface PrepareAntigravityRequestOptions {
@@ -93,6 +94,7 @@ export async function prepareAntigravityRequest(
     projectId,
     accountIndex: resolvedAccountIndex,
     credentials,
+    account: currentEmail,
   }
 }
 

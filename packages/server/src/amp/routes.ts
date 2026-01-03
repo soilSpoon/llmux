@@ -97,29 +97,27 @@ export function createAmpRoutes(config: AmpRoutesConfig): Route[] {
     },
   ]
 
-  if (handlers.google) {
-    routes.push({
-      method: 'POST',
-      path: '/v1beta/models/*action',
-      handler: async (request: Request, params?: RouteParams) => {
-        const googleParams = { ...params, provider: 'google' }
-        return geminiHandler(request, googleParams)
-      },
-    })
+  routes.push({
+    method: 'POST',
+    path: '/v1beta/models/*action',
+    handler: async (request: Request, params?: RouteParams) => {
+      const googleParams = { ...params, provider: 'google' }
+      return geminiHandler(request, googleParams)
+    },
+  })
 
-    routes.push({
-      method: 'POST',
-      path: '/api/provider/:provider/v1beta/models/*action',
-      handler: geminiHandler,
-    })
+  routes.push({
+    method: 'POST',
+    path: '/api/provider/:provider/v1beta/models/*action',
+    handler: geminiHandler,
+  })
 
-    // Vertex AI style path: /api/provider/:provider/v1beta1/publishers/google/models/*action
-    routes.push({
-      method: 'POST',
-      path: '/api/provider/:provider/v1beta1/publishers/google/models/*action',
-      handler: geminiHandler,
-    })
-  }
+  // Vertex AI style path: /api/provider/:provider/v1beta1/publishers/google/models/*action
+  routes.push({
+    method: 'POST',
+    path: '/api/provider/:provider/v1beta1/publishers/google/models/*action',
+    handler: geminiHandler,
+  })
 
   return routes
 }

@@ -11,6 +11,7 @@ export interface ModelLookup {
   /**
    * Get provider for a given model ID.
    * Returns the provider name if found, undefined otherwise.
+   * Supports prefix matching.
    */
   getProviderForModel(modelId: string): Promise<ModelProvider | undefined>
 
@@ -23,6 +24,56 @@ export interface ModelLookup {
    * Force refresh the model cache.
    */
   refresh(): Promise<void>
+}
+
+/**
+ * Find provider for a model using prefix matching.
+ * Exported for testing.
+ */
+export function findProviderByPrefix(
+  modelId: string,
+  modelCache: Map<string, ModelProvider>
+): ModelProvider | undefined {
+  // 1. Exact match first
+  const exactMatch = modelCache.get(modelId)
+  if (exactMatch) {
+    return exactMatch
+  }
+
+  // 2. Prefix matching - find all matching models
+  const matches: Array<{ modelId: string; provider: ModelProvider }> = []
+  for (const [cachedModelId, provider] of modelCache) {
+    // Check if request model starts with cached model or vice versa
+    if (modelId.startsWith(cachedModelId) || cachedModelId.startsWith(modelId)) {
+      matches.push({ modelId: cachedModelId, provider })
+    }
+  }
+
+  // If multiple matches with different providers, don't match (ambiguous)
+  if (matches.length > 1) {
+    const uniqueProviders = new Set(matches.map((m) => m.provider))
+    if (uniqueProviders.size > 1) {
+      logger.debug(
+        { requestedModel: modelId, matchCount: matches.length, providers: [...uniqueProviders] },
+        'Ambiguous prefix match - multiple providers found'
+      )
+      return undefined
+    }
+  }
+
+  // Single match or multiple matches from same provider - use longest match
+  if (matches.length > 0) {
+    const bestMatch = matches.reduce((best, current) =>
+      current.modelId.length > best.modelId.length ? current : best
+    )
+    logger.debug(
+      { requestedModel: modelId, matchedModel: bestMatch.modelId, provider: bestMatch.provider },
+      'Prefix match found'
+    )
+    return bestMatch.provider
+  }
+
+  return undefined
 }
 
 export function createModelLookup(credentialProvider: CredentialProvider): ModelLookup {
@@ -105,12 +156,13 @@ export function createModelLookup(credentialProvider: CredentialProvider): Model
   return {
     async getProviderForModel(modelId: string): Promise<ModelProvider | undefined> {
       await ensureInitialized()
-      return modelCache.get(modelId)
+      return findProviderByPrefix(modelId, modelCache)
     },
 
     async hasModel(modelId: string): Promise<boolean> {
       await ensureInitialized()
-      return modelCache.has(modelId)
+      const provider = await this.getProviderForModel(modelId)
+      return provider !== undefined
     },
 
     async refresh(): Promise<void> {

@@ -5,15 +5,9 @@ import {
   mock,
   beforeEach,
   afterEach,
-  spyOn,
 } from "bun:test";
 import "../setup";
 import { handleProxy, type ProxyOptions } from "../../src/handlers/proxy";
-
-// Helper to intentionally cast invalid data for resilience testing
-function castTo<T>(data: unknown): T {
-  return data as T;
-}
 
 describe("handleProxy", () => {
   const originalFetch = globalThis.fetch;

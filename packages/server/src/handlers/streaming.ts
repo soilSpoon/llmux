@@ -15,6 +15,7 @@ import {
   prepareOpenAIWebRequest,
   resolveOpencodeZenProtocol,
 } from '../providers'
+import { SignatureStore } from '../stores'
 import { buildUpstreamHeaders, getDefaultEndpoint, parseRetryAfterMs } from '../upstream'
 import {
   createRetryState,
@@ -31,12 +32,19 @@ import {
   extractConversationKey,
   shouldCacheSignatures,
 } from './signature-integration'
+import { validateAndStripSignatures } from './signature-request'
 import { createStreamTransformer, type StreamContext } from './stream-transformer'
 import type { ProxyOptions } from './types'
 
 const logger = createLogger({ service: 'streaming-handler' })
 
+const signatureStore = new SignatureStore()
+
 export type { ProxyOptions } from './types'
+
+export function getSignatureStore(): SignatureStore {
+  return signatureStore
+}
 
 function formatToProvider(format: RequestFormat): ProviderName {
   return format as ProviderName
@@ -160,6 +168,8 @@ export async function handleStreamingProxy(
       })
 
       // Antigravity Specific Pre-Transform Logic
+      let currentEndpoint = ''
+      let currentAccount = ''
       if (effectiveTargetProvider === 'antigravity') {
         const antigravityContext = await prepareAntigravityRequest({
           model: currentModel,
@@ -171,7 +181,25 @@ export async function handleStreamingProxy(
         if (antigravityContext) {
           retryState.accountIndex = antigravityContext.accountIndex
           currentProjectId = antigravityContext.projectId
+          currentEndpoint = antigravityContext.endpoint || ''
+          currentAccount = antigravityContext.account || ''
           Object.assign(headers, antigravityContext.headers)
+        }
+      }
+
+      // Signature Validation: Strip invalid signatures before transform
+      if (currentProjectId && body.messages) {
+        const validationResult = validateAndStripSignatures({
+          messages: body.messages as Parameters<typeof validateAndStripSignatures>[0]['messages'],
+          targetProjectId: currentProjectId,
+          signatureStore,
+        })
+        if (validationResult.strippedCount > 0) {
+          logger.info(
+            { reqId, projectId: currentProjectId, strippedCount: validationResult.strippedCount },
+            `Validating signatures for project: ${currentProjectId} - stripped ${validationResult.strippedCount} invalid signatures`
+          )
+          body.messages = validationResult.messages as typeof body.messages
         }
       }
 
@@ -397,6 +425,21 @@ export async function handleStreamingProxy(
           sourceFormat: options.sourceFormat,
           targetProvider: effectiveTargetProvider,
           streamContext,
+          signatureContext: currentProjectId
+            ? {
+                projectId: currentProjectId,
+                provider: effectiveTargetProvider,
+                endpoint: currentEndpoint,
+                account: currentAccount,
+                signatureStore,
+                onSave: (count) => {
+                  logger.debug(
+                    { reqId, projectId: currentProjectId, count },
+                    `Saved ${count} signatures for project: ${currentProjectId}`
+                  )
+                },
+              }
+            : undefined,
         })
 
         const bodyStream = upstreamResponse.body

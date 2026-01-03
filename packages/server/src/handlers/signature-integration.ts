@@ -1,9 +1,11 @@
 /**
- * Signature Integration for Multi-turn Claude Thinking Conversations
+ * Thinking Strategy for Multi-turn Claude Conversations (opencode-antigravity-auth)
  *
- * This module integrates SignatureCache with streaming handlers to:
- * 1. Cache thoughtSignatures from streaming responses
- * 2. Restore signatures to thinking blocks in subsequent requests
+ * This module implements the "strip all thinking" strategy to handle Claude thinking models
+ * with large tool sets. Instead of trying to restore thinking signatures (which often breaks
+ * with many tools), it:
+ * 1. Strips all thinking blocks from previous model messages in subsequent requests.
+ * 2. Injects synthetic messages for tool loop recovery (Layer 4) when thinking is needed but missing.
  */
 
 import crypto from 'node:crypto'
@@ -64,12 +66,15 @@ export interface Block {
   text?: string
   thinking?: string
   signature?: string
+  thought_signature?: string
+  thoughtSignature?: string
   [key: string]: unknown
 }
 
 export interface Part {
   text?: string
   thought?: boolean
+  thought_signature?: string
   thoughtSignature?: string
   type?: string
   signature?: string
@@ -217,8 +222,6 @@ export function shouldCacheSignatures(model?: string): boolean {
   return family === 'claude' || family === 'gemini'
 }
 
-export const signatureCache = {}
-
 // ============================================================================
 // Request-side: Restore signatures to thinking blocks
 // ============================================================================
@@ -246,35 +249,31 @@ export function ensureThinkingSignatures(
 
   const modelFamily = getModelFamily(model)
 
-  // ==========================================================================
-  // STRATEGY: opencode-antigravity-auth approach
-  // STEP 1: Strip ALL thinking blocks (aggressive, unconditional)
-  // STEP 2: Apply Layer 4 recovery if needed (tool loop detection & synthetic messages)
-  // ==========================================================================
+  // STEP 1: Process signature stripping/standardization
+  // Strategy:
+  // - Claude: Strip ALL thinking blocks (prevents corruption, Layer 4 recovery handles loop)
+  // - Gemini: Preserve thinking blocks (required for validation) but standardize signatures
+  const isClaude = modelFamily === 'claude'
 
-  // STEP 1: Strip ALL thinking blocks from all messages/contents
   if (Array.isArray(typedBody.contents)) {
-    typedBody.contents = stripAllThinkingBlocksFromContents(typedBody.contents)
+    typedBody.contents = processSignaturesInContents(typedBody.contents, isClaude)
   }
   if (Array.isArray(typedBody.messages)) {
-    typedBody.messages = stripAllThinkingBlocksFromMessages(typedBody.messages)
+    typedBody.messages = processSignaturesInMessages(typedBody.messages, isClaude)
   }
 
   // Handle wrapped request format (Antigravity)
   if (typedBody.request && typeof typedBody.request === 'object') {
     const nestedRequest = typedBody.request as Record<string, unknown>
     if (Array.isArray(nestedRequest.contents)) {
-      nestedRequest.contents = stripAllThinkingBlocksFromContents(nestedRequest.contents)
+      nestedRequest.contents = processSignaturesInContents(nestedRequest.contents, isClaude)
     }
     if (Array.isArray(nestedRequest.messages)) {
-      nestedRequest.messages = stripAllThinkingBlocksFromMessages(nestedRequest.messages)
+      nestedRequest.messages = processSignaturesInMessages(nestedRequest.messages, isClaude)
     }
   }
 
-  logger.debug(
-    { model, sessionKey },
-    'Step 1: Stripped all thinking blocks (opencode-antigravity-auth strategy)'
-  )
+  logger.debug({ model, sessionKey, isClaude }, 'Step 1: Processed thinking signatures')
 
   // ==========================================================================
   // STEP 2: Apply Layer 4 recovery for Claude models if needed
@@ -350,24 +349,57 @@ interface ConversationMessage {
 }
 
 /**
- * Strip ALL thinking blocks from contents (opencode-antigravity-auth strategy).
+ * Process signatures in contents (model-aware).
+ * - If stripThinking is true (Claude), removes all thinking blocks.
+ * - Otherwise (Gemini), removes unsigned thinking blocks and standardizes signatures.
  */
-function stripAllThinkingBlocksFromContents(contents: Content[]): Content[] {
+function processSignaturesInContents(contents: Content[], stripThinking: boolean): Content[] {
   return contents.map((content) => {
     if (!content || typeof content !== 'object') return content
 
     if (Array.isArray(content.parts)) {
-      const filteredParts = content.parts.filter((part) => {
-        if (!part || typeof part !== 'object') return true
-        const p = part as Part
-        // Remove thinking parts
-        return !(
-          p.thought === true ||
-          p.type === 'thinking' ||
-          p.type === 'reasoning' ||
-          p.type === 'redacted_thinking'
-        )
-      })
+      const filteredParts = content.parts
+        .filter((part) => {
+          if (!part || typeof part !== 'object') return true
+          const p = part as Part
+          if (stripThinking) {
+            // Claude behavior: remove thinking parts
+            return !(
+              p.thought === true ||
+              p.type === 'thinking' ||
+              p.type === 'reasoning' ||
+              p.type === 'redacted_thinking'
+            )
+          }
+          // Gemini behavior: remove unsigned thinking blocks
+          if (p.thought === true) {
+            const hasSignature = p.thought_signature || p.thoughtSignature || p.signature
+            return !!hasSignature
+          }
+          return true
+        })
+        .map((part) => {
+          if (!part || typeof part !== 'object') return part
+          const p = part as Part
+
+          if (stripThinking) {
+            // Claude behavior: remove all residual signature fields
+            const { thoughtSignature: _, signature: __, thought_signature: ___, ...rest } = p
+            return rest
+          }
+
+          // Gemini behavior: standardize on thought_signature (snake_case)
+          const signature = p.thought_signature || p.thoughtSignature || p.signature
+          if (signature) {
+            const { thoughtSignature: _, signature: __, ...rest } = p
+            return {
+              ...rest,
+              thought_signature: signature,
+            }
+          }
+
+          return part
+        })
       return { ...content, parts: filteredParts }
     }
 
@@ -376,19 +408,45 @@ function stripAllThinkingBlocksFromContents(contents: Content[]): Content[] {
 }
 
 /**
- * Strip ALL thinking blocks from messages (opencode-antigravity-auth strategy).
+ * Process signatures in messages (model-aware).
  */
-function stripAllThinkingBlocksFromMessages(messages: Message[]): Message[] {
+function processSignaturesInMessages(messages: Message[], stripThinking: boolean): Message[] {
   return messages.map((message) => {
     if (!message || typeof message !== 'object') return message
 
     if (Array.isArray(message.content)) {
-      const filteredContent = (message.content as Block[]).filter((block) => {
-        if (!block || typeof block !== 'object') return true
-        const b = block as Block
-        // Remove thinking blocks
-        return !(b.type === 'thinking' || b.type === 'redacted_thinking')
-      })
+      const filteredContent = (message.content as Block[])
+        .filter((block) => {
+          if (!block || typeof block !== 'object') return true
+          const b = block as Block
+          if (stripThinking) {
+            // Claude: remove thinking blocks
+            return !(b.type === 'thinking' || b.type === 'redacted_thinking')
+          }
+          return true
+        })
+        .map((block) => {
+          if (!block || typeof block !== 'object') return block
+          const b = block as Block
+
+          if (stripThinking) {
+            // Claude: remove all residual signature fields
+            const { signature: _, thoughtSignature: __, thought_signature: ___, ...rest } = b
+            return rest
+          }
+
+          // Gemini behavior: standardize on thought_signature (snake_case)
+          const signature = b.thought_signature || b.signature || b.thoughtSignature
+          if (signature) {
+            const { signature: _, thoughtSignature: __, ...rest } = b
+            return {
+              ...rest,
+              thought_signature: signature,
+            }
+          }
+
+          return block
+        })
       return { ...message, content: filteredContent }
     }
 
