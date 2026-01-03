@@ -228,8 +228,19 @@ export function splitSSEEvents(
 }
 
 export function isEmptyTextBlock(chunk: string): boolean {
-  const textMatch = chunk.match(/"text":"((?:[^"\\]|\\.)*)"/g)
-  return textMatch?.every((m) => m === '"text":""' || m === '"text": ""') ?? false
+  // Check if the chunk contains any text fields
+  const hasTextField = /"text"\s*:\s*/.test(chunk)
+  if (!hasTextField) return false
+
+  // Find all text values
+  const textMatches = chunk.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)
+
+  // If we found text fields, verify all of them are empty strings
+  if (textMatches) {
+    return textMatches.every((m) => /"text"\s*:\s*""/.test(m))
+  }
+
+  return false
 }
 
 export function updateChunkIndex(chunk: string, newIndex: number): string {
