@@ -9,10 +9,10 @@
 
 import { CredentialStorage } from '@llmux/auth'
 import { createLogger } from '@llmux/core'
-import { isOpenAICompatibleProvider, isOpenAIModel } from '../routing/model-rules'
+import { isOpenAICompatibleProvider } from '../routing/model-rules'
 import { isRateLimited } from '../upstream'
 
-export { isRateLimited, isOpenAICompatibleProvider, isOpenAIModel }
+export { isRateLimited, isOpenAICompatibleProvider }
 
 const logger = createLogger({ service: 'openai-fallback' })
 

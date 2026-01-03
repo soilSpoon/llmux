@@ -3,7 +3,7 @@ import type { RoutingConfig } from '../config'
 import { type CooldownManager, globalCooldownManager } from '../cooldown'
 import type { ModelLookup } from '../models/lookup'
 import { ModelRouter } from './model-router'
-import type { CredentialChecker, UpstreamProvider } from './types'
+import type { UpstreamProvider } from './types'
 
 export interface RouteResult {
   provider: UpstreamProvider
@@ -16,11 +16,7 @@ export class Router {
   private currentIndex = 0
   private modelRouter: ModelRouter
 
-  constructor(
-    config: RoutingConfig = {},
-    modelLookup?: ModelLookup,
-    credentialChecker?: CredentialChecker
-  ) {
+  constructor(config: RoutingConfig = {}, modelLookup?: ModelLookup) {
     this.config = config
     this.cooldownManager = globalCooldownManager
 
@@ -40,15 +36,12 @@ export class Router {
       | undefined
 
     // Initialize ModelRouter
-    this.modelRouter = new ModelRouter(
-      {
-        modelLookup,
-        modelMappings,
-        defaultProvider: config.fallbackOrder?.[0] as UpstreamProvider,
-        enableOpenAIFallback: true,
-      },
-      credentialChecker
-    )
+    this.modelRouter = new ModelRouter({
+      modelLookup,
+      modelMappings,
+      defaultProvider: config.fallbackOrder?.[0] as UpstreamProvider,
+      enableOpenAIFallback: true,
+    })
   }
 
   /**
@@ -151,10 +144,6 @@ export class Router {
   }
 }
 
-export function createRouter(
-  config: RoutingConfig = {},
-  modelLookup?: ModelLookup,
-  credentialChecker?: CredentialChecker
-): Router {
-  return new Router(config, modelLookup, credentialChecker)
+export function createRouter(config: RoutingConfig = {}, modelLookup?: ModelLookup): Router {
+  return new Router(config, modelLookup)
 }

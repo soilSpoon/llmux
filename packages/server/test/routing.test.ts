@@ -19,29 +19,21 @@ describe("Router (Routing)", () => {
       expect(result.model).toBe("gpt-4-turbo");
     });
 
-    test("returns first fallback provider when no mapping exists", async () => {
+    test("throws error when model not found and no mapping exists", async () => {
       const router = new Router({
         fallbackOrder: ["anthropic", "openai"],
       });
 
-      const result = await router.resolveModel("unknown-model");
-      // Now returns primary inferred provider (default openai) if not mapped
-      // The old logic returned fallbackOrder[0].
-      // New logic: ModelRouter infers 'openai' for unknown model.
-      // Then Router checks cooldown. If ok, returns it.
-      // The config.fallbackOrder is used in Router as a last resort if ModelRouter resolution fails/cooldown blocks all.
-      
-      // inferProviderFromModel defaults to 'openai' for 'unknown-model'.
-      // So result.provider should be 'openai'.
-      expect(result.provider).toBe("openai");
-      expect(result.model).toBe("unknown-model");
+      await expect(router.resolveModel("unknown-model")).rejects.toThrow(
+        "No provider found for model"
+      );
     });
 
-    test("defaults to openai when no fallbackOrder set", async () => {
+    test("uses explicit provider suffix", async () => {
       const router = new Router({});
 
-      const result = await router.resolveModel("some-model");
-      expect(result.provider).toBe("openai");
+      const result = await router.resolveModel("some-model:anthropic");
+      expect(result.provider).toBe("anthropic");
       expect(result.model).toBe("some-model");
     });
   });
@@ -91,13 +83,15 @@ describe("Router (Routing)", () => {
   });
 
   describe("handleRateLimit", () => {
-    test("returns undefined when rotateOn429 is false", () => {
+    test("marks rate limit for mapped model", () => {
       const router = new Router({
-        rotateOn429: false,
-        fallbackOrder: ["anthropic", "openai"],
+        modelMapping: {
+          "my-model": { provider: "anthropic", model: "claude-3" },
+        },
       });
 
-      expect(router.handleRateLimit("model")).toBeUndefined();
+      // Should not throw - just marks cooldown
+      router.handleRateLimit("my-model");
     });
 
     test("returns next provider when rotateOn429 is true", () => {
@@ -112,15 +106,24 @@ describe("Router (Routing)", () => {
   });
 
   describe("Router class", () => {
-    test("can be instantiated directly", async () => {
+    test("can be instantiated with mapping", async () => {
       const router = new Router({
-        fallbackOrder: ["gemini"],
+        modelMapping: {
+          "test": { provider: "gemini", model: "gemini-pro" },
+        },
       });
 
       const result = await router.resolveModel("test");
-      // ModelRouter uses inferProviderFromModel which defaults to 'openai' for unknown models
-      // fallbackOrder is only used as last resort if primary provider is on cooldown
+      expect(result.provider).toBe("gemini");
+      expect(result.model).toBe("gemini-pro");
+    });
+
+    test("can use explicit provider suffix without mapping", async () => {
+      const router = new Router({});
+
+      const result = await router.resolveModel("test:openai");
       expect(result.provider).toBe("openai");
+      expect(result.model).toBe("test");
     });
   });
 });

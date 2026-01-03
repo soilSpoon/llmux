@@ -284,7 +284,7 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
   let modelRouter: Router | undefined
 
   if (modelMappings) {
-    const routingConfig = buildRoutingConfig(modelMappings)
+    const routingConfig = await buildRoutingConfig(modelMappings, modelLookup)
     modelRouter = new Router(routingConfig, modelLookup)
   } else if (modelLookup) {
     modelRouter = new Router({}, modelLookup)

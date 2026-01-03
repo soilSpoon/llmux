@@ -9,7 +9,6 @@ import {
   shouldFallbackToDefaultProject,
 } from '../providers'
 import type { Router } from '../routing'
-import { getHardcodedModelFallback } from '../routing/model-rules'
 import { accountRotationManager } from './account-rotation'
 import { applyModelMappingV2 } from './model-mapping'
 
@@ -221,24 +220,6 @@ export async function handleUpstreamError(
       { reqId, status, retryAfter, originalRetryAfter: context.retryAfterMs },
       'Rate limited'
     )
-
-    // Check hardcoded fallback first (for tests or specific known overrides)
-    const hardcodedFallback = getHardcodedModelFallback(model)
-    if (hardcodedFallback) {
-      logger.warn(
-        {
-          reqId,
-          current: { provider, model },
-          fallback: hardcodedFallback,
-        },
-        'Rate limited, using hardcoded fallback'
-      )
-      return {
-        action: 'switch-model',
-        newModel: hardcodedFallback.model,
-        newProvider: (hardcodedFallback.provider || provider) as ProviderName,
-      }
-    }
 
     // Antigravity: Try rotating endpoints before marking account as limited
     // Different endpoints (Daily vs Prod) might have separate quotas/limits

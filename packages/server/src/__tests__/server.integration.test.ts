@@ -58,7 +58,7 @@ describe('Server Integration: modelMappings', () => {
         port: 0,
         amp: {
           handlers: {},
-          modelMappings: [{ from: 'claude-opus-4-5-20251101', to: 'gemini-claude-opus' }],
+          modelMappings: [{ from: 'claude-opus-4-5-20251101', to: 'gemini-claude-opus:antigravity' }],
         },
       })
 
@@ -119,7 +119,7 @@ describe('Server Integration: modelMappings', () => {
         port: 0,
         amp: {
           handlers: {},
-          modelMappings: [{ from: 'claude-3', to: 'mapped-claude-3' }],
+          modelMappings: [{ from: 'claude-3', to: 'mapped-claude-3:anthropic' }],
         },
       })
 
@@ -153,7 +153,7 @@ describe('Server Integration: modelMappings', () => {
         port: 0,
         amp: {
           handlers: {},
-          modelMappings: [{ from: 'claude-stream', to: 'mapped-stream' }],
+          modelMappings: [{ from: 'claude-stream', to: 'mapped-stream:openai' }],
           providerChecker: () => true, // Enable local routing
         },
       })

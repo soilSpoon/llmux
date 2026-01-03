@@ -9,7 +9,6 @@ import {
   resolveOpenAIProvider,
   isRateLimited,
   isOpenAICompatibleProvider,
-  isOpenAIModel,
 } from '../../src/handlers/openai-fallback'
 
 describe('OpenAI Fallback Logic', () => {
@@ -139,40 +138,6 @@ describe('OpenAI Fallback Logic', () => {
 
     test('returns false for gemini', () => {
       expect(isOpenAICompatibleProvider('gemini')).toBe(false)
-    })
-  })
-
-  describe('isOpenAIModel', () => {
-    test('returns true for gpt-4', () => {
-      expect(isOpenAIModel('gpt-4')).toBe(true)
-    })
-
-    test('returns true for gpt-5', () => {
-      expect(isOpenAIModel('gpt-5')).toBe(true)
-    })
-
-    test('returns true for gpt-5.1', () => {
-      expect(isOpenAIModel('gpt-5.1')).toBe(true)
-    })
-
-    test('returns true for o1-preview', () => {
-      expect(isOpenAIModel('o1-preview')).toBe(true)
-    })
-
-    test('returns true for o3-mini', () => {
-      expect(isOpenAIModel('o3-mini')).toBe(true)
-    })
-
-    test('returns true for codex model', () => {
-      expect(isOpenAIModel('gpt-5-codex')).toBe(true)
-    })
-
-    test('returns false for claude', () => {
-      expect(isOpenAIModel('claude-3-opus')).toBe(false)
-    })
-
-    test('returns false for gemini', () => {
-      expect(isOpenAIModel('gemini-pro')).toBe(false)
     })
   })
 })

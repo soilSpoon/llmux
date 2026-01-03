@@ -843,7 +843,8 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
             const dataMatch = (result as string).match(/data: (.+)/);
             const parsed = JSON.parse(dataMatch![1]!);
             
-            expect(parsed.message.model).toBe("claude-3-5-sonnet-20241022");
+            // When no model is provided in the chunk, falls back to "unknown"
+            expect(parsed.message.model).toBe("unknown");
           });
         });
         });

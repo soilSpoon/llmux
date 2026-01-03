@@ -44,6 +44,7 @@ describe('OpenAI Streaming', () => {
         type: 'content',
         blockIndex: 0,
         blockType: 'text',
+        model: 'gpt-4',
         delta: {
           type: 'text',
           text: 'Hello',
@@ -73,6 +74,7 @@ describe('OpenAI Streaming', () => {
         type: 'content',
         blockIndex: 0,
         blockType: 'text',
+        model: 'gpt-4',
         delta: {
           type: 'text',
           text: '',
@@ -100,6 +102,7 @@ describe('OpenAI Streaming', () => {
       expect(result).toEqual({
         type: 'done',
         blockIndex: 0,
+        model: 'gpt-4',
         stopReason: 'end_turn',
       })
     })
@@ -124,6 +127,7 @@ describe('OpenAI Streaming', () => {
       expect(result).toEqual({
         type: 'done',
         blockIndex: 0,
+        model: 'gpt-4',
         stopReason: 'max_tokens',
       })
     })
@@ -148,6 +152,7 @@ describe('OpenAI Streaming', () => {
       expect(result).toEqual({
         type: 'done',
         blockIndex: 0,
+        model: 'gpt-4',
         stopReason: 'tool_use',
       })
     })
@@ -186,6 +191,7 @@ describe('OpenAI Streaming', () => {
         type: 'tool_call',
         blockIndex: 0,
         blockType: 'tool_call',
+        model: 'gpt-4',
         delta: {
           type: 'tool_call',
           toolCall: {
@@ -228,6 +234,7 @@ describe('OpenAI Streaming', () => {
         type: 'tool_call',
         blockIndex: 0,
         blockType: 'tool_call',
+        model: 'gpt-4',
         delta: {
           type: 'tool_call',
           partialJson: '{"lo',
@@ -253,6 +260,7 @@ describe('OpenAI Streaming', () => {
 
       expect(result).toEqual({
         type: 'usage',
+        model: 'gpt-4',
         usage: {
           inputTokens: 10,
           outputTokens: 20,
@@ -483,6 +491,7 @@ describe('OpenAI Streaming', () => {
         type: 'thinking',
         blockIndex: 0,
         blockType: 'thinking',
+        model: 'o1',
         delta: {
           type: 'thinking',
           thinking: {

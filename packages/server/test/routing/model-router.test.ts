@@ -1,27 +1,18 @@
 import { describe, expect, it, mock } from 'bun:test'
 import { ModelRouter } from '../../src/routing/model-router'
 import type { ModelLookup } from '../../src/models/lookup'
-import type { CredentialChecker, UpstreamProvider } from '../../src/routing/types'
 
 describe('ModelRouter', () => {
   // Mock ModelLookup
   const mockModelLookup: ModelLookup = {
     getProviderForModel: mock(async (model: string) => {
       if (model === 'known-model') return 'anthropic'
-      if (model === 'lookup-openai-model') return 'openai'
+      if (model === 'gpt-4') return 'openai'
+      if (model === 'claude-3-opus') return 'anthropic'
       return undefined
     }),
     hasModel: mock(async () => false),
     refresh: mock(async () => {}),
-  }
-
-  // Mock CredentialChecker
-  const mockCredentialChecker: CredentialChecker = {
-    hasCredential: mock(async (provider: UpstreamProvider) => {
-      if (provider === 'openai') return true
-      if (provider === 'openai-web') return true
-      return false
-    }),
   }
 
   it('resolves explicit provider suffix', async () => {
@@ -42,7 +33,11 @@ describe('ModelRouter', () => {
         'mapped-model': {
           provider: 'gemini',
           model: 'gemini-mapped',
-          fallbacks: ['claude-3'],
+          fallbacks: ['fallback-model'],
+        },
+        'fallback-model': {
+          provider: 'anthropic',
+          model: 'fallback-model',
         },
       },
     })
@@ -52,7 +47,7 @@ describe('ModelRouter', () => {
     expect(result).toEqual({
       providerId: 'gemini',
       targetModel: 'gemini-mapped',
-      fallbacks: [{ provider: 'anthropic', model: 'claude-3' }],
+      fallbacks: [{ provider: 'anthropic', model: 'fallback-model' }],
       source: 'mapping',
     })
   })
@@ -74,7 +69,15 @@ describe('ModelRouter', () => {
     expect(mockModelLookup.getProviderForModel).toHaveBeenCalledWith('known-model')
   })
 
-  it('falls back to inference when ModelLookup fails', async () => {
+  it('throws error when model not found and no fallback', async () => {
+    const router = new ModelRouter({})
+    
+    await expect(router.resolve('unknown-model')).rejects.toThrow(
+      'No provider found for model: unknown-model'
+    )
+  })
+
+  it('uses ModelLookup when mapping not found', async () => {
     const router = new ModelRouter({
       modelLookup: mockModelLookup,
     })
@@ -85,62 +88,23 @@ describe('ModelRouter', () => {
       providerId: 'anthropic',
       targetModel: 'claude-3-opus',
       fallbacks: [],
-      source: 'inference',
-    })
-  })
-
-  describe('OpenAI Fallback Logic', () => {
-    it('uses openai-web primary when both available (inference)', async () => {
-      const router = new ModelRouter(
-        { enableOpenAIFallback: true },
-        mockCredentialChecker
-      )
-      
-      const result = await router.resolve('gpt-4')
-      
-      expect(result).toEqual({
-        providerId: 'openai-web',
-        targetModel: 'gpt-4',
-        fallbacks: [{ provider: 'openai', model: 'gpt-4' }],
-        source: 'inference',
-      })
-    })
-
-    it('uses openai-web primary when both available (lookup)', async () => {
-      const router = new ModelRouter(
-        { 
-          enableOpenAIFallback: true,
-          modelLookup: mockModelLookup
-        },
-        mockCredentialChecker
-      )
-      
-      const result = await router.resolve('lookup-openai-model')
-      
-      expect(result).toEqual({
-        providerId: 'openai-web',
-        targetModel: 'lookup-openai-model',
-        fallbacks: [{ provider: 'openai', model: 'lookup-openai-model' }],
-        source: 'lookup',
-      })
-    })
-
-    it('defaults to openai if credential checker not provided', async () => {
-      const router = new ModelRouter({ enableOpenAIFallback: true })
-      
-      const result = await router.resolve('gpt-4')
-      
-      expect(result).toEqual({
-        providerId: 'openai',
-        targetModel: 'gpt-4',
-        fallbacks: [],
-        source: 'inference',
-      })
+      source: 'lookup',
     })
   })
 
   describe('resolveSync', () => {
-    it('resolves synchronously using rules only', () => {
+    it('resolves synchronously using explicit provider', () => {
+      const router = new ModelRouter({})
+
+      expect(router.resolveSync('gpt-4:openai')).toEqual({
+        providerId: 'openai',
+        targetModel: 'gpt-4',
+        fallbacks: [],
+        source: 'explicit',
+      })
+    })
+
+    it('resolves synchronously using mapping', () => {
       const router = new ModelRouter({
         modelMappings: {
           'sync-mapped': { provider: 'gemini', model: 'gemini-sync' }
@@ -153,13 +117,14 @@ describe('ModelRouter', () => {
         fallbacks: [],
         source: 'mapping',
       })
+    })
 
-      expect(router.resolveSync('gpt-4')).toEqual({
-        providerId: 'openai',
-        targetModel: 'gpt-4',
-        fallbacks: [],
-        source: 'inference',
-      })
+    it('throws error when model not found in sync mode', () => {
+      const router = new ModelRouter({})
+
+      expect(() => router.resolveSync('unknown-model')).toThrow(
+        'No provider found for model: unknown-model'
+      )
     })
   })
 })

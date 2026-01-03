@@ -70,10 +70,10 @@ describe("Router", () => {
     expect(result).toEqual({ provider: "openai", model: "gpt-4" });
   });
 
-  it("should fallback to default behavior for unmapped models", async () => {
-    const result = await router.resolveModel("unknown-model");
-    // Default fallback order[0] or openai if not set
-    expect(result).toEqual({ provider: "openai", model: "unknown-model" });
+  it("should throw error for unmapped models without lookup", async () => {
+    await expect(router.resolveModel("unknown-model")).rejects.toThrow(
+      "No provider found for model"
+    );
   });
 
   it("should respect Retry-After duration", () => {

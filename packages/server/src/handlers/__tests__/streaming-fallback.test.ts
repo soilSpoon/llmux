@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:te
 import "../../../test/setup";
 import { handleStreamingProxy, type ProxyOptions } from "../streaming";
 import { TokenRefresh } from '@llmux/auth'
+import { Router } from "../../routing";
 
 describe("handleStreamingProxy model fallback", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -11,10 +12,6 @@ describe("handleStreamingProxy model fallback", () => {
   beforeEach(() => {
     originalFetch = globalThis.fetch;
     
-    // Mock TokenRefresh.ensureFresh to return a single dummy credential
-    // This ensures we have 1 account.
-    // When we get 429, we mark it rate limited.
-    // Then areAllRateLimited check sees 1 account, 1 rate limited -> TRUE.
     tokenRefreshSpy = spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([{
        accessToken: 'mock',
        refreshToken: 'mock', 
@@ -52,22 +49,30 @@ describe("handleStreamingProxy model fallback", () => {
     });
   }
 
-  const baseOptions: ProxyOptions = {
-    sourceFormat: "openai",
-    targetProvider: "antigravity", // Use antigravity to trigger rotation logic
-    apiKey: "test-api-key",
-  };
+  it("should fallback to gemini-3-pro-high when primary model is rate limited", async () => {
+    const router = new Router({
+      modelMapping: {
+        "gemini-claude-opus-4-5-thinking": {
+          provider: "antigravity",
+          model: "gemini-claude-opus-4-5-thinking",
+          fallbacks: ["gemini-3-pro-high"],
+        },
+        "gemini-3-pro-high": {
+          provider: "antigravity",
+          model: "gemini-3-pro-high",
+        },
+      },
+    });
 
-  it("should fallback to gemini-3-pro-high when gemini-claude-opus-4-5-thinking is rate limited", async () => {
+    const baseOptions: ProxyOptions = {
+      sourceFormat: "openai",
+      targetProvider: "antigravity",
+      apiKey: "test-api-key",
+      router,
+    };
+
     const request = createRequest({ model: "gemini-claude-opus-4-5-thinking", messages: [] });
-
-    // Mock hasNext to eventually return false to simulate all accounts exhausted
-    // However, the real implementation checks accountRotationManager.
-    // We can assume strict mocking of the module if checking unit isolation, 
-    // but here we are doing integration-like test with real handler.
-    // The handler throws "Max attempts reached" when retries invoke and fail.
     
-    // We rely on the fact that without our fix, it won't switch models.
     const response = await handleStreamingProxy(request, baseOptions);
     if (response.status !== 200) {
         console.error(await response.text());

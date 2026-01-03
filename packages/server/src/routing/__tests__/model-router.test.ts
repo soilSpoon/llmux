@@ -39,9 +39,22 @@ describe('ModelRouter', () => {
     expect(result.source).toBe('lookup')
   })
 
-  it('should fallback to inference if lookup fails', async () => {
+  it('should throw error when model not found', async () => {
     const mockLookup: ModelLookup = {
       getProviderForModel: async () => undefined,
+      refresh: async () => {}
+    }
+    
+    const router = new ModelRouter({ modelLookup: mockLookup })
+    
+    await expect(router.resolve('unknown-model')).rejects.toThrow(
+      'No provider found for model'
+    )
+  })
+
+  it('should use lookup result even when mapping not found', async () => {
+    const mockLookup: ModelLookup = {
+      getProviderForModel: async (model) => model === 'claude-3-sonnet' ? 'anthropic' : undefined,
       refresh: async () => {}
     }
     
@@ -50,15 +63,6 @@ describe('ModelRouter', () => {
     
     expect(result.providerId).toBe('anthropic')
     expect(result.targetModel).toBe('claude-3-sonnet')
-    expect(result.source).toBe('inference')
-  })
-
-  it('should default to openai for unknown patterns', async () => {
-    const router = new ModelRouter()
-    const result = await router.resolve('unknown-model')
-    
-    expect(result.providerId).toBe('openai')
-    expect(result.targetModel).toBe('unknown-model')
-    expect(result.source).toBe('inference')
+    expect(result.source).toBe('lookup')
   })
 })
