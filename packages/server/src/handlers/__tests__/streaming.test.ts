@@ -50,7 +50,7 @@ describe("handleStreamingProxy with modelMappings", () => {
     return new Request("http://localhost/v1/chat/completions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ provider: "openai", ...body }), // Explicitly add provider for tests
     });
   }
 
@@ -72,7 +72,11 @@ describe("handleStreamingProxy with modelMappings", () => {
         modelMappings: mappings,
       });
 
-      expect(capturedBody).toMatchObject({ model: "gemini-claude" });
+      expect(capturedBody).toMatchObject({
+        model: "gemini-claude",
+        messages: [],
+        reasoning_effort: "none",
+      });
     });
 
     it("배열 매핑일 때 첫 번째 model로 변환된다", async () => {
@@ -86,7 +90,11 @@ describe("handleStreamingProxy with modelMappings", () => {
         modelMappings: mappings,
       });
 
-      expect(capturedBody).toMatchObject({ model: "model-a" });
+      expect(capturedBody).toMatchObject({
+        model: "model-a",
+        messages: [],
+        reasoning_effort: "none",
+      });
     });
   });
 
@@ -96,7 +104,11 @@ describe("handleStreamingProxy with modelMappings", () => {
 
       await handleStreamingProxy(request, baseOptions);
 
-      expect(capturedBody).toMatchObject({ model: "gpt-4" });
+      expect(capturedBody).toMatchObject({
+        model: "gpt-4",
+        messages: [],
+        reasoning_effort: "none",
+      });
     });
 
     it("일치하는 매핑이 없을 때 원본 model이 유지된다", async () => {
@@ -110,7 +122,11 @@ describe("handleStreamingProxy with modelMappings", () => {
         modelMappings: mappings,
       });
 
-      expect(capturedBody).toMatchObject({ model: "gpt-4" });
+      expect(capturedBody).toMatchObject({
+        model: "gpt-4",
+        messages: [],
+        reasoning_effort: "none",
+      });
     });
   });
 
@@ -127,7 +143,11 @@ describe("handleStreamingProxy with modelMappings", () => {
         targetModel: "override-model",
       });
 
-      expect(capturedBody).toMatchObject({ model: "override-model" });
+      expect(capturedBody).toMatchObject({
+        model: "override-model",
+        messages: [],
+        reasoning_effort: "none",
+      });
     });
   });
 
@@ -142,6 +162,8 @@ describe("handleStreamingProxy with modelMappings", () => {
       // Verify that the request was made with the correct model
       expect(capturedBody).toMatchObject({
         model: "gpt-4",
+        messages: [],
+        reasoning_effort: "none",
       });
     });
 

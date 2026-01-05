@@ -1,7 +1,13 @@
-import { createLogger, isValidProviderName, type ProviderName } from '@llmux/core'
+import {
+  createLogger,
+  isValidProviderName,
+  type ProviderName,
+  transformResponse,
+} from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import { SignatureStore } from '../stores'
-import { accumulateGeminiResponse, transformGeminiSseResponse } from './gemini-response'
+import { accumulateGeminiResponse } from './gemini-response'
+import { accumulateOpenAIResponse } from './openai-response'
 import { handleJsonResponse } from './response-utils'
 import type { ProxyOptions } from './types'
 import { dispatchWithRetry, NonRetriableError } from './upstream-dispatcher'
@@ -20,6 +26,25 @@ export type { ProxyOptions } from './types'
 
 function formatToProvider(format: RequestFormat): ProviderName {
   return format as ProviderName
+}
+
+function isGeminiSseProvider(provider: string, model: string): boolean {
+  if (provider === 'antigravity' || provider === 'gemini-cli') return true
+  if (provider === 'opencode-zen' && model.startsWith('gemini-')) return true
+  return false
+}
+
+function isOpenAISseProvider(provider: string, model: string): boolean {
+  if (provider === 'openai' || provider === 'openai-web') return true
+  if (provider === 'opencode-zen') {
+    // Claude models use Anthropic format, not OpenAI SSE
+    if (model.includes('claude')) return false
+    // Gemini models use Gemini format
+    if (model.startsWith('gemini-')) return false
+    // Default (GLM, GPT, Kimi, etc.) use OpenAI format
+    return true
+  }
+  return false
 }
 
 export async function handleProxy(request: Request, options: ProxyOptions): Promise<Response> {
@@ -64,35 +89,69 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     // Handle Response Transformation
     const contentType = lastResponse.headers.get('content-type') || ''
     const currentProvider = meta?.provider || (options.targetProvider as ProviderName)
+    const currentModel = meta?.model || options.targetModel || ''
 
     // Convert SSE to JSON if needed
     if (contentType.includes('text/event-stream') && !body.stream) {
-      logger.debug({ reqId, contentType }, '[non-streaming] Converting SSE to JSON')
+      logger.debug(
+        { reqId, contentType, provider: currentProvider },
+        '[non-streaming] Converting SSE to JSON'
+      )
       const reader = lastResponse.body?.getReader() as
         | ReadableStreamDefaultReader<Uint8Array>
         | undefined
       if (!reader) throw new Error('No body')
 
       const startTime = Date.now()
-      const finalResponse = await accumulateGeminiResponse(reader)
+      let isGemini = false
+      let aggregated: unknown | null = null
+
+      if (isGeminiSseProvider(currentProvider, currentModel)) {
+        isGemini = true
+        aggregated = await accumulateGeminiResponse(reader)
+      } else if (isOpenAISseProvider(currentProvider, currentModel)) {
+        aggregated = await accumulateOpenAIResponse(reader)
+      } else {
+        // Fallback: try Gemini accumulation as default but warn
+        logger.warn(
+          { reqId, provider: currentProvider },
+          'Unknown SSE provider, attempting Gemini accumulation'
+        )
+        isGemini = true
+        aggregated = await accumulateGeminiResponse(reader)
+      }
+
       const accumulateTime = Date.now() - startTime
       logger.debug(
-        { reqId, accumulateTime, hasResponse: !!finalResponse },
+        { reqId, accumulateTime, hasResponse: !!aggregated },
         '[non-streaming] SSE accumulation complete'
       )
 
-      if (!finalResponse) {
+      if (!aggregated) {
         return new Response(JSON.stringify({ error: 'Failed to parse SSE response' }), {
           status: 502,
           headers: { 'Content-Type': 'application/json' },
         })
       }
 
-      const transformed = transformGeminiSseResponse(
-        finalResponse,
-        currentProvider,
-        formatToProvider(options.sourceFormat)
-      )
+      let transformed: unknown
+
+      if (isGemini) {
+        // Gemini provider transformation expects wrapped response
+        transformed = transformResponse(
+          { response: aggregated },
+          {
+            from: currentProvider,
+            to: formatToProvider(options.sourceFormat),
+          }
+        )
+      } else {
+        // OpenAI provider transformation expects direct response object
+        transformed = transformResponse(aggregated, {
+          from: currentProvider,
+          to: formatToProvider(options.sourceFormat),
+        })
+      }
 
       const responseBody = JSON.stringify(transformed)
       logger.info(

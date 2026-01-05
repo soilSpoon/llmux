@@ -69,6 +69,9 @@ export async function handleResponses(
       if (isStreaming && resolvedTargetProvider === 'antigravity') {
         const baseUrl = endpoint.split('/v1internal')[0]
         endpoint = baseUrl + ANTIGRAVITY_API_PATH_STREAM
+      } else if (isStreaming && resolvedTargetProvider === 'gemini-cli') {
+        const baseUrl = endpoint.split('/v1internal')[0]
+        endpoint = baseUrl + ANTIGRAVITY_API_PATH_STREAM
       }
 
       let credentials: Awaited<ReturnType<typeof TokenRefresh.ensureFresh>> | undefined

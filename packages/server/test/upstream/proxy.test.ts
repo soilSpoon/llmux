@@ -92,6 +92,9 @@ describe('UpstreamProxy', () => {
         body: JSON.stringify({ model: 'gpt-4', messages: [{ role: 'user', content: 'Hello' }] }),
       })
 
+      // The proxy clones the request, so we can't consume the body here before passing it to proxyRequest
+      // If we read the body here, it will be consumed and bodyUsed will be true
+      
       const response = await proxy.proxyRequest(request)
 
       expect(response.status).toBe(200)
@@ -247,6 +250,14 @@ describe('UpstreamProxy', () => {
         body: JSON.stringify({ model: 'gpt-4' }),
       })
 
+      // We clone the request before passing it to proxyRequest
+      // However, proxyRequest reads the body, and since we can't clone it here (Request body stream is disturbed if read),
+      // we need to create a new Request object.
+      // But proxyRequest handles body reading internally.
+      // The issue is likely that when we pass the request to proxyRequest, it reads it.
+      // If we try to read it again or if the mock implementation expects something else, it might fail.
+      // Actually, creating a new request from scratch is safer here.
+      
       const response = await proxy.proxyRequest(request)
 
       expect(response.status).toBe(502)

@@ -41,42 +41,48 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
         requestHeaders[key] = value
       })
 
-      // Clone request for logging and keep original for proxying
-      const clonedForLog = request.clone()
-      let requestBodyPreview = 'empty'
-      let inputBodyLength = 0
-      let apiMethod = 'unknown'
-      try {
-        const bodyText = await clonedForLog.text()
-        if (bodyText) {
-          inputBodyLength = bodyText.length
-          requestBodyPreview = bodyText.slice(0, 500) + (bodyText.length > 500 ? '...' : '')
-          // Extract API method from request body for logging
-          try {
-            const parsed = JSON.parse(bodyText)
-            apiMethod = parsed.method || 'unknown'
-          } catch {
-            apiMethod = 'parse-error'
-          }
-          // Detailed debug log (only when LOG_LEVEL=debug)
-          // If path starts with /api/internal, use trace level to reduce noise
-          const isInternal = url.pathname.startsWith('/api/internal')
-          const logFn = isInternal ? logger.trace.bind(logger) : logger.debug.bind(logger)
+      // Read body once to avoid "Body already used" errors
+      let bodyBuffer: ArrayBuffer | undefined
+      let bodyText = ''
 
-          logFn(
-            {
-              reqId,
-              method: request.method,
-              path: url.pathname,
-              proxyUrl,
-              bodyLength: bodyText.length,
-              apiMethod,
-            },
-            '[DEBUG] Request details'
-          )
+      try {
+        bodyBuffer = await request.arrayBuffer()
+        if (bodyBuffer.byteLength > 0) {
+          bodyText = new TextDecoder().decode(bodyBuffer)
         }
       } catch (_e) {
-        requestBodyPreview = '<error reading body>'
+        // Body might be empty or not readable
+      }
+
+      let requestBodyPreview = 'empty'
+      const inputBodyLength = bodyBuffer?.byteLength || 0
+      let apiMethod = 'unknown'
+
+      if (bodyText) {
+        requestBodyPreview = bodyText.slice(0, 500) + (bodyText.length > 500 ? '...' : '')
+        // Extract API method from request body for logging
+        try {
+          const parsed = JSON.parse(bodyText)
+          apiMethod = parsed.method || 'unknown'
+        } catch {
+          apiMethod = 'parse-error'
+        }
+        // Detailed debug log (only when LOG_LEVEL=debug)
+        // If path starts with /api/internal, use trace level to reduce noise
+        const isInternal = url.pathname.startsWith('/api/internal')
+        const logFn = isInternal ? logger.trace.bind(logger) : logger.debug.bind(logger)
+
+        logFn(
+          {
+            reqId,
+            method: request.method,
+            path: url.pathname,
+            proxyUrl,
+            bodyLength: bodyText.length,
+            apiMethod,
+          },
+          '[DEBUG] Request details'
+        )
       }
 
       try {
@@ -109,12 +115,54 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
           )
         }
 
-        const upstreamResponse = await fetch(proxyUrl, {
+        const fetchOptions: RequestInit & { duplex?: 'half' } = {
           method: request.method,
           headers: filteredHeaders,
-          body: request.body,
-          duplex: 'half',
-        })
+          body: bodyBuffer ? new Uint8Array(bodyBuffer) : undefined,
+        }
+
+        if (bodyBuffer) {
+          fetchOptions.duplex = 'half'
+        }
+
+        const upstreamResponse = await fetch(proxyUrl, fetchOptions)
+
+        // Log warning/error for non-2xx responses with full request/response details
+        if (!upstreamResponse.ok) {
+          const responseText = await upstreamResponse.clone().text()
+          const headersObj: Record<string, string> = {}
+          filteredHeaders.forEach((v, k) => {
+            headersObj[k] =
+              k.toLowerCase().includes('auth') || k.toLowerCase().includes('key') ? '[REDACTED]' : v
+          })
+          const responseHeadersObj: Record<string, string> = {}
+          upstreamResponse.headers.forEach((v, k) => {
+            responseHeadersObj[k] = v
+          })
+
+          const logLevel = upstreamResponse.status >= 500 ? 'error' : 'warn'
+          const logData = {
+            reqId,
+            status: upstreamResponse.status,
+            statusText: upstreamResponse.statusText,
+            proxyUrl,
+            request: {
+              method: request.method,
+              headers: headersObj,
+              body: bodyText.slice(0, 2000),
+            },
+            response: {
+              headers: responseHeadersObj,
+              body: responseText.slice(0, 2000),
+            },
+          }
+
+          if (logLevel === 'error') {
+            logger.error(logData, `[Proxy] Upstream returned ${upstreamResponse.status}`)
+          } else {
+            logger.warn(logData, `[Proxy] Upstream returned ${upstreamResponse.status}`)
+          }
+        }
 
         // For streaming responses or non-2xx responses, pass through without modification
         // But still strip Content-Encoding header for streaming too

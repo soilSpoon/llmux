@@ -459,10 +459,11 @@ function parseUsage(usage: OpenAIUsage): UsageInfo {
     }
   }
 
+  // Safe access to usage properties
   return {
-    inputTokens: usage.prompt_tokens ?? 0,
-    outputTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
+    inputTokens: usage?.prompt_tokens ?? 0,
+    outputTokens: usage?.completion_tokens ?? 0,
+    totalTokens: usage?.total_tokens ?? 0,
   }
 }
 

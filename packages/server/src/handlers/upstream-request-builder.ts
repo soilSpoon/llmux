@@ -109,7 +109,7 @@ export async function buildUpstreamRequest(
   let isClaudeFresh = false
 
   // Antigravity
-  if (effectiveProvider === 'antigravity') {
+  if (effectiveProvider && effectiveProvider === 'antigravity') {
     const antigravityContext = await prepareAntigravityRequest({
       model: currentModel || '',
       accountIndex: retryState.accountIndex,
@@ -148,7 +148,7 @@ export async function buildUpstreamRequest(
     }
   }
   // OpenAI Web
-  else if (effectiveProvider === 'openai-web') {
+  else if (effectiveProvider && effectiveProvider === 'openai-web') {
     const openaiWebContext = await prepareOpenAIWebRequest({
       model: currentModel || '',
       accountIndex: retryState.accountIndex,
@@ -166,7 +166,7 @@ export async function buildUpstreamRequest(
     }
   }
   // Gemini CLI - reuse antigravity credentials but with different endpoint/headers
-  else if (effectiveProvider === 'gemini-cli') {
+  else if (effectiveProvider && effectiveProvider === 'gemini-cli') {
     // Use the same credential rotation as antigravity
     const antigravityContext = await prepareAntigravityRequest({
       model: currentModel || '',
@@ -235,8 +235,21 @@ export async function buildUpstreamRequest(
         : undefined,
   }) as Record<string, unknown>
 
+  // Debug transformed request structure
+  // biome-ignore lint/suspicious/noExplicitAny: Accessing potential messages array for debug logging
+  const debugMessages = (transformedRequest as any).messages
+  if (Array.isArray(debugMessages)) {
+    // biome-ignore lint/suspicious/noExplicitAny: Mapping message structure for debug logging
+    const summary = debugMessages.map((m: any) => ({
+      role: m.role,
+      // biome-ignore lint/suspicious/noExplicitAny: Accessing parts safely for logging
+      parts: m.parts?.map((p: any) => p.type || Object.keys(p)[0]),
+    }))
+    logger.debug({ reqId, messageStructure: summary }, 'Transformed request structure')
+  }
+
   // 6. Provider-Specific Body Adjustments (Post-Transform)
-  if (effectiveProvider === 'openai-web') {
+  if (effectiveProvider && effectiveProvider === 'openai-web') {
     const typedBody = body as {
       messages?: unknown[]
       input?: unknown[]
@@ -288,13 +301,13 @@ export async function buildUpstreamRequest(
       reasoning: typedBody.reasoning || typedBody.thinking,
       // System instructions are handled inside buildCodexBody via getCodexInstructions
     })
-  } else if (effectiveProvider === 'opencode-zen') {
+  } else if (effectiveProvider && effectiveProvider === 'opencode-zen') {
     fixOpencodeZenBody(transformedRequest, { thinkingEnabled: isThinkingEnabled })
   }
 
   // 7. Auth & Endpoint Finalization (Generic)
   if (!endpoint) {
-    if (effectiveProvider === 'opencode-zen') {
+    if (effectiveProvider && effectiveProvider === 'opencode-zen') {
       const protocol = resolveOpencodeZenProtocol(currentModel || '')
       if (protocol) {
         endpoint = getOpencodeZenEndpoint(protocol)
@@ -358,7 +371,7 @@ export async function buildUpstreamRequest(
   const requestBody = JSON.stringify(transformedRequest)
 
   // Debug log for gemini-cli provider to understand request structure
-  if (effectiveProvider === 'gemini-cli') {
+  if (effectiveProvider && effectiveProvider === 'gemini-cli') {
     logger.debug(
       {
         reqId,

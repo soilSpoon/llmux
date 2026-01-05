@@ -147,9 +147,16 @@ describe("handleStreamingProxy", () => {
     };
 
     const response = await handleStreamingProxy(request, options);
-    // Handler now returns structured error with original status
+    // Handler now returns structured error with original status as SSE
     expect(response.status).toBe(500);
-    const body = await response.json() as { error: { message: string; status: number } };
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+    
+    // Parse SSE response
+    const text = await response.text();
+    const match = text.match(/data: (.+)\n\n/);
+    expect(match).not.toBeNull();
+    const body = JSON.parse(match?.[1] ?? '') as { error: { message: string; status: number } };
+    
     // The error is now a structured object
     expect(body.error).toBeDefined();
     expect(typeof body.error).toBe("object");
@@ -306,7 +313,13 @@ describe("handleStreamingProxy", () => {
     const response = await handleStreamingProxy(request, options);
     // Handler now returns structured error with original status
     expect(response.status).toBe(404);
-    const body = (await response.json()) as { error: { message: string; status: number } };
+    expect(response.headers.get("Content-Type")).toBe("text/event-stream");
+
+    const text = await response.text();
+    const match = text.match(/data: (.+)\n\n/);
+    expect(match).not.toBeNull();
+    const body = JSON.parse(match?.[1] ?? '') as { error: { message: string; status: number } };
+
     expect(body.error).toBeDefined();
     expect(body.error.status).toBe(404);
   });

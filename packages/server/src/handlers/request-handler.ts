@@ -92,16 +92,20 @@ export async function prepareRequestContext(
   // Router Resolution
   let effectiveProvider: ProviderName | undefined
 
-  if (router && currentModel) {
-    // If targetProvider is NOT set, use router.
-    // If targetProvider IS set, we generally trust it, BUT we might still want to resolve the model alias.
-    // E.g. "claude-3-opus" -> "claude-3-opus-20240229" even if provider is "anthropic".
+  if (initialTargetProvider && isValidProviderName(initialTargetProvider)) {
+    effectiveProvider = initialTargetProvider as ProviderName
+  }
 
+  // If targetProvider is NOT set, use router.
+  if (router && currentModel) {
     // Use router to resolve model aliases and provider
     const routeResult = await router.resolveModel(currentModel)
 
     // If initialTargetProvider was NOT set, we accept the router's provider.
-    if (!initialTargetProvider) {
+    // If initialTargetProvider WAS set, we might still update model but keep provider?
+    // Actually, if explicit provider is requested, we usually honor it unless it's just 'openai' default.
+
+    if (!effectiveProvider) {
       effectiveProvider = routeResult.provider as ProviderName
     }
 
@@ -109,18 +113,19 @@ export async function prepareRequestContext(
     currentModel = routeResult.model
   }
 
-  if (initialTargetProvider && isValidProviderName(initialTargetProvider)) {
-    effectiveProvider = initialTargetProvider as ProviderName
-  }
+  // Remove default provider 'openai' to align with tests and explicit behavior
+  // if (!effectiveProvider) {
+  //   effectiveProvider = 'openai'
+  // }
 
-  if (!effectiveProvider) {
-    effectiveProvider = 'openai'
-  }
+  // If we still don't have a provider, use the router's decision (if available) or check mappings again
+  // But we DO NOT default to 'openai' blindly here.
+  // Instead, we return undefined if no provider is matched, and let the caller handle it.
 
   return {
     originalModel,
     currentModel,
-    effectiveProvider,
+    effectiveProvider: effectiveProvider as ProviderName, // Can be undefined, but we cast to ProviderName for interface
     isThinkingEnabled,
     sourceFormat,
   }
@@ -248,25 +253,37 @@ export async function handleUpstreamError(
         }
 
         // 2. Try Router Smart Fallback
-        if (router && context.originalModel) {
-          const routeResult = await router.resolveModel(context.originalModel)
+        if (router) {
+          const targetModel =
+            context.originalModel && context.originalModel !== 'unknown'
+              ? context.originalModel
+              : context.model
 
-          // If router found a different provider or model that is NOT the current one
-          // (resolveModel checks cooldowns, so it should return a non-cooled-down option if available)
-          if (routeResult.provider !== provider || routeResult.model !== model) {
-            logger.warn(
-              {
-                reqId,
-                current: { provider, model },
-                fallback: { provider: routeResult.provider, model: routeResult.model },
-              },
-              'All accounts rate limited, router suggested fallback'
-            )
-            return {
-              action: 'switch-model',
-              newModel: routeResult.model,
-              newProvider: routeResult.provider as ProviderName,
+          try {
+            const routeResult = await router.resolveModel(targetModel)
+
+            // If router found a different provider or model that is NOT the current one
+            // (resolveModel checks cooldowns, so it should return a non-cooled-down option if available)
+            if (routeResult.provider !== provider || routeResult.model !== model) {
+              logger.warn(
+                {
+                  reqId,
+                  current: { provider, model },
+                  fallback: { provider: routeResult.provider, model: routeResult.model },
+                },
+                'All accounts rate limited, router suggested fallback'
+              )
+              return {
+                action: 'switch-model',
+                newModel: routeResult.model,
+                newProvider: routeResult.provider as ProviderName,
+              }
             }
+          } catch (err) {
+            logger.warn(
+              { reqId, targetModel, err },
+              'Failed to resolve fallback model during rate limit handling'
+            )
           }
         }
 

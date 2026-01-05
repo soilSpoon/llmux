@@ -58,6 +58,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
   const retryState = createRetryState()
   let lastResponse: Response | undefined
+  let lastMeta: UpstreamRequestMeta | null = null
 
   while (shouldContinueRetry(retryState)) {
     incrementAttempt(retryState)
@@ -72,6 +73,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
     })
 
     const { request } = requestResult
+    lastMeta = request.meta
 
     // Update retry state in case builder mutated it (e.g. rotation)
     // Actually builder might modify retryState object reference or props
@@ -221,6 +223,14 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       }
 
       await new Promise((r) => setTimeout(r, 1000))
+    }
+  }
+
+  if (lastResponse) {
+    return {
+      response: lastResponse,
+      meta: lastMeta,
+      retryState,
     }
   }
 

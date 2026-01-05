@@ -74,8 +74,16 @@ function parseContents(contents: GeminiContent[]): UnifiedMessage[] {
 }
 
 function parseContent(content: GeminiContent): UnifiedMessage {
-  const role = content.role === 'model' ? 'assistant' : 'user'
   const parts = content.parts.map(parsePart)
+
+  // Determine role based on content
+  let role: UnifiedMessage['role'] = content.role === 'model' ? 'assistant' : 'user'
+
+  // If content contains tool results, force role to 'tool'
+  if (parts.some((p) => p.type === 'tool_result')) {
+    role = 'tool'
+  }
+
   return { role, parts }
 }
 
@@ -124,7 +132,7 @@ function parsePart(part: GeminiPart): ContentPart {
     return {
       type: 'tool_result',
       toolResult: {
-        toolCallId: part.functionResponse.name,
+        toolCallId: part.functionResponse.id || part.functionResponse.name,
         content: JSON.stringify(part.functionResponse.response),
       },
     }

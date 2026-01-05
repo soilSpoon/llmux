@@ -1,35 +1,40 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { dispatchWithRetry, type DispatchInput, NonRetriableError } from '../../src/handlers/upstream-dispatcher'
-import { createRetryState } from '../../src/handlers/request-handler'
+import * as requestHandlerModule from '../../src/handlers/request-handler'
+import * as upstreamModule from '../../src/upstream'
 import { SignatureStore } from '../../src/stores'
-
-// Mocks
-mock.module('../../src/handlers/request-handler', () => ({
-  createRetryState: () => ({
-    attempt: 0,
-    maxRetryAttempts: 3,
-    accountIndex: 0,
-    antigravityEndpointIndex: 0
-  }),
-  shouldContinueRetry: (s: any) => s.attempt < s.maxRetryAttempts,
-  incrementAttempt: (s: any) => { s.attempt++ },
-  handleUpstreamError: async (ctx: any) => {
-    if (ctx.status === 429) return { action: 'retry', delay: 10 }
-    if (ctx.status === 500) return { action: 'throw' }
-    return { action: 'throw' }
-  },
-  rotateAntigravityEndpoint: () => {},
-  parseRetryAfterMs: () => 1000,
-  prepareRequestContext: async () => ({})
-}))
-
-mock.module('../../src/upstream', () => ({
-  parseRetryAfterMs: () => 1000
-}))
 
 describe('Upstream Dispatcher', () => {
   const mockSignatureStore = new SignatureStore()
   const mockBuilder = mock()
+  const originalFetch = global.fetch
+
+  beforeEach(() => {
+    // Mock request-handler functions using spyOn to avoid global module mocking issues
+    spyOn(requestHandlerModule, 'createRetryState').mockImplementation(() => ({
+      attempt: 0,
+      maxRetryAttempts: 3,
+      accountIndex: 0,
+      antigravityEndpointIndex: 0,
+      overrideProjectId: null
+    }))
+    spyOn(requestHandlerModule, 'shouldContinueRetry').mockImplementation((s: any) => s.attempt < s.maxRetryAttempts)
+    spyOn(requestHandlerModule, 'incrementAttempt').mockImplementation((s: any) => { s.attempt++ })
+    spyOn(requestHandlerModule, 'handleUpstreamError').mockImplementation(async (ctx: any) => {
+      if (ctx.status === 429) return { action: 'retry', delay: 10 }
+      if (ctx.status === 500) return { action: 'throw' }
+      return { action: 'throw' }
+    })
+    spyOn(requestHandlerModule, 'rotateAntigravityEndpoint').mockImplementation(() => {})
+
+    // Mock upstream functions
+    spyOn(upstreamModule, 'parseRetryAfterMs').mockImplementation(() => 1000)
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
+    mock.restore()
+  })
 
   it('dispatches request and returns successful response', async () => {
     const mockResponse = new Response(JSON.stringify({ ok: true }), { status: 200 })
@@ -41,7 +46,7 @@ describe('Upstream Dispatcher', () => {
         init: { method: 'POST', body: '{}' },
         meta: { provider: 'openai', model: 'gpt-4' }
       },
-      retryState: createRetryState()
+      retryState: requestHandlerModule.createRetryState()
     })
 
     const input: DispatchInput = {
@@ -73,7 +78,7 @@ describe('Upstream Dispatcher', () => {
         init: { method: 'POST', body: '{}' },
         meta: { provider: 'openai', model: 'gpt-4' }
       },
-      retryState: createRetryState()
+      retryState: requestHandlerModule.createRetryState()
     })
 
     const input: DispatchInput = {
@@ -101,7 +106,7 @@ describe('Upstream Dispatcher', () => {
         init: { method: 'POST', body: '{}' },
         meta: { provider: 'openai', model: 'gpt-4' }
       },
-      retryState: createRetryState()
+      retryState: requestHandlerModule.createRetryState()
     })
 
     const input: DispatchInput = {

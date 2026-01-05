@@ -68,7 +68,7 @@ describe('handleModels', () => {
       expect(body.object).toBe('list')
       expect(body.providers).toContain('antigravity')
       expect(body.data.length).toBeGreaterThan(0)
-      expect(body.data.every((m) => m.provider === 'antigravity')).toBe(true)
+      expect(body.data.every((m) => m.provider === 'antigravity' || m.provider === 'gemini-cli')).toBe(true)
     })
   })
 

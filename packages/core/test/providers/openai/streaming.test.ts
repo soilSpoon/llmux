@@ -679,5 +679,27 @@ describe('OpenAI Streaming', () => {
 
       expect(data.choices[0].delta.tool_calls[0].function.arguments).toBe('{"key":')
     })
+    it('handles usage with null properties gracefully', () => {
+      const chunk = JSON.stringify({
+        id: 'chatcmpl-123',
+        object: 'chat.completion.chunk',
+        created: 1694268190,
+        model: 'gpt-4',
+        choices: [],
+        usage: {}, // Empty usage object
+      })
+
+      const result = parseStreamChunk(`data: ${chunk}`)
+
+      expect(result).toEqual({
+        type: 'usage',
+        model: 'gpt-4',
+        usage: {
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+        },
+      })
+    })
   })
 })
