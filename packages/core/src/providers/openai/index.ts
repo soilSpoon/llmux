@@ -21,6 +21,7 @@ const OPENAI_CONFIG: ProviderConfig = {
   supportsStreaming: true,
   supportsThinking: true, // o1/o3 models support reasoning
   supportsTools: true,
+  authType: 'apiKey',
 }
 
 /**

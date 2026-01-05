@@ -25,6 +25,7 @@ export class AntigravityProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
+      authType: 'oauth',
       defaultMaxTokens: 8192,
       defaultStreamParser: 'sse-line-delimited',
     }

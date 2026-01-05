@@ -7,6 +7,7 @@ export type ProviderName =
   | 'openai'
   | 'anthropic'
   | 'gemini'
+  | 'gemini-cli'
   | 'antigravity'
   | 'opencode-zen'
   | 'openai-web'
@@ -16,6 +17,7 @@ const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'openai',
   'anthropic',
   'gemini',
+  'gemini-cli',
   'antigravity',
   'opencode-zen',
   'openai-web',
@@ -53,6 +55,13 @@ export function isToolCallWithPartialJson(
 export type StreamParserType = 'sse-standard' | 'sse-line-delimited'
 
 /**
+ * Authentication type for providers
+ * - oauth: Uses OAuth/session-based authentication (e.g., ChatGPT, GitHub Copilot)
+ * - apiKey: Uses API key authentication (e.g., OpenAI API, Anthropic API)
+ */
+export type AuthType = 'oauth' | 'apiKey'
+
+/**
  * Provider configuration
  */
 export interface ProviderConfig {
@@ -60,6 +69,7 @@ export interface ProviderConfig {
   supportsStreaming: boolean
   supportsThinking: boolean
   supportsTools: boolean
+  authType?: AuthType
   defaultMaxTokens?: number
   defaultStreamParser?: StreamParserType
 }

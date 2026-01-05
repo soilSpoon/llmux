@@ -1,45 +1,35 @@
+/**
+ * Signature Request Validation
+ *
+ * Pre-transform signature handling:
+ * - Claude (Fresh Signature): Strip ALL thinking blocks and signatures unconditionally
+ * - Other models: Validate signatures against SignatureStore, strip if project mismatch
+ */
+
 import { createLogger } from '@llmux/core'
 import type { SignatureStore } from '../stores/signature-store'
+import {
+  type Content,
+  getSignatureFromBlock,
+  getSignatureFromPart,
+  getThinkingStrategy,
+  isThinkingBlock,
+  isThinkingPart,
+  type Message,
+  stripSignatureFromBlock,
+  stripSignatureFromPart,
+} from './thinking-utils'
+
+export type { Block, Content, Message, Part } from './thinking-utils'
 
 const logger = createLogger({ service: 'signature-request' })
-
-export interface Part {
-  text?: string
-  thought?: boolean
-  thought_signature?: string
-  thoughtSignature?: string
-  signature?: string
-  thinking?: string
-  [key: string]: unknown
-}
-
-export interface Content {
-  role?: string
-  parts?: Part[]
-  [key: string]: unknown
-}
-
-export interface Block {
-  type?: string
-  text?: string
-  thinking?: string
-  signature?: string
-  thought_signature?: string
-  thoughtSignature?: string
-  [key: string]: unknown
-}
-
-export interface Message {
-  role?: string
-  content?: Block[] | string
-  [key: string]: unknown
-}
 
 export interface ValidateSignatureOptions {
   contents?: Content[]
   messages?: Message[]
   targetProjectId: string
   signatureStore: SignatureStore
+  model?: string
 }
 
 export interface ValidateSignatureResult {
@@ -51,20 +41,27 @@ export interface ValidateSignatureResult {
 export function validateAndStripSignatures(
   options: ValidateSignatureOptions
 ): ValidateSignatureResult {
-  const { contents, messages, targetProjectId, signatureStore } = options
+  const { contents, messages, targetProjectId, signatureStore, model } = options
   let strippedCount = 0
 
+  const strategy = getThinkingStrategy(model)
+  const isClaudeFresh = strategy === 'claude-fresh'
+
   const processedContents = contents
-    ? processContents(contents, targetProjectId, signatureStore, (count) => {
+    ? processContents(contents, targetProjectId, signatureStore, isClaudeFresh, (count) => {
         strippedCount += count
       })
     : undefined
 
   const processedMessages = messages
-    ? processMessages(messages, targetProjectId, signatureStore, (count) => {
+    ? processMessages(messages, targetProjectId, signatureStore, isClaudeFresh, (count) => {
         strippedCount += count
       })
     : undefined
+
+  if (strippedCount > 0 && isClaudeFresh) {
+    logger.debug({ model, strippedCount }, 'Claude Fresh Signature: stripped thinking blocks')
+  }
 
   return {
     contents: processedContents,
@@ -77,6 +74,7 @@ function processContents(
   contents: Content[],
   targetProjectId: string,
   signatureStore: SignatureStore,
+  isClaudeFresh: boolean,
   onStrip: (count: number) => void
 ): Content[] {
   return contents.map((content) => {
@@ -90,6 +88,23 @@ function processContents(
       .map((part) => {
         if (!part || typeof part !== 'object') return part
 
+        // Claude Fresh Signature: Remove ALL thinking parts
+        if (isClaudeFresh && isThinkingPart(part)) {
+          onStrip(1)
+          return {} // Will be filtered out
+        }
+
+        // Claude Fresh Signature: Also strip any signature fields from non-thinking parts
+        if (isClaudeFresh) {
+          const sig = getSignatureFromPart(part)
+          if (sig) {
+            onStrip(1)
+            return stripSignatureFromPart(part)
+          }
+          return part
+        }
+
+        // Non-Claude: Project-based signature validation
         const signature = getSignatureFromPart(part)
         if (!signature) return part
 
@@ -98,12 +113,8 @@ function processContents(
           const storedProjectId = record?.projectId ?? 'unknown'
 
           logger.trace(
-            {
-              storedProjectId,
-              targetProjectId,
-              signaturePrefix: signature.slice(0, 20),
-            },
-            `Stripped invalid signature (project mismatch): stored=${storedProjectId}, target=${targetProjectId}`
+            { storedProjectId, targetProjectId, signaturePrefix: signature.slice(0, 20) },
+            'Stripped invalid signature (project mismatch)'
           )
 
           onStrip(1)
@@ -125,6 +136,7 @@ function processMessages(
   messages: Message[],
   targetProjectId: string,
   signatureStore: SignatureStore,
+  isClaudeFresh: boolean,
   onStrip: (count: number) => void
 ): Message[] {
   return messages.map((message) => {
@@ -138,6 +150,23 @@ function processMessages(
       .map((block) => {
         if (!block || typeof block !== 'object') return block
 
+        // Claude Fresh Signature: Remove ALL thinking blocks
+        if (isClaudeFresh && isThinkingBlock(block)) {
+          onStrip(1)
+          return {} // Will be filtered out
+        }
+
+        // Claude Fresh Signature: Also strip any signature fields from non-thinking blocks
+        if (isClaudeFresh) {
+          const sig = getSignatureFromBlock(block)
+          if (sig) {
+            onStrip(1)
+            return stripSignatureFromBlock(block)
+          }
+          return block
+        }
+
+        // Non-Claude: Project-based signature validation
         const signature = getSignatureFromBlock(block)
         if (!signature) return block
 
@@ -146,12 +175,8 @@ function processMessages(
           const storedProjectId = record?.projectId ?? 'unknown'
 
           logger.trace(
-            {
-              storedProjectId,
-              targetProjectId,
-              signaturePrefix: signature.slice(0, 20),
-            },
-            `Stripped invalid signature (project mismatch): stored=${storedProjectId}, target=${targetProjectId}`
+            { storedProjectId, targetProjectId, signaturePrefix: signature.slice(0, 20) },
+            'Stripped invalid signature (project mismatch)'
           )
 
           onStrip(1)
@@ -167,22 +192,4 @@ function processMessages(
 
     return { ...message, content: processedContent }
   })
-}
-
-function getSignatureFromPart(part: Part): string | undefined {
-  return part.thoughtSignature || part.thought_signature || part.signature
-}
-
-function getSignatureFromBlock(block: Block): string | undefined {
-  return block.signature || block.thoughtSignature || block.thought_signature
-}
-
-function stripSignatureFromPart(part: Part): Part {
-  const { thoughtSignature, thought_signature, signature, ...rest } = part
-  return rest
-}
-
-function stripSignatureFromBlock(block: Block): Block {
-  const { signature, thoughtSignature, thought_signature, ...rest } = block
-  return rest
 }

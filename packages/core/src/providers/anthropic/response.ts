@@ -66,6 +66,11 @@ export function transformResponse(response: UnifiedResponse): AnthropicResponse 
     }
   }
 
+  // Determine stop_reason: Anthropic clients expect 'tool_use' when there are tool calls
+  // in the response, regardless of the original stopReason from the provider
+  const hasToolCall = response.content.some((p) => p.type === 'tool_call')
+  const stopReason = hasToolCall ? 'tool_use' : response.stopReason
+
   // If content is still empty but we have thinking, it should have been added above.
   // If content is empty and no thinking, we might need a fallback, but usually
   // LLMs return at least something.
@@ -76,7 +81,7 @@ export function transformResponse(response: UnifiedResponse): AnthropicResponse 
     role: 'assistant',
     model: response.model || 'claude-sonnet-4-20250514',
     content,
-    stop_reason: transformStopReason(response.stopReason),
+    stop_reason: transformStopReason(stopReason),
     stop_sequence: null,
     usage: transformUsage(response.usage),
   }

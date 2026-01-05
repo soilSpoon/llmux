@@ -761,9 +761,16 @@ describe("Antigravity Request Transformations", () => {
         expect(resultPart.functionResponse?.response).toEqual({ result: "Simulated result" });
       });
 
-      it("should transform tool_result to functionResponse", () => {
+     it("should transform tool_result to functionResponse", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [
+            {
+              role: "assistant", // Add matching tool call
+              parts: [{
+                 type: "tool_call",
+                 toolCall: { id: "call-123", name: "tool", arguments: {} } 
+              }]
+            },
             {
               role: "tool",
               parts: [
@@ -781,10 +788,11 @@ describe("Antigravity Request Transformations", () => {
 
         const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
+        // Index 1 because we added a message
         expect(
-          result.request.contents[0]!.parts[0]!.functionResponse?.name
+          result.request.contents[1]!.parts[0]!.functionResponse?.name
         ).toBeDefined();
-        expect(result.request.contents[0]!.parts[0]!.functionResponse?.id).toBe(
+        expect(result.request.contents[1]!.parts[0]!.functionResponse?.id).toBe(
           "call-123"
         );
       });
@@ -792,6 +800,13 @@ describe("Antigravity Request Transformations", () => {
       it("should wrap array tool result content in an object", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [
+            {
+              role: "assistant", // Add matching tool call
+              parts: [{
+                 type: "tool_call",
+                 toolCall: { id: "call-123", name: "tool", arguments: {} } 
+              }]
+            },
             {
               role: "tool",
               parts: [
@@ -809,8 +824,9 @@ describe("Antigravity Request Transformations", () => {
 
         const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
+        // Index 1 because we added a message
         expect(
-          result.request.contents[0]!.parts[0]!.functionResponse?.response
+          result.request.contents[1]!.parts[0]!.functionResponse?.response
         ).toEqual({ result: [1, 2, 3] });
       });
     });

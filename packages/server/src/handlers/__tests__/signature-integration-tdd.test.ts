@@ -4,6 +4,18 @@ import {
 	ensureThinkingSignatures,
 	type UnifiedRequestBody,
 } from "../signature-integration";
+import type { Part } from "../thinking-utils";
+
+interface TestPart extends Part {
+	thought?: boolean;
+	text?: string;
+	thought_signature?: string;
+	thoughtSignature?: string;
+	type?: string;
+	id?: string;
+	name?: string;
+	input?: Record<string, unknown>;
+}
 
 describe("Signature Integration - TDD (Gemini vs Claude)", () => {
 	const TEST_SIGNATURE = "a".repeat(60);
@@ -29,7 +41,7 @@ describe("Signature Integration - TDD (Gemini vs Claude)", () => {
 
 			ensureThinkingSignatures(requestBody, sessionKey, "gemini-3-pro-high");
 
-			const parts = requestBody.contents?.[0]?.parts as any[];
+			const parts = requestBody.contents?.[0]?.parts as TestPart[];
 			expect(parts.some(p => p.thought === true)).toBe(true);
 			expect(parts.find(p => p.thought === true)?.thought_signature).toBe(TEST_SIGNATURE);
 		});
@@ -53,10 +65,10 @@ describe("Signature Integration - TDD (Gemini vs Claude)", () => {
 
 			ensureThinkingSignatures(requestBody, sessionKey, "gemini-3-pro-high");
 
-			const parts = requestBody.contents?.[0]?.parts as any[];
+			const parts = requestBody.contents?.[0]?.parts as TestPart[];
 			const thoughtPart = parts.find(p => p.thought === true);
 			expect(thoughtPart).toBeDefined();
-			expect(thoughtPart.thought_signature).toBe(TEST_SIGNATURE);
+			expect(thoughtPart?.thought_signature).toBe(TEST_SIGNATURE);
 			// It's okay if thoughtSignature remains, but thought_signature MUST be there
 		});
 
@@ -86,16 +98,16 @@ describe("Signature Integration - TDD (Gemini vs Claude)", () => {
 
 			ensureThinkingSignatures(requestBody, sessionKey, "gemini-3-pro-high");
 
-			const parts = requestBody.contents?.[0]?.parts as any[];
+			const parts = requestBody.contents?.[0]?.parts as TestPart[];
 			const toolPart = parts.find(p => p.type === "tool_use");
 			expect(toolPart).toBeDefined();
-			expect(toolPart.thought_signature).toBe(TEST_SIGNATURE);
+			expect(toolPart?.thought_signature).toBe(TEST_SIGNATURE);
 		});
 	});
 
 	describe("Claude Models", () => {
-		test("should STRIP thinking blocks for Claude models (existing strategy)", () => {
-			const sessionKey = "test-claude-strip";
+		test("should NOT strip thinking blocks in ensureThinkingSignatures for Claude (handled by sanitizeRequestSignatures)", () => {
+			const sessionKey = "test-claude-no-strip";
 			const requestBody: UnifiedRequestBody = {
 				contents: [
 					{
@@ -114,11 +126,13 @@ describe("Signature Integration - TDD (Gemini vs Claude)", () => {
 
 			ensureThinkingSignatures(requestBody, sessionKey, "claude-opus-4-5-thinking");
 
-			const parts = requestBody.contents?.[0]?.parts as any[];
-			expect(parts.some(p => p.thought === true)).toBe(false);
+			const parts = requestBody.contents?.[0]?.parts as TestPart[];
+			// ensureThinkingSignatures does NOT strip thinking for Claude
+			// Stripping is handled by sanitizeRequestSignatures (pre-transform)
+			expect(parts.some(p => p.thought === true)).toBe(true);
 		});
 
-		test("should strip residual signatures for Claude models", () => {
+		test("should NOT strip residual signatures in ensureThinkingSignatures for Claude (handled by sanitizeRequestSignatures)", () => {
 			const sessionKey = "test-claude-residual";
 			const requestBody: UnifiedRequestBody = {
 				contents: [
@@ -133,9 +147,10 @@ describe("Signature Integration - TDD (Gemini vs Claude)", () => {
 
 			ensureThinkingSignatures(requestBody, sessionKey, "claude-opus-4-5-thinking");
 
-			const parts = requestBody.contents?.[0]?.parts as any[];
-			expect(parts[0].thoughtSignature).toBeUndefined();
-			expect(parts[0].thought_signature).toBeUndefined();
+			const parts = requestBody.contents?.[0]?.parts as TestPart[];
+			// ensureThinkingSignatures does NOT strip signatures for Claude
+			// Stripping is handled by sanitizeRequestSignatures (pre-transform)
+			expect(parts[0]?.thoughtSignature).toBe(TEST_SIGNATURE);
 		});
 	});
 });

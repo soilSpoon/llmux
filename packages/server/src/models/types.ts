@@ -1,5 +1,6 @@
 export type ModelProvider =
   | 'antigravity'
+  | 'gemini-cli'
   | 'github-copilot'
   | 'opencode-zen'
   | 'openai'

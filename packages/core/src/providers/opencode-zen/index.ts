@@ -28,6 +28,7 @@ export class OpencodeZenProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
+      authType: 'apiKey',
       defaultStreamParser: 'sse-line-delimited',
     }
     this.anthropic = new AnthropicProvider()

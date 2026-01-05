@@ -8,6 +8,11 @@ export type {
   AuthResult,
   AuthStep,
 } from './providers/base'
+export {
+  type GeminiCliRequestContext,
+  isGeminiCliModel,
+  prepareGeminiCliRequest,
+} from './providers/gemini-cli'
 export type { DeviceCodeResponse } from './providers/github-copilot'
 export {
   GithubCopilotProvider,

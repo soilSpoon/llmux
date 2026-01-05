@@ -17,6 +17,7 @@ import type {
 } from '../../types/unified'
 import { createLogger } from '../../util/logger'
 import { extractThinkingTier, hasThinkingTierSuffix } from '../../util/model-capabilities'
+import { normalizeToolHistory } from '../../util/tool-history'
 import type {
   GeminiContent,
   GeminiFunctionDeclaration,
@@ -137,8 +138,11 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   const isClaudeModel = model.toLowerCase().includes('claude')
   const isThinkingModel = model.toLowerCase().includes('thinking')
 
+  // Normalize tool history to ensure structural integrity
+  const normalizedMessages = normalizeToolHistory(messages)
+
   // Transform messages to contents
-  let contents = transformMessages(messages)
+  let contents = transformMessages(normalizedMessages, thinking?.enabled)
 
   // Fix tool pairing (Orphan recovery & structure fix)
   contents = fixAntigravityToolPairing(contents)
@@ -186,7 +190,7 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   if (tools && tools.length > 0) {
     transformedTools = transformTools(tools)
     // For Claude models, MUST use VALIDATED mode (Antigravity requirement)
-    // For Gemini models, toolConfig is not needed (optional)
+    // For Gemini models, do NOT set toolConfig (causes 400 errors on some endpoints)
     if (isClaudeModel) {
       // Define toolConfig first with all necessary properties
       // For Claude models, MUST use VALIDATED mode (Antigravity requirement)
@@ -213,13 +217,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
       toolConfig = {
         functionCallingConfig,
       }
-    } else {
-      toolConfig = {
-        functionCallingConfig: {
-          mode: 'AUTO',
-        },
-      }
     }
+    // For Gemini models, omit toolConfig entirely (per opencode-antigravity-auth behavior)
   } else if (toolChoice === 'none') {
     // Only set toolConfig for 'none' mode (disable tool calling)
     // Omit for default behavior
@@ -518,9 +517,9 @@ function parseThinkingConfig(thinkingConfig?: AntigravityThinkingConfig) {
  * 1. Build toolCallId -> toolName map for resolving tool responses
  * 2. Capture signatures from thinking blocks to pass to subsequent tool calls
  * 3. Filter out thinking blocks from model messages (Gemini doesn't need to preserve them)
- * 4. Always add skip_thought_signature_validator to functionCall if no valid signature
+ * 5. If thinking is enabled, ensure assistant tool calls are preceded by a thinking block
  */
-function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
+function transformMessages(messages: UnifiedMessage[], thinkingEnabled?: boolean): GeminiContent[] {
   // Build a map of toolCallId -> toolName from all messages in the request
   const toolNameMap = new Map<string, string>()
   for (const message of messages) {
@@ -540,8 +539,32 @@ function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
     // We maintain latestSessionSignature across messages to handle cases where
     // thinking and tool usage might be split across turns or in history
 
+    let parts = message.parts || []
+
+    // COMPATIBILITY FIX: If thinking is enabled, assistant messages with tool calls
+    // MUST have a thinking block first. If missing (e.g. from history), inject a placeholder.
+    // This satisfies the "Expected `thinking` or `redacted_thinking`, but found `tool_use`" validation.
+    if (thinkingEnabled && message.role === 'assistant') {
+      const hasToolCall = parts.some((p) => p.type === 'tool_call')
+      const startsWithThinking = parts[0]?.type === 'thinking'
+
+      if (hasToolCall && !startsWithThinking) {
+        // Inject placeholder thinking part
+        parts = [
+          {
+            type: 'thinking',
+            thinking: {
+              text: 'Thought process restored from history',
+              signature: 'skip_thought_signature_validator', // Bypassing validation for restored blocks
+            },
+          },
+          ...parts,
+        ]
+      }
+    }
+
     // First pass: capture any signatures from thinking blocks
-    for (const part of message.parts) {
+    for (const part of parts) {
       if (part.type === 'thinking' && part.thinking?.signature) {
         latestSessionSignature = part.thinking.signature
       }
@@ -549,17 +572,13 @@ function transformMessages(messages: UnifiedMessage[]): GeminiContent[] {
 
     // Second pass: transform parts
     // Do NOT filter thinking blocks - they are now managed by server's ensureThinkingSignatures()
-    // The server handles:
-    // - STEP 1: Stripping invalid thinking blocks from Amp history
-    // - STEP 2: Injecting cached signatures before tool calls
-    // Our job here is just to transform what the server provides
-    const parts = message.parts.map((part) =>
+    const mappedParts = parts.map((part) =>
       transformPart(part, toolNameMap, latestSessionSignature)
     )
 
     return {
       role: message.role === 'assistant' ? 'model' : 'user',
-      parts,
+      parts: mappedParts,
     }
   })
 }
@@ -572,6 +591,7 @@ function transformPart(
   toolNameMap?: Map<string, string>,
   fallbackSignature?: string
 ): GeminiPart {
+  // console.log("transformPart called with type:", part.type);
   switch (part.type) {
     case 'thinking':
       return {
@@ -606,6 +626,7 @@ function transformPart(
     }
 
     case 'tool_result': {
+      // console.log("Transforming tool_result:", JSON.stringify(part));
       // Parse content back to object if it's a JSON string
       let response: Record<string, unknown>
       try {

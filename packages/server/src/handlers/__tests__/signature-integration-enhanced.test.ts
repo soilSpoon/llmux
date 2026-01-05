@@ -5,12 +5,32 @@ import {
 	extractConversationKey,
 	type UnifiedRequestBody,
 } from "../signature-integration";
+import type { Part, Block } from "../thinking-utils";
+
+interface TestPart extends Part {
+	thought?: boolean;
+	text?: string;
+	thought_signature?: string;
+	thoughtSignature?: string;
+	signature?: string;
+	type?: string;
+	id?: string;
+	name?: string;
+	input?: Record<string, unknown>;
+}
+
+interface TestBlock extends Block {
+	type?: string;
+	text?: string;
+	thinking?: string;
+	signature?: string;
+}
 
 describe("signature-integration - Enhanced Multi-Turn Tests", () => {
 	const TEST_SIGNATURE = "a".repeat(60);
 
   describe("STEP 1: stripAllThinkingFromContents - Gemini Format", () => {
-    test("strips thinking blocks from contents[].parts[] when not last model message", () => {
+    test("does NOT strip thinking blocks in ensureThinkingSignatures for Claude (handled by sanitizeRequestSignatures)", () => {
       const sessionKey = "test-strip-contents";
       const requestBody: UnifiedRequestBody = {
         contents: [
@@ -42,14 +62,15 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      // First model message should have thinking stripped (not last)
+      // ensureThinkingSignatures does NOT strip thinking for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
       const firstContent = requestBody.contents?.[0];
       expect(firstContent?.parts).toBeDefined();
-      const firstParts = firstContent?.parts as any[];
+      const firstParts = firstContent?.parts as TestPart[];
 
-      // Should only have the text part, not the thinking part
-      expect(firstParts.some((p: any) => p.thought === true)).toBe(false);
-      expect(firstParts.some((p: any) => p.text === "User-visible response")).toBe(
+      // Thinking parts are preserved (stripping happens in sanitizeRequestSignatures)
+      expect(firstParts.some((p) => p.thought === true)).toBe(true);
+      expect(firstParts.some((p) => p.text === "User-visible response")).toBe(
         true
       );
     });
@@ -84,18 +105,18 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      const parts = requestBody.contents?.[0]?.parts as any[];
+      const parts = requestBody.contents?.[0]?.parts as TestPart[];
 
       // tool_use should be preserved
       expect(
-        parts.some((p: any) => p.type === "tool_use" || p.name === "bash")
+        parts.some((p) => p.type === "tool_use" || p.name === "bash")
       ).toBe(true);
 
       // Thinking may be re-injected if tool_use is present (this is valid behavior)
       // The thinking block might exist with valid signature
     });
 
-    test("strips thinking when not last model message in multi-turn", () => {
+    test("does NOT strip thinking in ensureThinkingSignatures for Claude multi-turn (handled by sanitizeRequestSignatures)", () => {
       const sessionKey = "test-multiple-thinking";
       const requestBody: UnifiedRequestBody = {
         contents: [
@@ -125,12 +146,14 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      // First model message should have thinking stripped (not last)
-      const parts = requestBody.contents?.[0]?.parts as any[];
-      const thinkingCount = parts.filter((p: any) => p.thought === true).length;
+      // ensureThinkingSignatures does NOT strip thinking for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
+      const parts = requestBody.contents?.[0]?.parts as TestPart[];
+      const thinkingCount = parts.filter((p) => p.thought === true).length;
 
-      expect(thinkingCount).toBe(0);
-      expect(parts.length).toBe(2); // Only the two text parts remain
+      // Thinking parts preserved (stripping happens in sanitizeRequestSignatures)
+      expect(thinkingCount).toBe(2);
+      expect(parts.length).toBe(4);
     });
 
     test("strips thinking blocks for pure Gemini models (managed behavior)", () => {
@@ -160,7 +183,7 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
       expect(parts[0]?.text).toBe("Response");
     });
 
-    test("removes residual thoughtSignature and signature from all parts", () => {
+    test("does NOT remove residual thoughtSignature in ensureThinkingSignatures for Claude (handled by sanitizeRequestSignatures)", () => {
       const sessionKey = "test-residual-signatures";
       const requestBody: UnifiedRequestBody = {
         contents: [
@@ -194,25 +217,28 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      const parts = requestBody.contents?.[0]?.parts as any[];
+      const parts = requestBody.contents?.[0]?.parts as TestPart[];
 
-      // thinking part removed
-      expect(parts.some(p => p.thought === true)).toBe(false);
+      // ensureThinkingSignatures does NOT strip thinking/signatures for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
+      
+      // thinking part preserved
+      expect(parts.some(p => p.thought === true)).toBe(true);
 
-      // text part remains but WITHOUT thoughtSignature
+      // text part remains WITH thoughtSignature (not stripped by ensureThinkingSignatures)
       const textPart = parts.find(p => p.text === "Final response");
       expect(textPart).toBeDefined();
-      expect(textPart.thoughtSignature).toBeUndefined();
+      expect(textPart?.thoughtSignature).toBe(TEST_SIGNATURE);
 
-      // tool_use part remains but WITHOUT signature
+      // tool_use part remains WITH signature (not stripped by ensureThinkingSignatures)
       const toolPart = parts.find(p => p.type === "tool_use");
       expect(toolPart).toBeDefined();
-      expect(toolPart.signature).toBeUndefined();
+      expect(toolPart?.signature).toBe(TEST_SIGNATURE);
     });
   });
 
   describe("STEP 1: stripAllThinkingFromMessages - Anthropic Format", () => {
-    test("strips thinking blocks from messages[].content[]", () => {
+    test("does NOT strip thinking blocks in ensureThinkingSignatures for Claude (handled by sanitizeRequestSignatures)", () => {
       const sessionKey = "test-strip-messages";
       const requestBody: UnifiedRequestBody = {
         messages: [
@@ -236,18 +262,19 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      const content = requestBody.messages?.[0]?.content as any[];
+      const content = requestBody.messages?.[0]?.content as TestBlock[];
 
-      // Thinking should be stripped
-      expect(content.some((b: any) => b.type === "thinking")).toBe(false);
+      // ensureThinkingSignatures does NOT strip thinking for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
+      expect(content.some((b) => b.type === "thinking")).toBe(true);
 
       // Text should remain
       expect(
-        content.some((b: any) => b.type === "text" && b.text === "Final answer")
+        content.some((b) => b.type === "text" && b.text === "Final answer")
       ).toBe(true);
     });
 
-    test("removes residual signature from all blocks", () => {
+    test("does NOT remove residual signature in ensureThinkingSignatures for Claude (handled by sanitizeRequestSignatures)", () => {
       const sessionKey = "test-residual-messages";
       const requestBody: UnifiedRequestBody = {
         messages: [
@@ -275,15 +302,18 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      const content = requestBody.messages?.[0]?.content as any[];
+      const content = requestBody.messages?.[0]?.content as TestBlock[];
 
-      // thinking stripped
-      expect(content.some(b => b.type === "thinking")).toBe(false);
+      // ensureThinkingSignatures does NOT strip thinking/signatures for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
+      
+      // thinking preserved
+      expect(content.some(b => b.type === "thinking")).toBe(true);
 
-      // text remains but WITHOUT signature
+      // text remains WITH signature (not stripped by ensureThinkingSignatures)
       const textBlock = content.find(b => b.type === "text");
       expect(textBlock).toBeDefined();
-      expect(textBlock.signature).toBeUndefined();
+      expect(textBlock?.signature).toBe(TEST_SIGNATURE);
     });
 
     test("re-injects thinking when tool_use is present in messages format (valid behavior)", () => {
@@ -312,10 +342,10 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      const content = requestBody.messages?.[0]?.content as any[];
+      const content = requestBody.messages?.[0]?.content as TestBlock[];
 
       // tool_use preserved
-      expect(content.some((b: any) => b.type === "tool_use")).toBe(true);
+      expect(content.some((b) => b.type === "tool_use")).toBe(true);
 
       // Thinking may be re-injected when tool_use is present (this is valid behavior)
     });
@@ -361,10 +391,10 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
         "claude-opus-4-5-thinking"
       );
 
-      const parts = requestBody.contents?.[0]?.parts as any[];
+      const parts = requestBody.contents?.[0]?.parts as TestPart[];
 
       // opencode strategy: no thinking injection, all 3 tool_use preserved
-      expect(parts.filter((p: any) => p.type === "tool_use").length).toBe(3);
+      expect(parts.filter((p) => p.type === "tool_use").length).toBe(3);
     });
 
     test("handles wrapped request format (request.contents)", () => {
@@ -396,7 +426,7 @@ describe("signature-integration - Enhanced Multi-Turn Tests", () => {
       );
 
       // Wrapped format should be processed
-      const contents = (requestBody.request as any)?.contents;
+      const contents = (requestBody.request as Record<string, unknown>)?.contents;
       expect(contents).toBeDefined();
     });
   });

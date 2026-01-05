@@ -31,3 +31,12 @@ export const ANTIGRAVITY_HEADERS = {
   'Client-Metadata':
     '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}',
 } as const
+
+export const GEMINI_CLI_ENDPOINT = 'https://cloudcode-pa.googleapis.com'
+export const GEMINI_CLI_API_PATH_STREAM = '/v1internal:streamGenerateContent?alt=sse'
+export const GEMINI_CLI_API_PATH = '/v1internal:generateContent'
+export const GEMINI_CLI_HEADERS = {
+  'User-Agent': 'google-api-nodejs-client/9.15.1',
+  'X-Goog-Api-Client': 'gl-node/22.17.0',
+  'Client-Metadata': 'ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI',
+} as const

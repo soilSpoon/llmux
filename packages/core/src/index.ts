@@ -74,7 +74,7 @@ export type {
   AntigravityRequest,
   AntigravityResponse,
 } from './providers/antigravity/types'
-export type { Provider, ProviderConfig, ProviderName } from './providers/base'
+export type { AuthType, Provider, ProviderConfig, ProviderName } from './providers/base'
 // Provider base types
 export { BaseProvider, isValidProviderName } from './providers/base'
 export { GeminiProvider } from './providers/gemini'

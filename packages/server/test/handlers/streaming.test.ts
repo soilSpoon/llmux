@@ -113,8 +113,8 @@ describe("handleStreamingProxy", () => {
       };
 
       const response = await handleStreamingProxy(request, options);
-      // Handler wraps all errors in 500 status
-      expect(response.status).toBe(500);
+      // Handler now returns structured error with original status from upstream (502)
+      expect(response.status).toBe(502);
     },
     { timeout: 10000 }
   );
@@ -147,13 +147,13 @@ describe("handleStreamingProxy", () => {
     };
 
     const response = await handleStreamingProxy(request, options);
-    // Handler wraps all errors in 500 with { error: message } format
+    // Handler now returns structured error with original status
     expect(response.status).toBe(500);
-    const body = await response.json() as { error: string };
-    // The error message might vary, just check it exists
+    const body = await response.json() as { error: { message: string; status: number } };
+    // The error is now a structured object
     expect(body.error).toBeDefined();
-    expect(typeof body.error).toBe("string");
-    expect(body.error).toContain("Upstream error 500");
+    expect(typeof body.error).toBe("object");
+    expect(body.error.status).toBe(500);
   });
 
   test("streams transformed chunks", async () => {
@@ -304,11 +304,11 @@ describe("handleStreamingProxy", () => {
     };
 
     const response = await handleStreamingProxy(request, options);
-    // Handler wraps all errors in 500
-    expect(response.status).toBe(500);
-    const body = (await response.json()) as { error: string };
+    // Handler now returns structured error with original status
+    expect(response.status).toBe(404);
+    const body = (await response.json()) as { error: { message: string; status: number } };
     expect(body.error).toBeDefined();
-    expect(body.error).toContain("Upstream error 404");
+    expect(body.error.status).toBe(404);
   });
 
   test("patches stop_reason for tool_use blocks", async () => {

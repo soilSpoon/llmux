@@ -26,6 +26,7 @@ export interface ResponsesRequest {
   previous_response_id?: string
   reasoning?: ResponsesReasoningConfig
   truncation?: 'auto' | 'disabled'
+  [key: string]: unknown
 }
 
 /**

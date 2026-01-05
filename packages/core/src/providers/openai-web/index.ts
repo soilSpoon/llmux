@@ -26,6 +26,7 @@ const OPENAI_WEB_CONFIG: ProviderConfig = {
   supportsStreaming: true,
   supportsThinking: true, // Web backend uses Responses API which supports reasoning
   supportsTools: true,
+  authType: 'oauth',
 }
 
 /**

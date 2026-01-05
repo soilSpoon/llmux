@@ -24,7 +24,7 @@ function createMockCredentialProvider(
 }
 
 function createRequest(): Request {
-  return new Request('http://localhost/v1/models', { method: 'GET' })
+  return new Request('http://localhost/models', { method: 'GET' })
 }
 
 async function parseResponse(response: Response): Promise<ModelsResponse> {
@@ -180,6 +180,53 @@ describe('handleModels', () => {
       // openai는 에러로 스킵되고 antigravity만 반환
       expect(body.providers).toContain('antigravity')
       expect(body.providers).not.toContain('openai')
+    })
+  })
+
+  describe('OpenAI 호환 응답', () => {
+    it('/v1/models 엔드포인트는 OpenAI 호환 포맷으로 응답해야 함', async () => {
+      const credentialProvider = createMockCredentialProvider({
+        antigravity: [
+          {
+            type: 'oauth',
+            accessToken: 'test-token',
+            refreshToken: '',
+            expiresAt: Date.now() + 3600000,
+          },
+        ],
+      })
+      const request = new Request('http://localhost/v1/models', { method: 'GET' })
+
+      const response = await handleModels(request, { credentialProvider })
+      const body = await response.json() as any
+
+      expect(response.status).toBe(200)
+      expect(body.object).toBe('list')
+      expect(Array.isArray(body.data)).toBe(true)
+      expect(body.providers).toBeUndefined() // 추가 필드는 제외되어야 함
+      expect(body.mappings).toBeUndefined() // 추가 필드는 제외되어야 함
+    })
+
+    it('/models 엔드포인트는 확장 포맷으로 응답해야 함', async () => {
+      const credentialProvider = createMockCredentialProvider({
+        antigravity: [
+          {
+            type: 'oauth',
+            accessToken: 'test-token',
+            refreshToken: '',
+            expiresAt: Date.now() + 3600000,
+          },
+        ],
+      })
+      const request = new Request('http://localhost/models', { method: 'GET' })
+
+      const response = await handleModels(request, { credentialProvider })
+      const body = await response.json() as any
+
+      expect(response.status).toBe(200)
+      expect(body.object).toBe('list')
+      expect(Array.isArray(body.data)).toBe(true)
+      expect(body.providers).toBeDefined()
     })
   })
 })

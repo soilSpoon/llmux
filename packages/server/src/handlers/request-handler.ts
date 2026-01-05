@@ -294,14 +294,6 @@ export async function handleUpstreamError(
   return { action: 'throw' }
 }
 
-export interface RetryContext {
-  attempt: number
-  maxAttempts: number
-  provider: ProviderName
-  model: string
-  accountId?: number
-}
-
 export const MAX_RETRY_ATTEMPTS = 20
 
 export interface RetryState {
@@ -348,18 +340,4 @@ export function removeThinkingFromBody(body: unknown): void {
     if ('thinking' in b) delete b.thinking
     if ('reasoning_effort' in b) delete b.reasoning_effort
   }
-}
-
-export function shouldRetry(
-  _error: unknown,
-  context: RetryContext,
-  _checkNextAccount: (provider: ProviderName, model: string, index: number) => boolean
-): { retry: boolean; delay?: number; nextAccount?: boolean } {
-  if (context.attempt >= context.maxAttempts) {
-    return { retry: false }
-  }
-
-  // Rate limit handling is typically done in the loop with response status check
-  // This helper is for network errors or other retriable conditions
-  return { retry: true, delay: 1000 }
 }

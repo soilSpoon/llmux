@@ -190,6 +190,16 @@ export async function buildCodexBody(options: CodexBodyOptions): Promise<Record<
 
   const transformedTools = options.tools ? transformToolsForCodex(options.tools) : undefined
 
+  logger.info(
+    {
+      model: options.model,
+      messagesType: typeof options.messages,
+      messagesIsArray: Array.isArray(options.messages),
+      messagesLen: Array.isArray(options.messages) ? options.messages.length : 0,
+    },
+    '[openai-web] buildCodexBody input check'
+  )
+
   const codexBody: Record<string, unknown> = {
     model: options.model,
     instructions,
@@ -210,6 +220,8 @@ export async function buildCodexBody(options: CodexBodyOptions): Promise<Record<
     {
       model: options.model,
       hasInstructions: !!instructions,
+      instructionsLength: typeof instructions === 'string' ? instructions.length : 0,
+      instructionsPreview: typeof instructions === 'string' ? instructions.slice(0, 100) : null,
       toolsCount: transformedTools?.length ?? 0,
     },
     '[openai-web] Codex body constructed'

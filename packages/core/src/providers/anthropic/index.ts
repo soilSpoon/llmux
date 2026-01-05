@@ -35,6 +35,7 @@ export class AnthropicProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
+      authType: 'apiKey',
       defaultMaxTokens: 4096,
     }
   }

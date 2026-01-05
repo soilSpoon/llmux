@@ -111,7 +111,7 @@ export class ResponsesStreamTransformer {
    */
   transformChunk(chunk: ChatCompletionChunk): ResponsesStreamEvent[] {
     const events: ResponsesStreamEvent[] = []
-    const choice = chunk.choices[0]
+    const choice = chunk.choices?.[0]
 
     if (!choice) {
       return events

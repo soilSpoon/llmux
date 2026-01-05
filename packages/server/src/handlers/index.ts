@@ -8,3 +8,5 @@ export {
 export { handleHealth } from './health'
 export { handleResponses, type ResponsesOptions } from './responses'
 export type { ProxyOptions } from './types'
+export * from './upstream-dispatcher'
+export * from './upstream-request-builder'

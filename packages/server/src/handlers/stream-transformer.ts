@@ -70,7 +70,8 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   let messageStartSent = false
 
   // provider might change based on protocol resolution, but here we assume targetProvider is effective
-  const parsingProvider = targetProvider
+  // gemini-cli uses the same v1internal API as antigravity, so use antigravity for stream parsing
+  const parsingProvider = targetProvider === 'gemini-cli' ? 'antigravity' : targetProvider
   let parserType = getParserType(parsingProvider)
 
   return new TransformStream<Uint8Array, Uint8Array>({
@@ -146,6 +147,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   currentBlockIndex++ // Increment index after closing block
                 }
                 streamContext.fullResponse += finalChunk
+                streamContext.chunkCount++ // Ensure chunk count is incremented for stop events too
                 ctrl.enqueue(encoder.encode(finalChunk))
                 return
               }
@@ -191,10 +193,16 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
           if (Array.isArray(transformed)) {
             for (const t of transformed) {
-              processChunk(t, controller)
+              if (t.trim()) {
+                // Only process non-empty chunks
+                processChunk(t, controller)
+              }
             }
           } else if (transformed) {
-            processChunk(transformed, controller)
+            if (transformed.trim()) {
+              // Only process non-empty chunks
+              processChunk(transformed, controller)
+            }
           }
         } catch (error) {
           logger.error(

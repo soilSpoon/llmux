@@ -68,7 +68,10 @@ export function transformStreamChunk(
   fromProvider: ProviderName,
   toFormat: RequestFormat
 ): string | string[] {
-  if (fromProvider === toFormat && !chunk.trim().startsWith('{')) return chunk
+  // gemini-cli uses the same v1internal API as antigravity, so map to antigravity for stream parsing
+  const effectiveFromProvider = fromProvider === 'gemini-cli' ? 'antigravity' : fromProvider
+
+  if (effectiveFromProvider === toFormat && !chunk.trim().startsWith('{')) return chunk
 
   if (chunk.trim() === 'data: [DONE]') {
     return chunk
@@ -79,7 +82,7 @@ export function transformStreamChunk(
   }
 
   try {
-    const sourceProvider = getProvider(fromProvider)
+    const sourceProvider = getProvider(effectiveFromProvider)
     const targetProvider = getProvider(toFormat as ProviderName)
 
     if (!sourceProvider.parseStreamChunk || !targetProvider.transformStreamChunk) {
@@ -97,7 +100,7 @@ export function transformStreamChunk(
 
     if (Array.isArray(unified)) {
       const normalized =
-        fromProvider === 'antigravity'
+        effectiveFromProvider === 'antigravity'
           ? unified.map((c) => applyBashNormalizationToChunk(c))
           : unified
       return normalized
@@ -110,7 +113,7 @@ export function transformStreamChunk(
     }
 
     const normalizedChunk =
-      fromProvider === 'antigravity' ? applyBashNormalizationToChunk(unified) : unified
+      effectiveFromProvider === 'antigravity' ? applyBashNormalizationToChunk(unified) : unified
 
     const result = targetProvider.transformStreamChunk(normalizedChunk)
     return result

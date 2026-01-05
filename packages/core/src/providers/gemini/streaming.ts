@@ -125,7 +125,7 @@ function parseTextChunk(
 
 function parseFunctionCallChunk(
   part: GeminiPart,
-  _finishReason?: GeminiFinishReason,
+  finishReason?: GeminiFinishReason,
   usageMetadata?: GeminiUsageMetadata,
   blockIndex = 0
 ): StreamChunk {
@@ -167,8 +167,12 @@ function parseFunctionCallChunk(
     },
   }
 
-  // Function calls always indicate tool_use
-  result.stopReason = 'tool_use'
+  // Preserve the original finishReason from the provider
+  // The tool_use override is applied later in Anthropic's transformResponse
+  // when converting to Anthropic format
+  if (finishReason) {
+    result.stopReason = mapFinishReason(finishReason, false)
+  }
 
   if (usageMetadata) {
     result.usage = mapUsageMetadata(usageMetadata)

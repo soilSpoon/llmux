@@ -11,6 +11,7 @@ import type {
   UnifiedRequest,
   UnifiedTool,
 } from '../../types/unified'
+import { normalizeToolHistory } from '../../util/tool-history'
 import type {
   GeminiContent,
   GeminiFunctionDeclaration,
@@ -46,7 +47,9 @@ export function parse(request: GeminiRequest): UnifiedRequest {
  * Transform UnifiedRequest into GeminiRequest
  */
 export function transform(request: UnifiedRequest): GeminiRequest {
-  const contents = transformMessages(request.messages)
+  // Normalize tool history before transformation
+  const normalizedMessages = normalizeToolHistory(request.messages)
+  const contents = transformMessages(normalizedMessages)
   const systemInstruction = transformSystemInstruction(request.system)
   const generationConfig = transformGenerationConfig(request.config, request.thinking)
   const tools = transformTools(request.tools)

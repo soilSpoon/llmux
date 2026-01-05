@@ -67,25 +67,7 @@ export const ANTIGRAVITY_MODELS: Model[] = [
     owned_by: 'google',
   },
 
-  // --- Gemini CLI Quota Models ---
-  {
-    id: 'gemini-2.5-flash',
-    provider: 'antigravity',
-    name: 'Gemini 2.5 Flash',
-    object: 'model',
-    context_length: 1048576,
-    max_completion_tokens: 65536,
-    owned_by: 'google',
-  },
-  {
-    id: 'gemini-2.5-pro',
-    provider: 'antigravity',
-    name: 'Gemini 2.5 Pro',
-    object: 'model',
-    context_length: 1048576,
-    max_completion_tokens: 65536,
-    owned_by: 'google',
-  },
+  // --- Gemini Legacy Antigravity Models ---
   {
     id: 'gemini-3-flash',
     provider: 'antigravity',

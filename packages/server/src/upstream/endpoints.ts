@@ -10,6 +10,7 @@ const STREAMING_ENDPOINTS: Partial<Record<UpstreamProvider, string>> = {
   gemini: 'https://generativelanguage.googleapis.com/v1beta/models',
   antigravity:
     'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse',
+  'gemini-cli': 'https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse',
   'opencode-zen': 'https://opencode.ai/zen/v1/messages',
   'openai-web': 'https://chatgpt.com/backend-api/codex/responses',
 }
@@ -18,7 +19,8 @@ const NON_STREAMING_ENDPOINTS: Partial<Record<UpstreamProvider, string>> = {
   openai: 'https://api.openai.com/v1/chat/completions',
   anthropic: 'https://api.anthropic.com/v1/messages',
   gemini: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-  antigravity: 'https://Daily-Cloudcode-Pa.Sandbox.Googleapis.Com/V1internal',
+  antigravity: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent',
+  'gemini-cli': 'https://cloudcode-pa.googleapis.com/v1internal:generateContent',
   'opencode-zen': 'https://opencode.ai/zen/v1/messages',
   'openai-web': 'https://chatgpt.com/backend-api/codex/responses',
 }

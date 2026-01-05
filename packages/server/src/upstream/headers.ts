@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_HEADERS } from '@llmux/auth'
+import { ANTIGRAVITY_HEADERS, GEMINI_CLI_HEADERS } from '@llmux/auth'
 import type { UpstreamProvider } from './types'
 
 export interface BuildHeadersOptions {
@@ -31,6 +31,10 @@ export function buildUpstreamHeaders(
     case 'antigravity':
       headers.Authorization = `Bearer ${apiKey}`
       Object.assign(headers, ANTIGRAVITY_HEADERS)
+      break
+    case 'gemini-cli':
+      headers.Authorization = `Bearer ${apiKey}`
+      Object.assign(headers, GEMINI_CLI_HEADERS)
       break
     case 'opencode-zen':
       if (options?.fromProtocol === 'openai') {

@@ -6,6 +6,10 @@ const logger = createLogger({ service: 'antigravity-pairing-fix' })
 /**
  * Fixes tool response grouping in Gemini content history.
  *
+ * NOTE: This is now a fallback safety net.
+ * The primary structural fix is done by normalizeToolHistory() at the UnifiedMessage level.
+ * This function handles provider-specific edge cases and orphan recovery.
+ *
  * Ensures that:
  * 1. Every tool response has a matching tool call in the history.
  * 2. Tool responses are grouped correctly after their calls.
@@ -152,19 +156,11 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
           groupResponses.push(orphanResp)
         }
       } else {
-        // No responses available - create placeholder
+        // No responses available - create text placeholder
+        // Using functionResponse here causes INVALID_ARGUMENT if there's no matching call in history.
+        // Recover by converting to text as per ARCHITECTURE.md patterns.
         const placeholder: GeminiPart = {
-          functionResponse: {
-            name: expectedName || 'unknown_function',
-            response: {
-              result: {
-                error:
-                  'Tool response was lost during context processing. This is a recovered placeholder.',
-                recovered: true,
-              },
-            },
-            id: expectedId,
-          },
+          text: `Tool [${expectedName || 'unknown'}] execution missing/cancelled (ID: ${expectedId})`,
         }
 
         logger.debug(
@@ -172,7 +168,7 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
             id: expectedId,
             name: expectedName,
           },
-          'Created placeholder response for missing tool'
+          'Created text placeholder for missing tool response'
         )
 
         groupResponses.push(placeholder)
@@ -191,7 +187,15 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
   // Final pass: Push any remaining collected responses as an orphan turn
   // This ensures we don't drop history parts, even if they are technically malformed (orphans)
   if (collectedResponses.size > 0) {
-    const orphanParts = Array.from(collectedResponses.values())
+    const orphanParts = Array.from(collectedResponses.values()).map((part) => {
+      if (part.functionResponse) {
+        return {
+          text: `Tool [${part.functionResponse.name}] execution missing/cancelled (ID: ${part.functionResponse.id})`,
+        }
+      }
+      return part
+    })
+
     newContents.push({
       role: 'user',
       parts: orphanParts,

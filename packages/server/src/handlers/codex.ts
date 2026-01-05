@@ -45,6 +45,10 @@ function getModelFamily(model: string): string {
   if (normalized.includes('gpt-5.2-codex')) return 'gpt-5.2-codex'
   if (normalized.includes('codex-max')) return 'codex-max'
   if (normalized.includes('gpt-5.2')) return 'gpt-5.2'
+
+  // Explicit mapping for gpt-5.1-codex to codex prompt family
+  if (normalized.includes('gpt-5.1-codex')) return 'codex'
+
   if (normalized.includes('gpt-5.1')) return 'gpt-5.1'
   if (normalized.includes('gpt-5-codex')) return 'gpt-5-codex' // Explicit gpt-5-codex handling
   if (normalized.includes('codex')) return 'codex'
@@ -232,6 +236,15 @@ export async function getCodexInstructions(model: string): Promise<string> {
       const instructions = await response.text()
       const etag = response.headers.get('etag') || undefined
 
+      // Validate non-empty content
+      if (!instructions || instructions.trim().length === 0) {
+        logger.warn(
+          { modelFamily, etag },
+          '[codex] Received empty instructions from GitHub; using fallback'
+        )
+        return FALLBACK_INSTRUCTIONS
+      }
+
       logger.debug(
         { modelFamily, instructionsLength: instructions.length, etag },
         '[codex] Received instructions from GitHub'
@@ -262,12 +275,15 @@ export async function getCodexInstructions(model: string): Promise<string> {
 
   // Fallback: try disk cache
   const cached = loadCachedInstructions(modelFamily)
-  if (cached) {
+  if (cached && cached.trim().length > 0) {
     logger.info({ modelFamily }, 'Using stale cached instructions')
     return cached
   }
 
   // Final fallback: use bundled fallback
-  logger.warn({ modelFamily }, 'Using bundled fallback instructions (network failed, no cache)')
+  logger.warn(
+    { modelFamily },
+    'Using bundled fallback instructions (network failed, no valid cache)'
+  )
   return FALLBACK_INSTRUCTIONS
 }

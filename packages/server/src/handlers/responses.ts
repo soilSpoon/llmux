@@ -107,9 +107,13 @@ export async function handleResponses(
     if (resolvedTargetProvider === 'openai') {
       upstreamRequest = { ...chatRequest, stream: isStreaming }
     } else if (resolvedTargetProvider === 'openai-web') {
+      const messages = body.input || body.messages || []
+      if (!messages || (Array.isArray(messages) && messages.length === 0)) {
+        logger.warn({ model: body.model }, '[responses] No input/messages found for openai-web')
+      }
       upstreamRequest = await buildCodexBody({
         model: body.model || 'gpt-5.1',
-        messages: body.input,
+        messages,
         tools: body.tools,
         reasoning: body.reasoning,
         systemInstructions: body.instructions,

@@ -3,9 +3,8 @@ import {
   buildSignatureSessionKey,
   shouldCacheSignatures,
   ensureThinkingSignatures,
-  type Content,
-  type Part,
 } from "../signature-integration";
+import type { Content, Part } from "../thinking-utils";
 
 describe("Signature Integration - Layer 3 (Turn Separation)", () => {
 
@@ -82,7 +81,7 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       expect((syntheticUser.parts![0] as Part).text).toBe("[Continue]");
     });
 
-    it("should strip thinking and add synthetic messages (opencode strategy)", () => {
+    it("should NOT strip thinking and NOT add synthetic messages when turn already has thinking", () => {
       const sessionKey = buildSignatureSessionKey(
         "claude-3-5-sonnet-thinking",
         "test-conv-2",
@@ -132,15 +131,18 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
         "claude-3-5-sonnet-thinking"
       );
 
-      // opencode strategy: strip all thinking, add synthetic messages for tool loop recovery
-      // Original 3 items + 2 synthetic = 5
-      expect(requestBody.contents.length).toBe(5);
+      // When turn already has thinking, Layer 4 recovery is NOT needed
+      // So no synthetic messages are added
+      // Original 3 items remain as-is
+      expect(requestBody.contents.length).toBe(3);
 
-      // Verify thinking was stripped from model message
+      // ensureThinkingSignatures does NOT strip thinking for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
       const modelContent = requestBody.contents![1]!;
       expect(modelContent.role).toBe("model");
       const parts = modelContent.parts as Part[];
-      expect(parts.some((p) => p.thought === true)).toBe(false);
+      // Thinking parts are preserved (stripping happens in sanitizeRequestSignatures)
+      expect(parts.some((p) => p.thought === true)).toBe(true);
     });
 
     it("should not separate turn if thinking is disabled", () => {
@@ -246,7 +248,7 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       const toolMessage = contents[1]!;
       expect(Array.isArray(toolMessage.parts)).toBe(true);
       const parts = toolMessage.parts!;
-      expect(parts.some((p) => (p as Part).thought === true)).toBe(false);
+      expect(parts.some((p: Part) => p.thought === true)).toBe(false);
     });
 
     it("should count trailing tool results from user messages", () => {
@@ -367,7 +369,7 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       expect(shouldCacheSignatures("o1-preview")).toBe(false);
     });
 
-    it("should strip all thinking for gemini-claude (opencode strategy)", () => {
+    it("should NOT strip all thinking for gemini-claude in ensureThinkingSignatures (handled by sanitizeRequestSignatures)", () => {
       const sessionKey = buildSignatureSessionKey(
         "gemini-claude-thinking",
         "test-conv-gemini-claude",
@@ -398,13 +400,14 @@ describe("Signature Integration - Layer 3 (Turn Separation)", () => {
       // Run ensureThinkingSignatures
       ensureThinkingSignatures(requestBody, sessionKey, "gemini-claude-thinking");
 
-      // opencode strategy: strip all thinking, no re-injection
+      // ensureThinkingSignatures does NOT strip thinking for Claude
+      // Stripping is handled by sanitizeRequestSignatures (pre-transform)
       const parts = requestBody.contents?.[0]?.parts;
       expect(parts).toBeDefined();
       if (!parts) return;
 
-      // Thinking should be stripped
-      expect(parts.some((p: any) => p.thought === true)).toBe(false);
+      // Thinking is preserved (stripping happens in sanitizeRequestSignatures)
+      expect(parts.some((p: any) => p.thought === true)).toBe(true);
       // functionCall should remain
       expect(parts.some((p: any) => p.functionCall)).toBe(true);
     });

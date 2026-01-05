@@ -52,7 +52,6 @@ export function parseResponse(response: unknown): UnifiedResponse {
   // Separate thinking blocks from content
   const thinkingBlocks: ThinkingBlock[] = []
   const contentParts: ContentPart[] = []
-  let hasToolCall = false
 
   for (const part of content.parts) {
     if (part.thought && part.text !== undefined) {
@@ -63,7 +62,6 @@ export function parseResponse(response: unknown): UnifiedResponse {
       })
     } else if (part.functionCall) {
       // Function call - decode tool name
-      hasToolCall = true
       contentParts.push({
         type: 'tool_call',
         toolCall: {
@@ -82,12 +80,11 @@ export function parseResponse(response: unknown): UnifiedResponse {
   }
 
   // Map finish reason
-  let stopReason = mapFinishReasonToStopReason(finishReason)
-
-  // Override stop reason if there are tool calls
-  if (hasToolCall) {
-    stopReason = 'tool_use'
-  }
+  // Note: We preserve the original finishReason mapping here.
+  // The tool_use override is applied later in Anthropic's transformResponse
+  // when converting to Anthropic format, as Anthropic clients expect stop_reason
+  // to indicate tool calls, while Gemini clients expect the original finishReason.
+  const stopReason = mapFinishReasonToStopReason(finishReason)
 
   // Parse usage
   const usage = usageMetadata ? parseUsageMetadata(usageMetadata) : undefined

@@ -250,6 +250,7 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
     { method: 'GET', path: '/status', handler: handleStatus },
     { method: 'GET', path: '/providers', handler: handleProviders },
     { method: 'GET', path: '/models', handler: modelsHandler },
+    { method: 'GET', path: '/v1/models', handler: modelsHandler },
     { method: 'POST', path: '/v1/chat/completions', handler: chatCompletionsHandler },
     { method: 'POST', path: '/v1/messages', handler: messagesHandler },
     { method: 'POST', path: '/messages', handler: messagesHandler },

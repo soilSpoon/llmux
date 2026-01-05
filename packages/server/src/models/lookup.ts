@@ -1,4 +1,10 @@
-import { createLogger } from '@llmux/core'
+import {
+  type AuthType,
+  createLogger,
+  getProvider,
+  hasProvider,
+  type ProviderName,
+} from '@llmux/core'
 import type { CredentialProvider } from '../auth'
 import { createModelCache } from './cache'
 import { createFetcher } from './fetchers'
@@ -6,6 +12,21 @@ import { createModelRegistry } from './registry'
 import type { ModelProvider } from './types'
 
 const logger = createLogger({ service: 'model-lookup' })
+
+/**
+ * Get authType for a provider. Returns 'apiKey' as default if not found.
+ */
+function getProviderAuthType(provider: ModelProvider): AuthType {
+  try {
+    if (hasProvider(provider as ProviderName)) {
+      const p = getProvider(provider as ProviderName)
+      return p.config.authType ?? 'apiKey'
+    }
+  } catch {
+    // Provider not registered in core, default to apiKey
+  }
+  return 'apiKey'
+}
 
 export interface ModelLookup {
   /**
@@ -122,6 +143,16 @@ export function createModelLookup(credentialProvider: CredentialProvider): Model
           }
         }
 
+        // Add gemini-cli as a virtual provider if antigravity credentials exist
+        // gemini-cli uses the same OAuth credentials as antigravity but routes to different models
+        if (
+          providers.includes('antigravity' as ModelProvider) &&
+          !validProviders.includes('gemini-cli' as ModelProvider)
+        ) {
+          validProviders.push('gemini-cli' as ModelProvider)
+          // gemini-cli doesn't need a token in the tokens map - it reuses antigravity credentials
+        }
+
         // Fetch models using registry
         const registry = createModelRegistry()
         const cache = createModelCache()
@@ -132,9 +163,25 @@ export function createModelLookup(credentialProvider: CredentialProvider): Model
 
         const models = await registry.getModels(validProviders, tokens)
 
-        // Build model → provider cache
+        // Build model → provider cache with OAuth priority
+        // When same model exists in multiple providers, OAuth providers take precedence
         const newCache = new Map<string, ModelProvider>()
         for (const model of models) {
+          const existingProvider = newCache.get(model.id)
+          if (existingProvider) {
+            const existingAuthType = getProviderAuthType(existingProvider)
+            const newAuthType = getProviderAuthType(model.provider)
+            // OAuth takes priority over apiKey
+            if (existingAuthType === 'oauth' && newAuthType === 'apiKey') {
+              continue // Keep existing OAuth provider
+            }
+            if (existingAuthType === 'apiKey' && newAuthType === 'oauth') {
+              logger.debug(
+                { modelId: model.id, oldProvider: existingProvider, newProvider: model.provider },
+                'OAuth provider taking priority over apiKey provider'
+              )
+            }
+          }
           newCache.set(model.id, model.provider)
         }
 

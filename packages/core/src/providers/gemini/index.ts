@@ -15,14 +15,21 @@ import { parseStreamChunk, transformStreamChunk } from './streaming'
 import { type GeminiRequest, type GeminiResponse, isGeminiRequest } from './types'
 
 export class GeminiProvider extends BaseProvider {
-  readonly name = 'gemini' as const
-  readonly config: ProviderConfig = {
-    name: 'gemini',
-    supportsStreaming: true,
-    supportsThinking: true,
-    supportsTools: true,
-    defaultMaxTokens: 8192,
-    defaultStreamParser: 'sse-line-delimited',
+  readonly name: 'gemini' | 'gemini-cli'
+  readonly config: ProviderConfig
+
+  constructor(name: 'gemini' | 'gemini-cli' = 'gemini') {
+    super()
+    this.name = name
+    this.config = {
+      name,
+      supportsStreaming: true,
+      supportsThinking: true,
+      supportsTools: true,
+      authType: 'apiKey',
+      defaultMaxTokens: 8192,
+      defaultStreamParser: 'sse-line-delimited',
+    }
   }
 
   isSupportedRequest(request: unknown): boolean {

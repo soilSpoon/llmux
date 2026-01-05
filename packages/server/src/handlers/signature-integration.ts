@@ -1,11 +1,12 @@
 /**
- * Thinking Strategy for Multi-turn Claude Conversations (opencode-antigravity-auth)
+ * Signature Integration (Post-Transform)
  *
- * This module implements the "strip all thinking" strategy to handle Claude thinking models
- * with large tool sets. Instead of trying to restore thinking signatures (which often breaks
- * with many tools), it:
- * 1. Strips all thinking blocks from previous model messages in subsequent requests.
- * 2. Injects synthetic messages for tool loop recovery (Layer 4) when thinking is needed but missing.
+ * This module handles post-transform signature operations:
+ * 1. Gemini: Normalize signatures (standardize to thought_signature, remove unsigned thinking)
+ * 2. Claude: Layer 4 recovery (inject synthetic messages for tool loop)
+ *
+ * NOTE: Claude thinking block stripping is now handled in signature-request.ts (pre-transform).
+ * This module no longer strips thinking for Claude.
  */
 
 import crypto from 'node:crypto'
@@ -15,13 +16,10 @@ import {
   closeToolLoopForThinking,
   needsThinkingRecovery,
 } from './thinking-recovery'
+import { getThinkingStrategy } from './thinking-utils'
 
 const logger = createLogger({ service: 'signature-integration' })
 
-/**
- * The stable session ID for this server instance.
- * Reset on server restart.
- */
 const SERVER_SESSION_ID = `server-${crypto.randomUUID()}`
 
 // ============================================================================
@@ -49,19 +47,19 @@ export interface ConversationPayload {
   [key: string]: unknown
 }
 
-export interface Message {
+interface Message {
   role?: string
   content?: Block[] | string
   [key: string]: unknown
 }
 
-export interface Content {
+interface Content {
   role?: string
   parts?: Part[]
   [key: string]: unknown
 }
 
-export interface Block {
+interface Block {
   type?: string
   text?: string
   thinking?: string
@@ -71,7 +69,7 @@ export interface Block {
   [key: string]: unknown
 }
 
-export interface Part {
+interface Part {
   text?: string
   thought?: boolean
   thought_signature?: string
@@ -98,14 +96,17 @@ export interface UnifiedRequestBody {
   [key: string]: unknown
 }
 
+interface ConversationMessage {
+  role?: string
+  parts?: Array<{ [key: string]: unknown }>
+  content?: Array<{ [key: string]: unknown }> | string
+  [key: string]: unknown
+}
+
 // ============================================================================
 // Helpers
 // ============================================================================
 
-/**
- * Build a session key for signature caching.
- * Combines server session ID, model, and optional conversation/project keys.
- */
 export function buildSignatureSessionKey(
   model?: string,
   conversationKey?: string,
@@ -121,10 +122,6 @@ export function buildSignatureSessionKey(
   return `${SERVER_SESSION_ID}:${modelKey}:${projectPart}:${conversationPart}`
 }
 
-/**
- * Extract a conversation key from request payload.
- * Looks for common conversation ID fields.
- */
 export function extractConversationKey(payload: Record<string, unknown>): string | undefined {
   const typedPayload = payload as ConversationPayload
   const candidates = [
@@ -146,11 +143,8 @@ export function extractConversationKey(payload: Record<string, unknown>): string
     }
   }
 
-  // Generate seed from system instruction + first user message
   const systemText = extractTextFromSystem(
-    typedPayload.systemInstruction ??
-      typedPayload.system ?? // system_instruction alias handles system_instruction
-      typedPayload.system_instruction
+    typedPayload.systemInstruction ?? typedPayload.system ?? typedPayload.system_instruction
   )
 
   let messageText = ''
@@ -202,38 +196,21 @@ function hashConversationSeed(seed: string): string {
   return crypto.createHash('sha256').update(seed, 'utf8').digest('hex').slice(0, 16)
 }
 
-/**
- * Check if a model should use signature caching.
- * Supports Claude thinking models and Gemini models with thinking support.
- */
 export function shouldCacheSignatures(model?: string): boolean {
   if (typeof model !== 'string') return false
-
   const family = getModelFamily(model)
-
-  // Blacklist OpenAI - it throws 400 Bad Request when unknown fields (thoughtSignature) are present
-  if (family === 'openai') {
-    return false
-  }
-
-  // Gemini 2.0+ requires thoughtSignature when thinking mode is active
-  // Claude thinking models also require signature caching
-  // Both families need this for proper tool-use with thinking
+  if (family === 'openai') return false
   return family === 'claude' || family === 'gemini'
 }
 
 // ============================================================================
-// Request-side: Restore signatures to thinking blocks
+// Main Entry Point
 // ============================================================================
 
 /**
- * Ensure thinking blocks in the request have proper signatures.
- * Follows OpenCode v2.0 strategy with 3-layer defense:
- * 1. Strip ALL thinking blocks first (prevents corruption)
- * 2. Selectively inject cached thinking (Layer 1: session, Layer 2: global)
- * 3. If still no thinking in tool loop, separate turn (Layer 3/4)
- *
- * Modifies the request body in place.
+ * Post-transform signature handling:
+ * - Gemini: Normalize signatures (standardize field names, remove unsigned thinking)
+ * - Claude: Layer 4 recovery only (thinking blocks already stripped in signature-request.ts)
  */
 export function ensureThinkingSignatures(
   requestBody: Record<string, unknown>,
@@ -242,118 +219,45 @@ export function ensureThinkingSignatures(
 ): void {
   const typedBody = requestBody as UnifiedRequestBody
 
-  // Only process for models that need signature caching
   if (!model || !shouldCacheSignatures(model)) {
     return
   }
 
-  const modelFamily = getModelFamily(model)
+  const strategy = getThinkingStrategy(model)
 
-  // STEP 1: Process signature stripping/standardization
-  // Strategy:
-  // - Claude: Strip ALL thinking blocks (prevents corruption, Layer 4 recovery handles loop)
-  // - Gemini: Preserve thinking blocks (required for validation) but standardize signatures
-  const isClaude = modelFamily === 'claude'
-
-  if (Array.isArray(typedBody.contents)) {
-    typedBody.contents = processSignaturesInContents(typedBody.contents, isClaude)
-  }
-  if (Array.isArray(typedBody.messages)) {
-    typedBody.messages = processSignaturesInMessages(typedBody.messages, isClaude)
-  }
-
-  // Handle wrapped request format (Antigravity)
-  if (typedBody.request && typeof typedBody.request === 'object') {
-    const nestedRequest = typedBody.request as Record<string, unknown>
-    if (Array.isArray(nestedRequest.contents)) {
-      nestedRequest.contents = processSignaturesInContents(nestedRequest.contents, isClaude)
-    }
-    if (Array.isArray(nestedRequest.messages)) {
-      nestedRequest.messages = processSignaturesInMessages(nestedRequest.messages, isClaude)
-    }
-  }
-
-  logger.debug({ model, sessionKey, isClaude }, 'Step 1: Processed thinking signatures')
-
-  // ==========================================================================
-  // STEP 2: Apply Layer 4 recovery for Claude models if needed
-  // If we're in an incomplete tool loop without thinking, inject synthetic
-  // MODEL + USER messages to start a new turn for fresh thinking generation
-  // ==========================================================================
-
-  if (modelFamily === 'claude') {
-    // Check for tool loop recovery on top-level contents
+  // Step 1: Gemini signature normalization (Claude skips this - already clean)
+  if (strategy === 'gemini-cache') {
     if (Array.isArray(typedBody.contents)) {
-      const state = analyzeConversationState(typedBody.contents)
-      if (needsThinkingRecovery(state)) {
-        typedBody.contents = closeToolLoopForThinking(typedBody.contents)
-        logger.info(
-          { sessionKey, model },
-          'Applied Layer 4 recovery: injected synthetic messages for tool loop (contents)'
-        )
-      }
+      typedBody.contents = normalizeGeminiContents(typedBody.contents)
     }
-
-    // Check for tool loop recovery on top-level messages
     if (Array.isArray(typedBody.messages)) {
-      const state = analyzeConversationState(typedBody.messages)
-      if (needsThinkingRecovery(state)) {
-        typedBody.messages = closeToolLoopForThinking(typedBody.messages)
-        logger.info(
-          { sessionKey, model },
-          'Applied Layer 4 recovery: injected synthetic messages for tool loop (messages)'
-        )
-      }
+      typedBody.messages = normalizeGeminiMessages(typedBody.messages)
     }
 
-    // Check for tool loop recovery on wrapped request format
     if (typedBody.request && typeof typedBody.request === 'object') {
       const nestedRequest = typedBody.request as Record<string, unknown>
       if (Array.isArray(nestedRequest.contents)) {
-        const state = analyzeConversationState(nestedRequest.contents as ConversationMessage[])
-        if (needsThinkingRecovery(state)) {
-          nestedRequest.contents = closeToolLoopForThinking(
-            nestedRequest.contents as ConversationMessage[]
-          )
-          logger.info(
-            { sessionKey, model },
-            'Applied Layer 4 recovery: injected synthetic messages for tool loop (wrapped contents)'
-          )
-        }
+        nestedRequest.contents = normalizeGeminiContents(nestedRequest.contents as Content[])
       }
-
       if (Array.isArray(nestedRequest.messages)) {
-        const state = analyzeConversationState(nestedRequest.messages as ConversationMessage[])
-        if (needsThinkingRecovery(state)) {
-          nestedRequest.messages = closeToolLoopForThinking(
-            nestedRequest.messages as ConversationMessage[]
-          )
-          logger.info(
-            { sessionKey, model },
-            'Applied Layer 4 recovery: injected synthetic messages for tool loop (wrapped messages)'
-          )
-        }
+        nestedRequest.messages = normalizeGeminiMessages(nestedRequest.messages as Message[])
       }
     }
+
+    logger.debug({ model, sessionKey }, 'Gemini: normalized signatures')
+  }
+
+  // Step 2: Claude Layer 4 recovery (tool loop fix)
+  if (strategy === 'claude-fresh') {
+    applyLayer4Recovery(typedBody, sessionKey, model)
   }
 }
 
-/**
- * Helper type for thinking recovery
- */
-interface ConversationMessage {
-  role?: string
-  parts?: Array<{ [key: string]: unknown }>
-  content?: Array<{ [key: string]: unknown }> | string
-  [key: string]: unknown
-}
+// ============================================================================
+// Gemini Signature Normalization
+// ============================================================================
 
-/**
- * Process signatures in contents (model-aware).
- * - If stripThinking is true (Claude), removes all thinking blocks.
- * - Otherwise (Gemini), removes unsigned thinking blocks and standardizes signatures.
- */
-function processSignaturesInContents(contents: Content[], stripThinking: boolean): Content[] {
+function normalizeGeminiContents(contents: Content[]): Content[] {
   return contents.map((content) => {
     if (!content || typeof content !== 'object') return content
 
@@ -361,43 +265,21 @@ function processSignaturesInContents(contents: Content[], stripThinking: boolean
       const filteredParts = content.parts
         .filter((part) => {
           if (!part || typeof part !== 'object') return true
-          const p = part as Part
-          if (stripThinking) {
-            // Claude behavior: remove thinking parts
-            return !(
-              p.thought === true ||
-              p.type === 'thinking' ||
-              p.type === 'reasoning' ||
-              p.type === 'redacted_thinking'
-            )
-          }
-          // Gemini behavior: remove unsigned thinking blocks
-          if (p.thought === true) {
-            const hasSignature = p.thought_signature || p.thoughtSignature || p.signature
+          // Remove unsigned thinking blocks
+          if (part.thought === true) {
+            const hasSignature = part.thought_signature || part.thoughtSignature || part.signature
             return !!hasSignature
           }
           return true
         })
         .map((part) => {
           if (!part || typeof part !== 'object') return part
-          const p = part as Part
-
-          if (stripThinking) {
-            // Claude behavior: remove all residual signature fields
-            const { thoughtSignature: _, signature: __, thought_signature: ___, ...rest } = p
-            return rest
+          // Standardize signature field to thought_signature
+          const signature = part.thought_signature || part.thoughtSignature || part.signature
+          if (signature && part.thought === true) {
+            const { thoughtSignature: _, signature: __, ...rest } = part
+            return { ...rest, thought_signature: signature }
           }
-
-          // Gemini behavior: standardize on thought_signature (snake_case)
-          const signature = p.thought_signature || p.thoughtSignature || p.signature
-          if (signature) {
-            const { thoughtSignature: _, signature: __, ...rest } = p
-            return {
-              ...rest,
-              thought_signature: signature,
-            }
-          }
-
           return part
         })
       return { ...content, parts: filteredParts }
@@ -407,49 +289,80 @@ function processSignaturesInContents(contents: Content[], stripThinking: boolean
   })
 }
 
-/**
- * Process signatures in messages (model-aware).
- */
-function processSignaturesInMessages(messages: Message[], stripThinking: boolean): Message[] {
+function normalizeGeminiMessages(messages: Message[]): Message[] {
   return messages.map((message) => {
     if (!message || typeof message !== 'object') return message
 
     if (Array.isArray(message.content)) {
-      const filteredContent = (message.content as Block[])
-        .filter((block) => {
-          if (!block || typeof block !== 'object') return true
-          const b = block as Block
-          if (stripThinking) {
-            // Claude: remove thinking blocks
-            return !(b.type === 'thinking' || b.type === 'redacted_thinking')
-          }
-          return true
-        })
-        .map((block) => {
-          if (!block || typeof block !== 'object') return block
-          const b = block as Block
-
-          if (stripThinking) {
-            // Claude: remove all residual signature fields
-            const { signature: _, thoughtSignature: __, thought_signature: ___, ...rest } = b
-            return rest
-          }
-
-          // Gemini behavior: standardize on thought_signature (snake_case)
-          const signature = b.thought_signature || b.signature || b.thoughtSignature
-          if (signature) {
-            const { signature: _, thoughtSignature: __, ...rest } = b
-            return {
-              ...rest,
-              thought_signature: signature,
-            }
-          }
-
-          return block
-        })
+      const filteredContent = (message.content as Block[]).map((block) => {
+        if (!block || typeof block !== 'object') return block
+        // Standardize signature field to thought_signature
+        const signature = block.thought_signature || block.signature || block.thoughtSignature
+        if (signature) {
+          const { signature: _, thoughtSignature: __, ...rest } = block
+          return { ...rest, thought_signature: signature }
+        }
+        return block
+      })
       return { ...message, content: filteredContent }
     }
 
     return message
   })
+}
+
+// ============================================================================
+// Claude Layer 4 Recovery
+// ============================================================================
+
+function applyLayer4Recovery(
+  typedBody: UnifiedRequestBody,
+  sessionKey: string,
+  model: string
+): void {
+  if (Array.isArray(typedBody.contents)) {
+    const state = analyzeConversationState(typedBody.contents)
+    if (needsThinkingRecovery(state)) {
+      typedBody.contents = closeToolLoopForThinking(typedBody.contents)
+      logger.info({ sessionKey, model }, 'Claude Layer 4: injected synthetic messages (contents)')
+    }
+  }
+
+  if (Array.isArray(typedBody.messages)) {
+    const state = analyzeConversationState(typedBody.messages)
+    if (needsThinkingRecovery(state)) {
+      typedBody.messages = closeToolLoopForThinking(typedBody.messages)
+      logger.info({ sessionKey, model }, 'Claude Layer 4: injected synthetic messages (messages)')
+    }
+  }
+
+  if (typedBody.request && typeof typedBody.request === 'object') {
+    const nestedRequest = typedBody.request as Record<string, unknown>
+
+    if (Array.isArray(nestedRequest.contents)) {
+      const state = analyzeConversationState(nestedRequest.contents as ConversationMessage[])
+      if (needsThinkingRecovery(state)) {
+        nestedRequest.contents = closeToolLoopForThinking(
+          nestedRequest.contents as ConversationMessage[]
+        )
+        logger.info(
+          { sessionKey, model },
+          'Claude Layer 4: injected synthetic messages (wrapped contents)'
+        )
+      }
+    }
+
+    if (Array.isArray(nestedRequest.messages)) {
+      const state = analyzeConversationState(nestedRequest.messages as ConversationMessage[])
+      if (needsThinkingRecovery(state)) {
+        nestedRequest.messages = closeToolLoopForThinking(
+          nestedRequest.messages as ConversationMessage[]
+        )
+        logger.info(
+          { sessionKey, model },
+          'Claude Layer 4: injected synthetic messages (wrapped messages)'
+        )
+      }
+    }
+  }
 }
