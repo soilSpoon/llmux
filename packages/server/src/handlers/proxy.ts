@@ -8,6 +8,7 @@ import type { RequestFormat } from '../middleware/format'
 import { SignatureStore } from '../stores'
 import { accumulateGeminiResponse } from './gemini-response'
 import { accumulateOpenAIResponse } from './openai-response'
+import { buildResponseHeaders, createErrorResponse } from './response-headers'
 import { handleJsonResponse } from './response-utils'
 import type { ProxyOptions } from './types'
 import { dispatchWithRetry, NonRetriableError } from './upstream-dispatcher'
@@ -55,6 +56,8 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       status: 400,
     })
   }
+
+  const reqIdHeader = request.headers.get('x-amp-client-request-id') || reqId
 
   try {
     const body = (await request.json()) as {
@@ -128,9 +131,10 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       )
 
       if (!aggregated) {
-        return new Response(JSON.stringify({ error: 'Failed to parse SSE response' }), {
-          status: 502,
-          headers: { 'Content-Type': 'application/json' },
+        return createErrorResponse('Failed to parse SSE response', 502, {
+          upstreamHeaders: lastResponse.headers,
+          requestId: reqIdHeader,
+          type: 'upstream_error',
         })
       }
 
@@ -159,9 +163,13 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         { reqId, accumulateTime, responseLength: responseBody.length },
         '[non-streaming] Returning response'
       )
-      return new Response(responseBody, {
-        headers: { 'Content-Type': 'application/json' },
+
+      const headers = buildResponseHeaders({
+        upstreamHeaders: lastResponse.headers,
+        requestId: reqIdHeader,
       })
+
+      return new Response(responseBody, { headers })
     }
 
     // Standard JSON Response
@@ -170,18 +178,24 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
         currentProvider,
         sourceFormat: options.sourceFormat,
         model: meta?.model || options.targetModel,
+        requestId: reqIdHeader,
       })
     }
 
+    const headers = buildResponseHeaders({
+      upstreamHeaders: lastResponse.headers,
+      requestId: reqIdHeader,
+    })
+
     return new Response(lastResponse.body, {
       status: lastResponse.status,
-      headers: lastResponse.headers,
+      headers,
     })
   } catch (error) {
     if (error instanceof NonRetriableError) {
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: error.errorInfo.status || 500,
-        headers: { 'Content-Type': 'application/json' },
+      return createErrorResponse(error.message, error.errorInfo.status || 500, {
+        requestId: reqIdHeader,
+        type: 'non_retriable_error',
       })
     }
 
@@ -190,9 +204,9 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       { error: message, stack: error instanceof Error ? error.stack : undefined },
       'Handle Proxy Caught Error'
     )
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' },
+    return createErrorResponse(message, 500, {
+      requestId: reqIdHeader,
+      type: 'internal_server_error',
     })
   }
 }

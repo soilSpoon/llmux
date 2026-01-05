@@ -245,6 +245,9 @@ export interface GeminiUsageMetadata {
   totalTokenCount: number
   thoughtsTokenCount?: number
   cachedContentTokenCount?: number
+  promptTokensDetails?: Array<{ modality: string; tokenCount: number }>
+  candidatesTokensDetails?: Array<{ modality: string; tokenCount: number }>
+  trafficType?: string
 }
 
 /**

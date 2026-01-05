@@ -354,7 +354,11 @@ export async function buildUpstreamRequest(
     } else if (!endpoint || Object.keys(headers).length === 0) {
       // Standard endpoint/header
       if (!endpoint) {
-        endpoint = getDefaultEndpoint(effectiveProvider, { streaming: mode === 'streaming' }) || ''
+        endpoint =
+          getDefaultEndpoint(effectiveProvider, {
+            streaming: mode === 'streaming',
+            model: currentModel,
+          }) || ''
       }
       if (Object.keys(headers).length === 0) {
         headers = buildUpstreamHeaders(effectiveProvider, options.apiKey, {

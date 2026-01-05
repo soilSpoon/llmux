@@ -185,9 +185,9 @@ export function createBlockStopEvent(index: number): string {
   return `event: content_block_stop\ndata: {"type":"content_block_stop","index":${index}}\n\n`
 }
 
-export function createMessageStartEvent(): string {
+export function createMessageStartEvent(model: string): string {
   const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
-  return `event: message_start\ndata: {"type":"message_start","message":{"id":"${msgId}","type":"message","role":"assistant","content":[],"model":"claude-3-5-sonnet-20241022","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
+  return `event: message_start\ndata: {"type":"message_start","message":{"id":"${msgId}","type":"message","role":"assistant","content":[],"model":"${model}","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
 }
 
 export function getParserType(provider: ProviderName): 'sse-standard' | 'sse-line-delimited' {

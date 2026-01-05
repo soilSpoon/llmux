@@ -46,17 +46,32 @@ export function validateAndStripSignatures(
 
   const strategy = getThinkingStrategy(model)
   const isClaudeFresh = strategy === 'claude-fresh'
+  const isGeminiCache = strategy === 'gemini-cache'
 
   const processedContents = contents
-    ? processContents(contents, targetProjectId, signatureStore, isClaudeFresh, (count) => {
-        strippedCount += count
-      })
+    ? processContents(
+        contents,
+        targetProjectId,
+        signatureStore,
+        isClaudeFresh,
+        isGeminiCache,
+        (count) => {
+          strippedCount += count
+        }
+      )
     : undefined
 
   const processedMessages = messages
-    ? processMessages(messages, targetProjectId, signatureStore, isClaudeFresh, (count) => {
-        strippedCount += count
-      })
+    ? processMessages(
+        messages,
+        targetProjectId,
+        signatureStore,
+        isClaudeFresh,
+        isGeminiCache,
+        (count) => {
+          strippedCount += count
+        }
+      )
     : undefined
 
   if (strippedCount > 0 && isClaudeFresh) {
@@ -75,6 +90,7 @@ function processContents(
   targetProjectId: string,
   signatureStore: SignatureStore,
   isClaudeFresh: boolean,
+  isGeminiCache: boolean,
   onStrip: (count: number) => void
 ): Content[] {
   return contents.map((content) => {
@@ -104,7 +120,14 @@ function processContents(
           return part
         }
 
-        // Non-Claude: Project-based signature validation
+        // Gemini Cache: Always preserve signature (projectId validation skipped)
+        // This is crucial because llmux rotates accounts (and thus projectIds)
+        // but the signature must be preserved to maintain the thinking trace.
+        if (isGeminiCache) {
+          return part
+        }
+
+        // Other models: Project-based signature validation
         const signature = getSignatureFromPart(part)
         if (!signature) return part
 
@@ -137,6 +160,7 @@ function processMessages(
   targetProjectId: string,
   signatureStore: SignatureStore,
   isClaudeFresh: boolean,
+  isGeminiCache: boolean,
   onStrip: (count: number) => void
 ): Message[] {
   return messages.map((message) => {
@@ -166,7 +190,14 @@ function processMessages(
           return block
         }
 
-        // Non-Claude: Project-based signature validation
+        // Gemini Cache: Always preserve signature (projectId validation skipped)
+        // This is crucial because llmux rotates accounts (and thus projectIds)
+        // but the signature must be preserved to maintain the thinking trace.
+        if (isGeminiCache) {
+          return block
+        }
+
+        // Other models: Project-based signature validation
         const signature = getSignatureFromBlock(block)
         if (!signature) return block
 

@@ -194,6 +194,7 @@ describe("Gemini Request Transformations", () => {
         const result = transform(unified);
 
         expect(result.generationConfig?.thinkingConfig).toEqual({
+          includeThoughts: false,
           thinkingBudget: 0,
         });
       });
@@ -313,7 +314,7 @@ describe("Gemini Request Transformations", () => {
         const result = transform(unified);
 
         expect(result.contents[1]!.role).toBe("model");
-        expect(result.contents[1]!.parts[0]!.functionCall).toEqual({
+        expect(result.contents[1]!.parts[0]!.functionCall).toMatchObject({
           name: "get_weather",
           args: { location: "NYC" },
         });

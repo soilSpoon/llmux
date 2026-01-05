@@ -87,9 +87,13 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
 
       try {
         // Build filtered headers
+        // Strip headers that fetch() manages automatically based on body
         const filteredHeaders = new Headers()
         request.headers.forEach((value, key) => {
-          if (key.toLowerCase() === 'host') return
+          const lowerKey = key.toLowerCase()
+          if (lowerKey === 'host') return
+          if (lowerKey === 'transfer-encoding') return
+          if (lowerKey === 'content-length') return
           filteredHeaders.set(key, value)
         })
 

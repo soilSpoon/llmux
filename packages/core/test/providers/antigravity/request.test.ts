@@ -610,7 +610,7 @@ describe("Antigravity Request Transformations", () => {
         );
       });
 
-      it("should enforce AUTO mode in toolConfig", () => {
+      it("should omit toolConfig for Gemini models (enforce default behavior)", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [createUnifiedMessage("user", "Hello")],
           tools: [createUnifiedTool("test_tool", "A test tool")],
@@ -618,9 +618,7 @@ describe("Antigravity Request Transformations", () => {
 
         const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.request.toolConfig?.functionCallingConfig?.mode).toBe(
-          "AUTO"
-        );
+        expect(result.request.toolConfig).toBeUndefined();
       });
 
       it("should enforce VALIDATED mode in toolConfig for Claude models", () => {

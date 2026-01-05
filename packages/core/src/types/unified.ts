@@ -36,6 +36,7 @@ export interface UnifiedResponse {
   usage?: UsageInfo
   model?: string
   thinking?: ThinkingBlock[]
+  metadata?: Record<string, unknown>
 }
 
 /**

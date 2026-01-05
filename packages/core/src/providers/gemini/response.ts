@@ -45,6 +45,23 @@ export function parseResponse(response: GeminiResponse): UnifiedResponse {
   if (usage) result.usage = usage
   if (thinking.length > 0) result.thinking = thinking
 
+  // Populate metadata from usage details if available
+  if (response.usageMetadata) {
+    const meta: Record<string, unknown> = {}
+    if (response.usageMetadata.trafficType) {
+      meta.trafficType = response.usageMetadata.trafficType
+    }
+    if (response.usageMetadata.promptTokensDetails) {
+      meta.promptTokensDetails = response.usageMetadata.promptTokensDetails
+    }
+    if (response.usageMetadata.candidatesTokensDetails) {
+      meta.candidatesTokensDetails = response.usageMetadata.candidatesTokensDetails
+    }
+    if (Object.keys(meta).length > 0) {
+      result.metadata = meta
+    }
+  }
+
   return result
 }
 
@@ -194,7 +211,10 @@ function mapFinishReason(finishReason?: GeminiFinishReason, hasFunctionCall?: bo
 function transformContentPart(part: ContentPart): GeminiPart {
   switch (part.type) {
     case 'text':
-      return { text: part.text ?? '' }
+      return {
+        text: part.text ?? '',
+        ...(part.thoughtSignature && { thoughtSignature: part.thoughtSignature }),
+      }
 
     case 'tool_call':
       if (part.toolCall) {
@@ -206,6 +226,7 @@ function transformContentPart(part: ContentPart): GeminiPart {
                 ? { value: part.toolCall.arguments }
                 : part.toolCall.arguments,
           },
+          ...(part.thoughtSignature && { thoughtSignature: part.thoughtSignature }),
         }
       }
       break
@@ -217,6 +238,7 @@ function transformContentPart(part: ContentPart): GeminiPart {
             mimeType: part.image.mimeType,
             data: part.image.data ?? '',
           },
+          ...(part.thoughtSignature && { thoughtSignature: part.thoughtSignature }),
         }
       }
       break

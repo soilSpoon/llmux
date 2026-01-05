@@ -41,6 +41,7 @@ registerProvider(new OpenAIProvider())
 registerProvider(new AnthropicProvider())
 registerProvider(new GeminiProvider())
 registerProvider(new AntigravityProvider())
+registerProvider(new AntigravityProvider('gemini-cli'))
 registerProvider(new OpencodeZenProvider())
 registerProvider(new CoreOpenAIWebProvider())
 

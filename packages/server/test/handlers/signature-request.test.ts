@@ -202,6 +202,40 @@ describe("Signature Request Processing", () => {
       expect(parts[2]!.text).toBe("Regular text, no signature");
     });
 
+    test("should keep signature even if different project when using gemini model (gemini-cache)", () => {
+      store.saveSignature({
+        signature: "sig_gemini",
+        projectId: "projectA",
+        provider: "antigravity",
+        endpoint: "daily",
+        account: "test@example.com",
+      });
+
+      const contents = [
+        {
+          role: "model",
+          parts: [
+            {
+              thought: true,
+              text: "Gemini thinking...",
+              thoughtSignature: "sig_gemini",
+            },
+          ],
+        },
+      ];
+
+      const result = validateAndStripSignatures({
+        contents,
+        targetProjectId: "projectB", // Different project
+        signatureStore: store,
+        model: "gemini-3-flash-preview", // Should trigger gemini-cache strategy
+      });
+
+      expect(result.strippedCount).toBe(0);
+      const part = result.contents?.[0]?.parts?.[0] as Part;
+      expect(part.thoughtSignature).toBe("sig_gemini");
+    });
+
     test("should handle thought_signature (snake_case) format", () => {
       store.saveSignature({
         signature: "snake_sig",

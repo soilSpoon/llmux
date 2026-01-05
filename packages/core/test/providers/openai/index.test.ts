@@ -30,6 +30,7 @@ describe("OpenAIProvider", () => {
         supportsStreaming: true,
         supportsThinking: true,
         supportsTools: true,
+        authType: "apiKey",
       });
     });
   });

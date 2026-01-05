@@ -335,4 +335,58 @@ describe("handleProxy", () => {
     expect(data.choices).toBeDefined();
     expect(data.choices[0]?.message.content).toBe("Hello from Anthropic");
   });
+
+  test("preserves upstream headers and adds default headers", async () => {
+    globalThis.fetch = Object.assign(
+      mock(async () => {
+        return new Response(
+          JSON.stringify({
+            id: "msg_123",
+            type: "message",
+            role: "assistant",
+            content: [{ type: "text", text: "Hello" }],
+            model: "claude-3-sonnet-20240229",
+            stop_reason: "end_turn",
+            usage: { input_tokens: 10, output_tokens: 5 },
+          }),
+          {
+            status: 200,
+            headers: {
+              "Content-Type": "application/json",
+              "x-request-id": "req-123",
+              "x-trace-id": "trace-456",
+              "server": "cloudflare" // Should be ignored
+            }
+          }
+        );
+      }),
+      { preconnect: () => {} }
+    ) as typeof fetch;
+
+    const request = new Request("http://localhost/v1/proxy", {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "x-amp-client-request-id": "client-req-123"
+      },
+      body: JSON.stringify({
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
+      }),
+    });
+
+    const options: ProxyOptions = {
+      sourceFormat: "openai",
+      targetProvider: "anthropic",
+      apiKey: "test-key",
+    };
+
+    const response = await handleProxy(request, options);
+    
+    expect(response.headers.get("x-request-id")).toBe("req-123");
+    expect(response.headers.get("x-trace-id")).toBe("trace-456");
+    expect(response.headers.get("server")).toBeNull();
+    expect(response.headers.get("x-powered-by")).toBe("llmux");
+    expect(response.headers.get("cache-control")).toBe("no-cache, no-store");
+  });
 });

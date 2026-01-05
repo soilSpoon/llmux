@@ -62,6 +62,7 @@ export function parseResponse(response: unknown): UnifiedResponse {
       })
     } else if (part.functionCall) {
       // Function call - decode tool name
+      const thoughtSig = part.thoughtSignature || part.thought_signature
       contentParts.push({
         type: 'tool_call',
         toolCall: {
@@ -69,12 +70,15 @@ export function parseResponse(response: unknown): UnifiedResponse {
           name: decodeAntigravityToolName(part.functionCall.name),
           arguments: part.functionCall.args,
         },
+        ...(thoughtSig && { thoughtSignature: thoughtSig }),
       })
     } else if (part.text !== undefined) {
       // Text content
+      const thoughtSig = part.thoughtSignature || part.thought_signature
       contentParts.push({
         type: 'text',
         text: part.text,
+        ...(thoughtSig && { thoughtSignature: thoughtSig }),
       })
     }
   }

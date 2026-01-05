@@ -129,7 +129,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
               if (!messageStartSent && !isMessageStart) {
                 // Check if this is actual content (not just ping/error)
                 if (chunkBlockType || isBlockStart) {
-                  ctrl.enqueue(encoder.encode(createMessageStartEvent()))
+                  ctrl.enqueue(encoder.encode(createMessageStartEvent(streamContext.originalModel)))
                   messageStartSent = true
                 }
               }

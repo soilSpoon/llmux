@@ -202,6 +202,36 @@ describe("Gemini Response Transformations", () => {
 
         expect(result.usage?.cachedTokens).toBe(30);
       });
+
+      it("should populate detailed usage metadata", () => {
+        const gemini: GeminiResponse = {
+          candidates: [
+            {
+              content: { role: "model", parts: [{ text: "Hi" }] },
+              finishReason: "STOP",
+            },
+          ],
+          usageMetadata: {
+            promptTokenCount: 100,
+            candidatesTokenCount: 50,
+            totalTokenCount: 150,
+            trafficType: "PROVISIONED_THROUGHPUT",
+            promptTokensDetails: [{ modality: "TEXT", tokenCount: 100 }],
+            candidatesTokensDetails: [{ modality: "TEXT", tokenCount: 50 }],
+          },
+        };
+
+        const result = parseResponse(gemini);
+
+        expect(result.metadata).toBeDefined();
+        expect(result.metadata?.trafficType).toBe("PROVISIONED_THROUGHPUT");
+        expect(result.metadata?.promptTokensDetails).toEqual([
+          { modality: "TEXT", tokenCount: 100 },
+        ]);
+        expect(result.metadata?.candidatesTokensDetails).toEqual([
+          { modality: "TEXT", tokenCount: 50 },
+        ]);
+      });
     });
 
     describe("function calls", () => {
