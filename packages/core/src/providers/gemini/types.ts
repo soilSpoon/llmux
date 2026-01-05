@@ -180,7 +180,7 @@ export interface GeminiThinkingConfig {
   // For Gemini 2.5 models - use token budget
   thinkingBudget?: number
   // For Gemini 3 models - use level
-  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'
+  thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
   // Antigravity Claude-style (snake_case)
   include_thoughts?: boolean
   thinking_budget?: number

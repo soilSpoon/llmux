@@ -84,7 +84,9 @@ export function parseResponse(response: unknown): UnifiedResponse {
   // The tool_use override is applied later in Anthropic's transformResponse
   // when converting to Anthropic format, as Anthropic clients expect stop_reason
   // to indicate tool calls, while Gemini clients expect the original finishReason.
-  const stopReason = mapFinishReasonToStopReason(finishReason)
+  // UPDATE: We now detect function calls and force tool_use stop reason for Unified format consistency.
+  const hasToolCall = contentParts.some((p) => p.type === 'tool_call')
+  const stopReason = hasToolCall ? 'tool_use' : mapFinishReasonToStopReason(finishReason)
 
   // Parse usage
   const usage = usageMetadata ? parseUsageMetadata(usageMetadata) : undefined

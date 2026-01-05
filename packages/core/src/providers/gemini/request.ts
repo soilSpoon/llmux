@@ -20,8 +20,11 @@ import type {
   GeminiRequest,
   GeminiSchema,
   GeminiSystemInstruction,
+  GeminiThinkingConfig,
   GeminiTool,
 } from './types'
+
+type ThinkingLevel = NonNullable<GeminiThinkingConfig['thinkingLevel']>
 
 /**
  * Parse GeminiRequest into UnifiedRequest
@@ -117,7 +120,8 @@ function parsePart(part: GeminiPart): ContentPart {
 
   // Function call
   if (part.functionCall) {
-    return {
+    // If thoughtSignature is present, attach it to the tool_call
+    const contentPart: ContentPart = {
       type: 'tool_call',
       toolCall: {
         id: part.functionCall.id || generateId(),
@@ -125,6 +129,16 @@ function parsePart(part: GeminiPart): ContentPart {
         arguments: part.functionCall.args,
       },
     }
+
+    if (part.thoughtSignature) {
+      contentPart.thoughtSignature = part.thoughtSignature
+      contentPart.thinking = {
+        text: '', // Legacy support
+        signature: part.thoughtSignature,
+      }
+    }
+
+    return contentPart
   }
 
   // Function response
@@ -181,11 +195,12 @@ function parseThinkingConfig(config?: GeminiGenerationConfig) {
   const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
   const thinkingBudget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
 
-  if (!includeThoughts && !thinkingBudget) return undefined
+  if (!includeThoughts && !thinkingBudget && !thinkingConfig.thinkingLevel) return undefined
 
   return {
     enabled: includeThoughts ?? true,
     budget: thinkingBudget,
+    level: thinkingConfig.thinkingLevel?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
   }
 }
 
@@ -318,7 +333,9 @@ function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): Ge
               typeof part.toolCall.arguments === 'string'
                 ? { value: part.toolCall.arguments }
                 : part.toolCall.arguments,
+            id: part.toolCall.id,
           },
+          ...(part.thinking?.signature && { thoughtSignature: part.thinking.signature }),
         }
       }
       break
@@ -343,6 +360,7 @@ function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): Ge
           functionResponse: {
             name: toolName,
             response,
+            id: part.toolResult.toolCallId,
           },
         }
       }
@@ -401,9 +419,16 @@ function transformGenerationConfig(
       if (thinking.budget !== undefined) {
         result.thinkingConfig.thinkingBudget = thinking.budget
       }
+      if (thinking.level) {
+        result.thinkingConfig.thinkingLevel = thinking.level.toUpperCase() as ThinkingLevel
+      }
     } else {
       result.thinkingConfig = {
+        includeThoughts: false,
         thinkingBudget: 0,
+      }
+      if (thinking.level) {
+        result.thinkingConfig.thinkingLevel = thinking.level.toUpperCase() as ThinkingLevel
       }
     }
   }

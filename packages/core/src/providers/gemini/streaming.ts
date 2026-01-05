@@ -167,11 +167,23 @@ function parseFunctionCallChunk(
     },
   }
 
+  // Include thoughtSignature in the delta if present (Gemini 3)
+  if (part.thoughtSignature) {
+    result.delta = {
+      ...result.delta,
+      thoughtSignature: part.thoughtSignature,
+      thinking: {
+        text: '',
+        signature: part.thoughtSignature,
+      },
+    }
+  }
+
   // Preserve the original finishReason from the provider
   // The tool_use override is applied later in Anthropic's transformResponse
   // when converting to Anthropic format
   if (finishReason) {
-    result.stopReason = mapFinishReason(finishReason, false)
+    result.stopReason = mapFinishReason(finishReason, true)
   }
 
   if (usageMetadata) {

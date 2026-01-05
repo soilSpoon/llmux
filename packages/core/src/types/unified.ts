@@ -58,6 +58,12 @@ export interface ContentPart {
   toolResult?: ToolResult
   thinking?: ThinkingBlock
   cacheControl?: CacheControl // Preserves Anthropic cache_control
+
+  /**
+   * Signature for thinking process verification (e.g., Gemini thoughtSignature).
+   * Can be attached to any part type (thinking, tool_call, text, etc.)
+   */
+  thoughtSignature?: string
 }
 
 /**
@@ -117,7 +123,7 @@ export interface ThinkingConfig {
   enabled: boolean
   budget?: number
   effort?: 'none' | 'low' | 'medium' | 'high'
-  level?: 'low' | 'medium' | 'high' // Gemini 3 specific
+  level?: 'minimal' | 'low' | 'medium' | 'high' // Gemini 3 specific
   preserveContext?: boolean // GLM clear_thinking 반대
   includeThoughts?: boolean
 }

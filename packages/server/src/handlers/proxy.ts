@@ -138,19 +138,20 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
       if (isGemini) {
         // Gemini provider transformation expects wrapped response
-        transformed = transformResponse(
-          { response: aggregated },
-          {
-            from: currentProvider,
-            to: formatToProvider(options.sourceFormat),
-          }
-        )
-      } else {
-        // OpenAI provider transformation expects direct response object
-        transformed = transformResponse(aggregated, {
+        const transformOptions = {
           from: currentProvider,
           to: formatToProvider(options.sourceFormat),
-        })
+        }
+
+        transformed = transformResponse({ response: aggregated }, transformOptions)
+      } else {
+        // OpenAI provider transformation expects direct response object
+        const transformOptions = {
+          from: currentProvider,
+          to: formatToProvider(options.sourceFormat),
+        }
+
+        transformed = transformResponse(aggregated, transformOptions)
       }
 
       const responseBody = JSON.stringify(transformed)
