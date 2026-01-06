@@ -52,6 +52,7 @@ export async function handleJsonResponse(
   const transformed = transformResponse(upstreamBody, {
     from: fromProvider,
     to: formatToProvider(sourceFormat),
+    model,
   })
 
   return createJsonResponse(transformed, response.status, {

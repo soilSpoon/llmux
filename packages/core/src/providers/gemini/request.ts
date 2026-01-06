@@ -20,11 +20,8 @@ import type {
   GeminiRequest,
   GeminiSchema,
   GeminiSystemInstruction,
-  GeminiThinkingConfig,
   GeminiTool,
 } from './types'
-
-type ThinkingLevel = NonNullable<GeminiThinkingConfig['thinkingLevel']>
 
 /**
  * Parse GeminiRequest into UnifiedRequest
@@ -46,6 +43,8 @@ export function parse(request: GeminiRequest): UnifiedRequest {
   return result
 }
 
+import { applyThinkingConfig } from '../../transform/thinking'
+
 /**
  * Transform UnifiedRequest into GeminiRequest
  */
@@ -54,7 +53,7 @@ export function transform(request: UnifiedRequest): GeminiRequest {
   const normalizedMessages = normalizeToolHistory(request.messages)
   const contents = transformMessages(normalizedMessages)
   const systemInstruction = transformSystemInstruction(request.system)
-  const generationConfig = transformGenerationConfig(request.config, request.thinking)
+  const generationConfig = transformGenerationConfig(request.config)
   const tools = transformTools(request.tools)
 
   const result: GeminiRequest = { contents }
@@ -64,6 +63,18 @@ export function transform(request: UnifiedRequest): GeminiRequest {
     result.generationConfig = generationConfig
   }
   if (tools && tools.length > 0) result.tools = tools
+
+  // Apply thinking config via centralized logic
+  // We need to initialize generationConfig if it doesn't exist
+  if (!result.generationConfig) {
+    result.generationConfig = {}
+  }
+  applyThinkingConfig(request, 'gemini', result.generationConfig)
+
+  // Cleanup empty generationConfig if thinking didn't add anything and it was empty
+  if (result.generationConfig && Object.keys(result.generationConfig).length === 0) {
+    delete result.generationConfig
+  }
 
   return result
 }
@@ -386,8 +397,7 @@ function transformSystemInstruction(system?: string): GeminiSystemInstruction | 
 }
 
 function transformGenerationConfig(
-  config?: UnifiedRequest['config'],
-  thinking?: UnifiedRequest['thinking']
+  config?: UnifiedRequest['config']
 ): GeminiGenerationConfig | undefined {
   const result: GeminiGenerationConfig = {}
 
@@ -407,29 +417,6 @@ function transformGenerationConfig(
     }
     if (config.stopSequences !== undefined) {
       result.stopSequences = config.stopSequences
-    }
-  }
-
-  // Transform thinking config
-  if (thinking) {
-    if (thinking.enabled) {
-      result.thinkingConfig = {
-        includeThoughts: true,
-      }
-      if (thinking.budget !== undefined) {
-        result.thinkingConfig.thinkingBudget = thinking.budget
-      }
-      if (thinking.level) {
-        result.thinkingConfig.thinkingLevel = thinking.level.toUpperCase() as ThinkingLevel
-      }
-    } else {
-      result.thinkingConfig = {
-        includeThoughts: false,
-        thinkingBudget: 0,
-      }
-      if (thinking.level) {
-        result.thinkingConfig.thinkingLevel = thinking.level.toUpperCase() as ThinkingLevel
-      }
     }
   }
 

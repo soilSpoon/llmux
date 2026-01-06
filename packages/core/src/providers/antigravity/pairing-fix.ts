@@ -160,7 +160,16 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
         // Using functionResponse here causes INVALID_ARGUMENT if there's no matching call in history.
         // Recover by converting to text as per ARCHITECTURE.md patterns.
         const placeholder: GeminiPart = {
-          text: `Tool [${expectedName || 'unknown'}] execution missing/cancelled (ID: ${expectedId})`,
+          functionResponse: {
+            name: expectedName || 'unknown',
+            response: {
+              result: {
+                error: `Tool [${expectedName || 'unknown'}] execution missing/cancelled (ID: ${expectedId})`,
+                recovered: true,
+              },
+            },
+            id: expectedId,
+          },
         }
 
         logger.debug(
@@ -168,7 +177,7 @@ export function fixAntigravityToolPairing(contents: GeminiContent[]): GeminiCont
             id: expectedId,
             name: expectedName,
           },
-          'Created text placeholder for missing tool response'
+          'Created functionResponse placeholder for missing tool response'
         )
 
         groupResponses.push(placeholder)

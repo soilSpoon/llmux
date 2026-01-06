@@ -5,16 +5,12 @@ import {
   transformResponse,
 } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
-import { SignatureStore } from '../stores'
 import { accumulateGeminiResponse } from './gemini-response'
 import { accumulateOpenAIResponse } from './openai-response'
 import { buildResponseHeaders, createErrorResponse } from './response-headers'
 import { handleJsonResponse } from './response-utils'
 import type { ProxyOptions } from './types'
-import { dispatchWithRetry, NonRetriableError } from './upstream-dispatcher'
-import { buildUpstreamRequest } from './upstream-request-builder'
-
-const signatureStore = new SignatureStore()
+import { executeUpstream, NonRetriableError } from './upstream-executor'
 
 const logger = createLogger({ service: 'proxy-handler' })
 
@@ -38,11 +34,8 @@ function isGeminiSseProvider(provider: string, model: string): boolean {
 function isOpenAISseProvider(provider: string, model: string): boolean {
   if (provider === 'openai' || provider === 'openai-web') return true
   if (provider === 'opencode-zen') {
-    // Claude models use Anthropic format, not OpenAI SSE
     if (model.includes('claude')) return false
-    // Gemini models use Gemini format
     if (model.startsWith('gemini-')) return false
-    // Default (GLM, GPT, Kimi, etc.) use OpenAI format
     return true
   }
   return false
@@ -74,27 +67,17 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       }>
     }
 
-    const dispatchResult = await dispatchWithRetry({
+    const { response: lastResponse, meta } = await executeUpstream({
       reqId,
-      builder: buildUpstreamRequest,
-      initialBody: body,
+      body,
       options,
       mode: 'non-streaming',
-      signatureStore,
     })
 
-    const { response: lastResponse, meta } = dispatchResult
-
-    if (!lastResponse) {
-      return new Response(JSON.stringify({ error: 'Request failed' }), { status: 500 })
-    }
-
-    // Handle Response Transformation
     const contentType = lastResponse.headers.get('content-type') || ''
-    const currentProvider = meta?.provider || (options.targetProvider as ProviderName)
-    const currentModel = meta?.model || options.targetModel || ''
+    const currentProvider = meta.provider as ProviderName
+    const currentModel = meta.model
 
-    // Convert SSE to JSON if needed
     if (contentType.includes('text/event-stream') && !body.stream) {
       logger.debug(
         { reqId, contentType, provider: currentProvider },
@@ -115,7 +98,6 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       } else if (isOpenAISseProvider(currentProvider, currentModel)) {
         aggregated = await accumulateOpenAIResponse(reader)
       } else {
-        // Fallback: try Gemini accumulation as default but warn
         logger.warn(
           { reqId, provider: currentProvider },
           'Unknown SSE provider, attempting Gemini accumulation'
@@ -141,18 +123,18 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       let transformed: unknown
 
       if (isGemini) {
-        // Gemini provider transformation expects wrapped response
         const transformOptions = {
           from: currentProvider,
           to: formatToProvider(options.sourceFormat),
+          model: currentModel,
         }
 
         transformed = transformResponse({ response: aggregated }, transformOptions)
       } else {
-        // OpenAI provider transformation expects direct response object
         const transformOptions = {
           from: currentProvider,
           to: formatToProvider(options.sourceFormat),
+          model: currentModel,
         }
 
         transformed = transformResponse(aggregated, transformOptions)
@@ -172,12 +154,11 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       return new Response(responseBody, { headers })
     }
 
-    // Standard JSON Response
     if (contentType.includes('application/json')) {
       return handleJsonResponse(lastResponse, {
         currentProvider,
         sourceFormat: options.sourceFormat,
-        model: meta?.model || options.targetModel,
+        model: meta.model,
         requestId: reqIdHeader,
       })
     }

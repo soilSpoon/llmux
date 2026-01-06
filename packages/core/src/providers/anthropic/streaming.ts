@@ -238,6 +238,7 @@ function handleMessageDelta(event: AnthropicMessageDeltaEvent): StreamChunk {
 function handleMessageStop(): StreamChunk {
   return {
     type: 'done',
+    skipStopDelta: true,
   }
 }
 
@@ -525,25 +526,30 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
         )
       }
 
-      doneEvents.push(
-        formatSSE('message_delta', {
-          type: 'message_delta',
-          delta: {
-            stop_reason: stopReason,
-            stop_sequence: null,
-          },
-          usage: {
-            input_tokens: chunk.usage?.inputTokens || 0,
-            output_tokens: chunk.usage?.outputTokens || 0,
-          },
-        })
-      )
+      if (!chunk.skipStopDelta) {
+        doneEvents.push(
+          formatSSE('message_delta', {
+            type: 'message_delta',
+            delta: {
+              stop_reason: stopReason,
+              stop_sequence: null,
+            },
+            usage: {
+              input_tokens: chunk.usage?.inputTokens || 0,
+              output_tokens: chunk.usage?.outputTokens || 0,
+            },
+          })
+        )
+      }
 
       doneEvents.push(
         formatSSE('message_stop', {
           type: 'message_stop',
         })
       )
+
+      // Standard Anthropic SSE stream termination
+      doneEvents.push('data: [DONE]\n\n')
 
       return doneEvents
     }

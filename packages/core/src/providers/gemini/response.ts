@@ -44,6 +44,7 @@ export function parseResponse(response: GeminiResponse): UnifiedResponse {
 
   if (usage) result.usage = usage
   if (thinking.length > 0) result.thinking = thinking
+  if (response.modelVersion) result.model = response.modelVersion
 
   // Populate metadata from usage details if available
   if (response.usageMetadata) {
@@ -98,6 +99,10 @@ export function transformResponse(response: UnifiedResponse): GeminiResponse {
       },
     ],
     responseId: response.id,
+  }
+
+  if (response.model) {
+    result.modelVersion = response.model
   }
 
   if (response.usage) {

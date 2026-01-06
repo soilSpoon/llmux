@@ -15,12 +15,21 @@ import {
   getThinkingStrategy,
   isThinkingBlock,
   isThinkingPart,
+  isToolResultBlock,
+  isToolResultPart,
+  isToolUseBlock,
+  isToolUsePart,
   type Message,
   stripSignatureFromBlock,
   stripSignatureFromPart,
 } from './thinking-utils'
 
-export type { Block, Content, Message, Part } from './thinking-utils'
+export type {
+  ThinkingBlock as Block,
+  ThinkingContent as Content,
+  ThinkingMessage as Message,
+  ThinkingPart as Part,
+} from './types/thinking-types'
 
 const logger = createLogger({ service: 'signature-request' })
 
@@ -104,6 +113,11 @@ function processContents(
       .map((part) => {
         if (!part || typeof part !== 'object') return part
 
+        // PROTECTION: Never strip tool_use or tool_result parts
+        if (isToolUsePart(part) || isToolResultPart(part)) {
+          return part
+        }
+
         // Claude Fresh Signature: Remove ALL thinking parts
         if (isClaudeFresh && isThinkingPart(part)) {
           onStrip(1)
@@ -173,6 +187,11 @@ function processMessages(
     const processedContent = message.content
       .map((block) => {
         if (!block || typeof block !== 'object') return block
+
+        // PROTECTION: Never strip tool_use or tool_result blocks
+        if (isToolUseBlock(block) || isToolResultBlock(block)) {
+          return block
+        }
 
         // Claude Fresh Signature: Remove ALL thinking blocks
         if (isClaudeFresh && isThinkingBlock(block)) {

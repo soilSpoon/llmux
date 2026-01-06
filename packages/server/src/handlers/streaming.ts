@@ -1,23 +1,14 @@
-import { createLogger } from '@llmux/core'
-import { SignatureStore } from '../stores'
+import { createLogger, type ProviderName } from '@llmux/core'
 import { createErrorResponse } from './error-utils'
 import { createStreamTransformer, type StreamContext } from './stream-transformer'
 import type { ProxyOptions } from './types'
-import { dispatchWithRetry, NonRetriableError } from './upstream-dispatcher'
-import { buildUpstreamRequest } from './upstream-request-builder'
+import { executeUpstream, getSignatureStore, NonRetriableError } from './upstream-executor'
 
 const logger = createLogger({ service: 'streaming-handler' })
 
-const signatureStore = new SignatureStore()
-
 export type { ProxyOptions } from './types'
 
-export function getSignatureStore(): SignatureStore {
-  return signatureStore
-}
-
-// Re-export NonRetriableError for compatibility if needed elsewhere
-export { NonRetriableError }
+export { getSignatureStore, NonRetriableError }
 
 export async function handleStreamingProxy(
   request: Request,
@@ -44,22 +35,19 @@ export async function handleStreamingProxy(
   try {
     const body = (await request.json()) as Record<string, unknown>
 
-    const dispatchResult = await dispatchWithRetry({
+    const { response, meta } = await executeUpstream({
       reqId,
-      builder: buildUpstreamRequest,
-      initialBody: body,
+      body,
       options,
       mode: 'streaming',
-      signatureStore,
-      onBeforeAttempt: (attempt, meta) => {
-        // [DEBUG] Log attempt info if needed, but dispatcher logs basic info
-        if (meta.provider === 'antigravity' && meta.isClaudeFresh) {
+      onBeforeAttempt: (attempt, requestMeta) => {
+        if (requestMeta.provider === 'antigravity' && requestMeta.isClaudeFresh) {
           logger.trace(
             {
               reqId,
               attempt,
-              model: meta.model,
-              provider: meta.provider,
+              model: requestMeta.model,
+              provider: requestMeta.provider,
             },
             'DEBUG: Antigravity request for Claude (Fresh)'
           )
@@ -67,10 +55,6 @@ export async function handleStreamingProxy(
       },
     })
 
-    const { response, meta } = dispatchResult
-    if (!response || !meta) throw new Error('No response from dispatcher')
-
-    // Extract metadata for stream context
     const currentModel = meta.model
     const effectiveTargetProvider = meta.provider
     const currentProjectId = meta.currentProjectId
@@ -82,9 +66,9 @@ export async function handleStreamingProxy(
     streamContext.requestInfo = {
       model: currentModel,
       provider: effectiveTargetProvider,
-      endpoint: response.url, // Approximate
+      endpoint: response.url,
       toolsCount: (body as { tools?: unknown[] }).tools?.length || 0,
-      bodyLength: 0, // Not available without re-serializing
+      bodyLength: 0,
     }
 
     if (options.router?.handleSuccess) {
@@ -93,7 +77,6 @@ export async function handleStreamingProxy(
 
     if (!response.body) throw new Error('No response body')
 
-    // Handle 500/Non-Retriable passed through as generic response (e.g. all-cooldown)
     if (!response.ok) {
       const text = await response.text().catch(() => '')
       const errorPayload = { error: { message: text || 'Upstream error', status: response.status } }
@@ -109,18 +92,19 @@ export async function handleStreamingProxy(
       })
     }
 
+    const signatureStore = getSignatureStore()
     const transformStream = createStreamTransformer({
       reqId,
       startTime,
       sourceFormat: options.sourceFormat,
-      targetProvider: effectiveTargetProvider,
+      targetProvider: effectiveTargetProvider as ProviderName,
       streamContext,
       signatureContext: currentProjectId
         ? {
             projectId: currentProjectId,
             provider: effectiveTargetProvider,
             endpoint: response.url,
-            account: '', // Not strictly needed for signature storage logic currently
+            account: '',
             signatureStore,
             onSave: (count) => {
               logger.debug(

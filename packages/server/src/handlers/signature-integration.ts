@@ -17,6 +17,13 @@ import {
   needsThinkingRecovery,
 } from './thinking-recovery'
 import { getThinkingStrategy } from './thinking-utils'
+import type {
+  ThinkingBlock as Block,
+  ThinkingContent as Content,
+  ConversationMessage,
+  ThinkingMessage as Message,
+  ThinkingPart as Part,
+} from './types/thinking-types'
 
 const logger = createLogger({ service: 'signature-integration' })
 
@@ -47,42 +54,6 @@ export interface ConversationPayload {
   [key: string]: unknown
 }
 
-interface Message {
-  role?: string
-  content?: Block[] | string
-  [key: string]: unknown
-}
-
-interface Content {
-  role?: string
-  parts?: Part[]
-  [key: string]: unknown
-}
-
-interface Block {
-  type?: string
-  text?: string
-  thinking?: string
-  signature?: string
-  thought_signature?: string
-  thoughtSignature?: string
-  [key: string]: unknown
-}
-
-interface Part {
-  text?: string
-  thought?: boolean
-  thought_signature?: string
-  thoughtSignature?: string
-  type?: string
-  signature?: string
-  thinking?: string
-  functionCall?: unknown
-  tool_use?: unknown
-  toolUse?: unknown
-  [key: string]: unknown
-}
-
 interface RequestWithContents {
   contents?: Content[]
   [key: string]: unknown
@@ -93,13 +64,6 @@ export interface UnifiedRequestBody {
   messages?: Message[]
   request?: RequestWithContents
   project?: string
-  [key: string]: unknown
-}
-
-interface ConversationMessage {
-  role?: string
-  parts?: Array<{ [key: string]: unknown }>
-  content?: Array<{ [key: string]: unknown }> | string
   [key: string]: unknown
 }
 

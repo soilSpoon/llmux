@@ -2,9 +2,17 @@ import { createLogger, getProvider, type ProviderName, type StreamChunk } from '
 import type { RequestFormat } from '../middleware/format'
 import { normalizeBashArguments } from './bash-normalization'
 
-const logger = createLogger({ service: 'stream-processor' })
+export {
+  type BlockType,
+  createBlockStartEvent,
+  createBlockStopEvent,
+  createMessageStartEvent,
+  detectBlockType,
+  isEmptyTextBlock,
+  patchStopReasonForToolUse,
+} from './stream-helpers'
 
-export type BlockType = 'thinking' | 'text' | 'tool_use' | 'stop' | null
+const logger = createLogger({ service: 'stream-processor' })
 
 export interface StreamProcessorContext {
   reqId: string
@@ -16,7 +24,7 @@ export interface StreamProcessorContext {
 }
 
 export interface StreamBlockState {
-  currentBlockType: BlockType
+  currentBlockType: 'thinking' | 'text' | 'tool_use' | 'stop' | null
   currentBlockIndex: number
   sentMessageStart: boolean
   thoughtBuffer: Map<number, string>
@@ -68,7 +76,6 @@ export function transformStreamChunk(
   fromProvider: ProviderName,
   toFormat: RequestFormat
 ): string | string[] {
-  // gemini-cli uses the same v1internal API as antigravity, so map to antigravity for stream parsing
   const effectiveFromProvider = fromProvider === 'gemini-cli' ? 'antigravity' : fromProvider
 
   if (effectiveFromProvider === toFormat && !chunk.trim().startsWith('{')) return chunk
@@ -131,65 +138,6 @@ export function transformStreamChunk(
   }
 }
 
-export function detectBlockType(sse: string): BlockType {
-  if (sse.includes('"type":"message_stop"') || sse.includes('"type":"message_delta"')) {
-    return 'stop'
-  }
-
-  if (sse.includes('"type":"content_block_start"')) {
-    if (sse.includes('"thinking"')) return 'thinking'
-    if (sse.includes('"text"')) return 'text'
-    if (sse.includes('"tool_use"')) return 'tool_use'
-  }
-
-  if (
-    sse.includes('"type":"thinking_delta"') ||
-    sse.includes('"type":"signature_delta"') ||
-    sse.includes('"type":"thinking"')
-  ) {
-    return 'thinking'
-  }
-  if (sse.includes('"type":"text_delta"') || sse.includes('"type":"text"')) {
-    return 'text'
-  }
-  if (sse.includes('"type":"tool_use"')) {
-    return 'tool_use'
-  }
-  if (sse.includes('"type":"input_json_delta"')) {
-    return 'tool_use'
-  }
-  return null
-}
-
-export function createBlockStartEvent(
-  blockType: 'thinking' | 'text' | 'tool_use' | 'stop',
-  index: number
-): string | null {
-  if (blockType === 'thinking') {
-    return `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"thinking","thinking":""}}\n\n`
-  }
-  if (blockType === 'text') {
-    return `event: content_block_start\ndata: {"type":"content_block_start","index":${index},"content_block":{"type":"text","text":""}}\n\n`
-  }
-  if (blockType === 'tool_use') {
-    logger.error(
-      { index, blockType },
-      '[stream-processor] CRITICAL: Attempted to start tool_use block implicitly without ID/Name'
-    )
-    return null
-  }
-  return null
-}
-
-export function createBlockStopEvent(index: number): string {
-  return `event: content_block_stop\ndata: {"type":"content_block_stop","index":${index}}\n\n`
-}
-
-export function createMessageStartEvent(model: string): string {
-  const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
-  return `event: message_start\ndata: {"type":"message_start","message":{"id":"${msgId}","type":"message","role":"assistant","content":[],"model":"${model}","stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}\n\n`
-}
-
 export function getParserType(provider: ProviderName): 'sse-standard' | 'sse-line-delimited' {
   try {
     const providerConfig = getProvider(provider)
@@ -228,22 +176,6 @@ export function splitSSEEvents(
     return { events, remaining }
   }
   return { events, remaining: '' }
-}
-
-export function isEmptyTextBlock(chunk: string): boolean {
-  // Check if the chunk contains any text fields
-  const hasTextField = /"text"\s*:\s*/.test(chunk)
-  if (!hasTextField) return false
-
-  // Find all text values
-  const textMatches = chunk.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)"/g)
-
-  // If we found text fields, verify all of them are empty strings
-  if (textMatches) {
-    return textMatches.every((m) => /"text"\s*:\s*""/.test(m))
-  }
-
-  return false
 }
 
 export function updateChunkIndex(chunk: string, newIndex: number): string {
@@ -300,8 +232,4 @@ export function extractContentFromChunk(chunk: string): { text?: string; thinkin
     // Ignore
   }
   return result
-}
-
-export function patchStopReasonForToolUse(chunk: string): string {
-  return chunk.replace(/"stop_reason":"end_turn"/g, '"stop_reason":"tool_use"')
 }

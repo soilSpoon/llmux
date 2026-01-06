@@ -6,49 +6,26 @@
  */
 
 import { getModelFamily } from '@llmux/core'
+import type {
+  ThinkingBlock,
+  ThinkingContent,
+  ThinkingMessage,
+  ThinkingPart,
+  ThinkingStrategyName,
+} from './types/thinking-types'
 
-// ============================================================================
-// Types
-// ============================================================================
+export type { ThinkingPart, ThinkingBlock, ThinkingContent, ThinkingMessage }
 
-export interface Part {
-  text?: string
-  thought?: boolean
-  thought_signature?: string
-  thoughtSignature?: string
-  signature?: string
-  thinking?: string
-  type?: string
-  [key: string]: unknown
-}
-
-export interface Content {
-  role?: string
-  parts?: Part[]
-  [key: string]: unknown
-}
-
-export interface Block {
-  type?: string
-  text?: string
-  thinking?: string
-  signature?: string
-  thought_signature?: string
-  thoughtSignature?: string
-  [key: string]: unknown
-}
-
-export interface Message {
-  role?: string
-  content?: Block[] | string
-  [key: string]: unknown
-}
+export type Part = ThinkingPart
+export type Block = ThinkingBlock
+export type Content = ThinkingContent
+export type Message = ThinkingMessage
 
 // ============================================================================
 // Strategy
 // ============================================================================
 
-export type ThinkingStrategy = 'claude-fresh' | 'gemini-cache' | 'none'
+export type ThinkingStrategy = ThinkingStrategyName
 
 export function getThinkingStrategy(model?: string): ThinkingStrategy {
   if (!model) return 'none'
@@ -78,6 +55,26 @@ export function isThinkingBlock(block: Block): boolean {
     block.type === 'redacted_thinking' ||
     typeof block.thinking === 'string'
   )
+}
+
+// ============================================================================
+// Tool Block Detection (for protection during thinking stripping)
+// ============================================================================
+
+export function isToolUsePart(part: Part): boolean {
+  return part.type === 'tool_use' || part.functionCall !== undefined
+}
+
+export function isToolResultPart(part: Part): boolean {
+  return part.type === 'tool_result' || part.functionResponse !== undefined
+}
+
+export function isToolUseBlock(block: Block): boolean {
+  return block.type === 'tool_use' && typeof block.id === 'string'
+}
+
+export function isToolResultBlock(block: Block): boolean {
+  return block.type === 'tool_result' && typeof block.tool_use_id === 'string'
 }
 
 // ============================================================================

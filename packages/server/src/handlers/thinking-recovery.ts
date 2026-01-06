@@ -6,40 +6,12 @@
  * this module provides a "last resort" recovery by closing the current turn and starting fresh.
  */
 
+import { isThinkingPart } from './thinking-utils'
+import type { ConversationMessage, ThinkingBlock, ThinkingPart } from './types/thinking-types'
+
 // ============================================================================
 // TYPES
 // ============================================================================
-
-/**
- * A content block part in Gemini format (parts array) or similar.
- */
-interface ContentPart {
-  thought?: boolean
-  type?: string
-  text?: string
-  functionCall?: unknown
-  functionResponse?: unknown
-  [key: string]: unknown
-}
-
-/**
- * A content block in Anthropic format.
- */
-interface ContentBlock {
-  type?: string
-  text?: string
-  [key: string]: unknown
-}
-
-/**
- * A message in conversation history (supports both Gemini and Anthropic formats).
- */
-interface ConversationMessage {
-  role?: string
-  parts?: ContentPart[]
-  content?: ContentBlock[] | string
-  [key: string]: unknown
-}
 
 /**
  * Synthetic message in Gemini format.
@@ -75,21 +47,9 @@ export interface ConversationState {
 }
 
 /**
- * Checks if a message part is a thinking/reasoning block.
- */
-function isThinkingPart(part: ContentPart | ContentBlock): boolean {
-  if (!part || typeof part !== 'object') return false
-  return (
-    ('thought' in part && part.thought === true) ||
-    part.type === 'thinking' ||
-    part.type === 'redacted_thinking'
-  )
-}
-
-/**
  * Checks if a message part is a function response (tool result).
  */
-function isFunctionResponsePart(part: ContentPart | ContentBlock): boolean {
+function isFunctionResponsePart(part: ThinkingPart | ThinkingBlock): boolean {
   return (
     part !== null &&
     typeof part === 'object' &&
@@ -100,7 +60,7 @@ function isFunctionResponsePart(part: ContentPart | ContentBlock): boolean {
 /**
  * Checks if a message part is a function call.
  */
-function isFunctionCallPart(part: ContentPart | ContentBlock): boolean {
+function isFunctionCallPart(part: ThinkingPart | ThinkingBlock): boolean {
   return (
     part !== null &&
     typeof part === 'object' &&

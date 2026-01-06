@@ -114,6 +114,17 @@ export interface GenerationConfig {
   topP?: number
   topK?: number
   stopSequences?: string[]
+
+  // Extended OpenAI-compatible fields
+  logprobs?: number | boolean
+  responseFormat?: 'json' | 'json_schema' | Record<string, unknown>
+  serviceTier?: 'auto' | 'flex' | 'priority'
+  parallelToolCalls?: boolean
+  maxToolCalls?: number
+  store?: boolean
+
+  // Provider-agnostic
+  promptCacheKey?: string
 }
 
 /**
@@ -153,6 +164,8 @@ export interface RequestMetadata {
   userId?: string
   sessionId?: string
   conversationId?: string
+  user?: string // OpenAI user identifier
+  promptCacheKey?: string // For centralized caching
   [key: string]: unknown
 }
 
@@ -164,7 +177,9 @@ export interface UsageInfo {
   outputTokens: number
   totalTokens?: number
   thinkingTokens?: number
-  cachedTokens?: number
+  cachedTokens?: number // Kept for backward compatibility
+  cacheReadTokens?: number // Explicit read tokens
+  cacheWriteTokens?: number // Explicit write tokens
   /** Amp-specific: Logical credit consumption */
   credits?: number
 }
@@ -249,6 +264,11 @@ export interface StreamChunk {
   stopReason?: StopReason
   error?: string
   model?: string
+  /**
+   * For 'done' chunks: if true, skip emitting the stop reason delta (e.g. message_delta).
+   * Used when the stop reason was already emitted in a previous chunk.
+   */
+  skipStopDelta?: boolean
 }
 
 /**

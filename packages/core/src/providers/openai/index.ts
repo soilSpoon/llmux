@@ -5,6 +5,7 @@
  * Handles bidirectional transformation between OpenAI format and unified format.
  */
 
+import type { FormatId } from '../../formats/base'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { isChatCompletionsRequest } from './format-detector'
@@ -118,6 +119,78 @@ export class OpenAIProvider extends BaseProvider {
    */
   transformStreamChunk(chunk: StreamChunk): string {
     return transformStreamChunk(chunk)
+  }
+
+  /**
+   * Get the schema format ID for this provider's models.
+   * OpenAI provider always uses openai-chat format.
+   */
+  getFormatForModel(_model: string): FormatId {
+    return 'openai-chat'
+  }
+
+  /**
+   * Detect the format from an incoming wire request.
+   * OpenAI Chat format detection.
+   */
+  getFormatForWireRequest(request: unknown): FormatId {
+    if (this.isSupportedRequest(request)) {
+      return 'openai-chat'
+    }
+    throw new Error('Unsupported request format for OpenAI provider')
+  }
+
+  /**
+   * Parse an OpenAI error into UnifiedError
+   */
+  parseError(error: unknown): import('../../types/error').UnifiedError {
+    const unifiedError: import('../../types/error').UnifiedError = {
+      provider: this.name,
+      code: 'unknown_error',
+      message: 'Unknown error',
+      retryable: false,
+      originalError: error,
+    }
+
+    if (typeof error === 'object' && error !== null) {
+      const err = error as Record<string, unknown>
+      // Handle OpenAI standard error format: { error: { message, type, code, param } }
+      const errorObj = (err.error || err) as Record<string, unknown>
+
+      unifiedError.message = String(errorObj.message || error)
+      unifiedError.providerCode = String(errorObj.code || '')
+
+      if (typeof errorObj.status === 'number') {
+        unifiedError.statusCode = errorObj.status
+      }
+
+      // Map common OpenAI error codes/types
+      const errorType = errorObj.type
+      const errorCode = errorObj.code
+
+      if (errorType === 'invalid_request_error') {
+        unifiedError.code = 'invalid_request_error'
+      } else if (errorType === 'authentication_error') {
+        unifiedError.code = 'authentication_error'
+      } else if (errorType === 'permission_error') {
+        unifiedError.code = 'permission_error'
+      } else if (errorType === 'rate_limit_error' || errorCode === 'rate_limit_exceeded') {
+        unifiedError.code = 'rate_limit_error'
+        unifiedError.retryable = true
+      } else if (
+        errorType === 'server_error' ||
+        (unifiedError.statusCode && unifiedError.statusCode >= 500)
+      ) {
+        unifiedError.code = 'server_error'
+        unifiedError.retryable = true
+      } else if (errorCode === 'context_length_exceeded') {
+        unifiedError.code = 'context_length_exceeded'
+      }
+    } else {
+      unifiedError.message = String(error)
+    }
+
+    return unifiedError
   }
 }
 

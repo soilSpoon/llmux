@@ -6,6 +6,7 @@
  * - GLM/Other models -> OpenAI format (v1/chat/completions)
  */
 
+import type { FormatId } from '../../formats/base'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { AnthropicProvider } from '../anthropic'
 import type { ProviderConfig, ProviderName } from '../base'
@@ -148,5 +149,36 @@ export class OpencodeZenProvider extends BaseProvider {
     // and this Provider is mostly for Upstream, we can implement both or throw?
     // Let's default to OpenAI format as it's the default "delegate".
     return this.openai.transformStreamChunk(chunk)
+  }
+
+  /**
+   * Get the schema format ID for a specific model.
+   * Routes Claude models to Anthropic format, all others to OpenAI format.
+   */
+  getFormatForModel(model: string): FormatId {
+    if (model.includes('claude')) {
+      return 'anthropic-messages'
+    }
+    return 'openai-chat'
+  }
+
+  /**
+   * Detect the format from an incoming wire request.
+   * Routes based on request structure.
+   */
+  getFormatForWireRequest(request: unknown): FormatId {
+    const req = request as Record<string, unknown>
+
+    // Anthropic style has top-level system usually
+    if (req?.messages && req?.system) {
+      return 'anthropic-messages'
+    }
+
+    // OpenAI style has messages with optional system inside
+    if (req?.messages && Array.isArray(req.messages)) {
+      return 'openai-chat'
+    }
+
+    throw new Error('Unsupported request format for OpenCode Zen provider')
   }
 }

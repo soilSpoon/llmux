@@ -56,6 +56,12 @@ describe('Provider interface', () => {
         stopReason: 'end_turn',
       }),
       transformResponse: (_response: UnifiedResponse) => ({}),
+      parseError: (error: unknown) => ({
+        provider: 'openai',
+        code: 'unknown_error',
+        message: String(error),
+        retryable: false
+      })
     }
 
     expect(mockProvider.name).toBe('openai')
@@ -82,6 +88,12 @@ describe('Provider interface', () => {
       transformResponse: () => ({}),
       parseStreamChunk: (_chunk: string) => ({ type: 'content', delta: { type: 'text', text: 'Hi' } }),
       transformStreamChunk: (_chunk: StreamChunk) => 'data: {"text": "Hi"}\n\n',
+      parseError: (error: unknown) => ({
+        provider: 'anthropic',
+        code: 'unknown_error',
+        message: String(error),
+        retryable: false
+      })
     }
 
     expect(mockProvider.parseStreamChunk).toBeDefined()

@@ -55,16 +55,21 @@ describe('fixAntigravityToolPairing', () => {
 
         const result = fixAntigravityToolPairing(contents)
         
-        // Should inject a user turn with text placeholder
+        // Should inject a user turn with functionResponse placeholder
         expect(result.length).toBe(2)
         const injectedTurn = result[1]!
         expect(injectedTurn.role).toBe('user')
         
         const part = injectedTurn.parts[0]!
-        expect(part.functionResponse).toBeUndefined()
-        expect(part.text).toBeDefined()
-        expect(part.text).toContain('Tool [grep_search] execution missing/cancelled')
-        expect(part.text).toContain('ID: call_missing_resp_1')
+        // Expect functionResponse instead of text
+        expect(part.functionResponse).toBeDefined()
+        expect(part.text).toBeUndefined()
+        
+        expect(part.functionResponse?.name).toBe('grep_search')
+        expect(part.functionResponse?.id).toBe('call_missing_resp_1')
+        
+        const responseData = part.functionResponse?.response as any
+        expect(responseData.result?.error).toContain('Tool [grep_search] execution missing/cancelled')
     })
 
     it('should preserve valid Call-Response pairs', () => {

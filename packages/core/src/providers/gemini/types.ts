@@ -206,6 +206,7 @@ export interface GeminiResponse {
   usageMetadata?: GeminiUsageMetadata
   promptFeedback?: GeminiPromptFeedback
   responseId?: string
+  modelVersion?: string
 }
 
 /**

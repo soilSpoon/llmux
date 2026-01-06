@@ -847,5 +847,17 @@ data: {"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence
             expect(parsed.message.model).toBe("unknown");
           });
         });
-        });
-        });
+
+    it("should append data: [DONE] at the end of stream", () => {
+      const chunk: StreamChunk = {
+        type: "done",
+      };
+
+      const result = transformStreamChunk(chunk);
+      const events = Array.isArray(result) ? result : [result];
+      const lastEvent = events[events.length - 1];
+
+      expect(lastEvent).toContain("data: [DONE]");
+    });
+  });
+});

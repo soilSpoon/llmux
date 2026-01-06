@@ -38,6 +38,14 @@ import type {
 export function parse(request: OpenAIRequest): UnifiedRequest {
   const result: UnifiedRequest = {
     messages: [],
+    metadata: {},
+  }
+
+  // Extract user and potential cache key
+  if (request.user) {
+    if (result.metadata) {
+      result.metadata.user = request.user
+    }
   }
 
   let systemContent: string | undefined
@@ -159,6 +167,8 @@ function transformToGLMThinking(
   return result
 }
 
+import { applyThinkingConfig } from '../../transform/thinking'
+
 /**
  * Transform a UnifiedRequest into OpenAI request format.
  *
@@ -236,7 +246,38 @@ export function transform(request: UnifiedRequest, model: string = 'gpt-4'): Ope
     if (request.config.stopSequences && request.config.stopSequences.length > 0) {
       result.stop = request.config.stopSequences
     }
+
+    // Map extended fields
+    if (request.config.logprobs !== undefined) {
+      result.logprobs = !!request.config.logprobs
+      if (typeof request.config.logprobs === 'number') {
+        result.top_logprobs = request.config.logprobs
+      }
+    }
+    if (request.config.serviceTier) {
+      result.service_tier = request.config.serviceTier
+    }
+    if (request.config.parallelToolCalls !== undefined) {
+      result.parallel_tool_calls = request.config.parallelToolCalls
+    }
+    if (request.config.store !== undefined) {
+      // Only supported in some contexts, but valid in OAI type
+      // result.store = request.config.store
+    }
+    if (request.config.responseFormat) {
+      if (request.config.responseFormat === 'json') {
+        result.response_format = { type: 'json_object' }
+      } else if (typeof request.config.responseFormat === 'object') {
+        const format = request.config.responseFormat
+        if ('type' in format && (format.type === 'text' || format.type === 'json_object')) {
+          result.response_format = { type: format.type }
+        }
+      }
+    }
   }
+
+  // Apply thinking config via centralized logic
+  applyThinkingConfig(request, 'openai', result)
 
   // Transform tools
   if (request.tools && request.tools.length > 0) {
@@ -731,6 +772,31 @@ function parseConfig(request: OpenAIRequest): NonNullable<UnifiedRequest['config
   }
   if (request.stop !== undefined) {
     config.stopSequences = Array.isArray(request.stop) ? request.stop : [request.stop]
+  }
+
+  if (request.logprobs !== undefined) {
+    config.logprobs = request.logprobs
+  }
+  if (request.response_format) {
+    // Basic mapping - expand if needed for strictJsonSchema
+    config.responseFormat = request.response_format.type === 'json_object' ? 'json' : undefined
+    if (request.response_format.type === 'json_object') {
+      config.responseFormat = 'json'
+    } else if (request.response_format.type !== 'text') {
+      // Keep raw if it's complex schema
+      config.responseFormat = request.response_format
+    }
+  }
+  if (request.service_tier) {
+    config.serviceTier = request.service_tier as 'auto' | 'flex' | 'priority'
+  }
+  if (request.parallel_tool_calls !== undefined) {
+    config.parallelToolCalls = request.parallel_tool_calls
+  }
+
+  // Prompt Cache Key (OpenCode convention)
+  if (request.user?.startsWith('cache:')) {
+    // Provisional: extract cache key from user field or dedicated promptCacheKey if supported
   }
 
   return config

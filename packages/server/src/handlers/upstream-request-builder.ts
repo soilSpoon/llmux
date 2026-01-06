@@ -7,7 +7,7 @@ import {
   TokenRefresh,
 } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core'
-import { createLogger, transformRequest } from '@llmux/core'
+import { createLogger, getProvider } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import {
   buildCodexBody,
@@ -20,6 +20,7 @@ import {
 import type { SignatureStore } from '../stores'
 import { buildUpstreamHeaders, getDefaultEndpoint } from '../upstream'
 import { accountRotationManager } from './account-rotation'
+import { applyPromptCaching } from './caching-utils'
 import {
   prepareRequestContext,
   type RequestContext,
@@ -221,7 +222,61 @@ export async function buildUpstreamRequest(
   // 5. Request Body Transformation
   // gemini-cli uses the same v1internal API as antigravity, so needs the same wrapped request format
   const transformTarget = effectiveProvider === 'gemini-cli' ? 'antigravity' : effectiveProvider
-  // biome-ignore lint/suspicious/noExplicitAny: transformRequest accepts any for input body flexibility
+
+  // Apply prompt caching if enabled (could check options/config here)
+  // For now, applying universally for supported providers, as it's opt-in via cacheControl/promptCacheKey anyway
+  // or benign if not supported.
+
+  // Need to parse first to get UnifiedRequest for modification
+  // But transformRequest does parse + transform in one go.
+  // We should probably inject a hook or use a different flow if we want to modify UnifiedRequest.
+  // Currently transformRequest in core doesn't expose the intermediate UnifiedRequest easily
+  // unless we split parse and transform.
+
+  // Refactor: We should parse -> apply caching -> transform.
+  // But transformRequest is a black box.
+
+  // However, Core's transformRequest takes a raw body.
+  // We can't apply caching to raw body easily across all formats.
+
+  // Solution: We'll rely on the `transformRequest` function in core to be updated OR
+  // we update `transformRequest` to accept a hook/callback or we split the call here.
+
+  // Let's import parse/transform separately from core/providers/registry
+  // or use the provider instance directly.
+
+  // For now, let's use the provider registry to get the provider, parse, modify, then transform.
+
+  const sourceProvider = getProvider(formatToProvider(options.sourceFormat))
+  const targetProvider = getProvider(transformTarget)
+
+  const unifiedRequest = sourceProvider.parse(body)
+
+  // Apply Thinking Override
+  if (isThinkingEnabled !== true || isClaudeFresh) {
+    unifiedRequest.thinking = { enabled: false }
+  }
+
+  // Apply Prompt Caching
+  applyPromptCaching(unifiedRequest, transformTarget)
+
+  // Merge metadata
+  if (effectiveProvider === 'antigravity' || effectiveProvider === 'gemini-cli') {
+    unifiedRequest.metadata = {
+      ...unifiedRequest.metadata,
+      project: currentProjectId,
+      model: currentModel,
+    }
+  }
+
+  // Transform
+  let transformedRequest = targetProvider.transform(unifiedRequest, currentModel || '') as Record<
+    string,
+    unknown
+  >
+
+  /*
+  // ORIGINAL CODE REPLACED BY ABOVE
   let transformedRequest = transformRequest(body as any, {
     from: formatToProvider(options.sourceFormat),
     to: transformTarget,
@@ -234,6 +289,7 @@ export async function buildUpstreamRequest(
         ? { project: currentProjectId, model: currentModel }
         : undefined,
   }) as Record<string, unknown>
+  */
 
   // Debug transformed request structure
   // biome-ignore lint/suspicious/noExplicitAny: Accessing potential messages array for debug logging

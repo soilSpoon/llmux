@@ -61,6 +61,8 @@ export function parse(request: unknown): UnifiedRequest {
   }
 }
 
+import { applyThinkingConfig } from '../../transform/thinking'
+
 /**
  * Transform UnifiedRequest into AnthropicRequest
  */
@@ -114,17 +116,8 @@ export function transform(request: UnifiedRequest): AnthropicRequest {
     result.stop_sequences = request.config.stopSequences
   }
 
-  // Add thinking config
-  if (request.thinking) {
-    if (request.thinking.enabled) {
-      result.thinking = {
-        type: 'enabled',
-        budget_tokens: request.thinking.budget ?? 8000,
-      }
-    } else {
-      result.thinking = { type: 'disabled' }
-    }
-  }
+  // Add thinking config (centralized logic)
+  applyThinkingConfig(request, 'anthropic', result)
 
   // Add metadata if present
   if (request.metadata?.userId) {

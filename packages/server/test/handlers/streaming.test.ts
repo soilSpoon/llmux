@@ -485,7 +485,7 @@ describe("handleStreamingProxy", () => {
 
       const options: ProxyOptions = {
         sourceFormat: "anthropic",
-        targetProvider: "openai",
+        targetProvider: "anthropic",
         apiKey: "test-key",
       };
 
@@ -544,7 +544,7 @@ describe("handleStreamingProxy", () => {
 
       const options: ProxyOptions = {
         sourceFormat: "anthropic",
-        targetProvider: "openai",
+        targetProvider: "anthropic",
         apiKey: "test-key",
       };
 
@@ -606,7 +606,7 @@ describe("handleStreamingProxy", () => {
 
       const options: ProxyOptions = {
         sourceFormat: "anthropic",
-        targetProvider: "openai",
+        targetProvider: "anthropic",
         apiKey: "test-key",
       };
 

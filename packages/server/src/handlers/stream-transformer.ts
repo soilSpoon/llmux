@@ -1,45 +1,30 @@
 import { createLogger, type ProviderName } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import type { SignatureStore } from '../stores'
-import { extractSignaturesFromSSE } from './signature-response'
 import {
-  type BlockType,
-  createBlockStartEvent,
-  createBlockStopEvent,
-  createMessageStartEvent,
-  detectBlockType,
+  createAnthropicStreamState,
+  handleEmptyResponse,
+  logStreamMetrics,
+  processAnthropicEvent,
+  recordSignaturesFromSSE,
+  type StreamMetrics,
+} from './stream-helpers'
+import { createStreamParser } from './stream-helpers/stream-parser'
+import {
   extractContentFromChunk,
   getParserType,
-  isEmptyTextBlock,
-  patchStopReasonForToolUse,
   splitSSEEvents,
-  transformStreamChunk,
   updateChunkIndex,
 } from './stream-processor'
 
 const logger = createLogger({ service: 'stream-transformer' })
 
-export interface StreamContext {
-  reqId: string
+export interface StreamContext extends StreamMetrics {
   fromFormat: RequestFormat
   targetProvider: string
   targetModel: string
   originalModel: string
   finalModel: string
-  chunkCount: number
-  totalBytes: number
-  duration: number
-  error?: string
-  requestInfo?: {
-    model: string
-    provider: string
-    endpoint: string
-    toolsCount: number
-    bodyLength: number
-  }
-  fullResponse: string
-  accumulatedText: string
-  accumulatedThinking: string
 }
 
 export interface StreamTransformerOptions {
@@ -65,13 +50,13 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   const decoder = new TextDecoder()
   let buffer = ''
 
-  let currentBlockType: BlockType = null
-  let currentBlockIndex = 0
-  let messageStartSent = false
+  const anthropicState = createAnthropicStreamState()
 
-  // provider might change based on protocol resolution, but here we assume targetProvider is effective
-  // gemini-cli uses the same v1internal API as antigravity, so use antigravity for stream parsing
   const parsingProvider = targetProvider === 'gemini-cli' ? 'antigravity' : targetProvider
+  const streamParser = createStreamParser(
+    parsingProvider as ProviderName,
+    sourceFormat as ProviderName
+  )
   let parserType = getParserType(parsingProvider)
 
   return new TransformStream<Uint8Array, Uint8Array>({
@@ -87,31 +72,49 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
       for (const rawEvent of rawEvents) {
         if (!rawEvent.trim()) continue
 
-        // Extract and save signatures from response
         if (signatureContext) {
-          const signatures = extractSignaturesFromSSE(`data: ${rawEvent}`)
-          for (const sig of signatures) {
-            signatureContext.signatureStore.saveSignature({
-              signature: sig,
-              projectId: signatureContext.projectId,
-              provider: signatureContext.provider,
-              endpoint: signatureContext.endpoint,
-              account: signatureContext.account,
-            })
-          }
-          if (signatures.length > 0) {
-            signatureContext.onSave?.(signatures.length)
-          }
+          recordSignaturesFromSSE(rawEvent, signatureContext)
         }
 
         logger.trace(
-          { rawEvent, currentBlockType, currentBlockIndex },
+          {
+            rawEvent,
+            currentBlockType: anthropicState.currentBlockType,
+            currentBlockIndex: anthropicState.currentBlockIndex,
+          },
           '[streaming] Processing raw SSE event'
         )
 
         const eventWithNewline = `${rawEvent}\n\n`
         try {
-          const transformed = transformStreamChunk(eventWithNewline, parsingProvider, sourceFormat)
+          // Unified Streaming Logic: Parse -> Unified Chunk -> Transform
+          // This replaces the old transformStreamChunk direct call
+
+          const transformedChunks: string[] = []
+
+          // 1. Parse raw event to StreamChunk
+          const chunks = streamParser.parse(eventWithNewline)
+
+          if (chunks) {
+            const chunkArray = Array.isArray(chunks) ? chunks : [chunks]
+
+            // 2. Transform StreamChunk to target format string
+            for (const chunk of chunkArray) {
+              const result = streamParser.transform(chunk)
+              if (Array.isArray(result)) {
+                transformedChunks.push(...result)
+              } else if (result) {
+                transformedChunks.push(result)
+              }
+            }
+          }
+
+          // Fallback to legacy behavior if parser didn't return anything (or not implemented yet for some providers)
+          // But since we implemented parseStreamChunk for OpenAI/Anthropic/Gemini, this should work.
+          // However, transformStreamChunk in stream-processor.ts might handle edge cases.
+          // Let's use the new flow primarily.
+
+          // const transformed = transformStreamChunk(eventWithNewline, parsingProvider, sourceFormat)
 
           const processChunk = (
             chunkStr: string,
@@ -119,64 +122,21 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           ) => {
             if (!chunkStr.trim()) return
 
-            const chunkBlockType = detectBlockType(chunkStr)
-            const isBlockStart = chunkStr.includes('"type":"content_block_start"')
-            const isBlockStop = chunkStr.includes('"type":"content_block_stop"')
-            const isMessageStart = chunkStr.includes('"type":"message_start"')
-
             if (sourceFormat === 'anthropic') {
-              // Ensure message_start is sent before any content_block_start
-              if (!messageStartSent && !isMessageStart) {
-                // Check if this is actual content (not just ping/error)
-                if (chunkBlockType || isBlockStart) {
-                  ctrl.enqueue(encoder.encode(createMessageStartEvent(streamContext.originalModel)))
-                  messageStartSent = true
-                }
-              }
-              if (isMessageStart) {
-                messageStartSent = true
-              }
-              if (chunkBlockType === 'stop') {
-                let finalChunk = chunkStr
-                if (currentBlockType !== null) {
-                  if (currentBlockType === 'tool_use') {
-                    finalChunk = patchStopReasonForToolUse(finalChunk)
-                  }
-                  ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
-                  currentBlockType = null
-                  currentBlockIndex++ // Increment index after closing block
-                }
-                streamContext.fullResponse += finalChunk
-                streamContext.chunkCount++ // Ensure chunk count is incremented for stop events too
-                ctrl.enqueue(encoder.encode(finalChunk))
-                return
+              const result = processAnthropicEvent(chunkStr, anthropicState, ctrl, encoder, {
+                originalModel: streamContext.originalModel,
+              })
+
+              if (result.finalChunk) {
+                streamContext.fullResponse += result.finalChunk
+                streamContext.chunkCount++
+                ctrl.enqueue(encoder.encode(result.finalChunk))
               }
 
-              if (isBlockStart) {
-                if (chunkBlockType === 'text' && isEmptyTextBlock(chunkStr)) return
-                if (currentBlockType !== null) {
-                  ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
-                  currentBlockIndex++
-                }
-                if (chunkBlockType) currentBlockType = chunkBlockType
-              } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
-                if (chunkBlockType === 'text' && isEmptyTextBlock(chunkStr)) return
-                if (currentBlockType !== null) {
-                  ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
-                  currentBlockIndex++
-                }
-                const startEvent = createBlockStartEvent(chunkBlockType, currentBlockIndex)
-                if (startEvent) ctrl.enqueue(encoder.encode(startEvent))
-                currentBlockType = chunkBlockType
-              } else if (currentBlockType === null && chunkBlockType) {
-                if (chunkBlockType === 'text' && isEmptyTextBlock(chunkStr)) return
-                const startEvent = createBlockStartEvent(chunkBlockType, currentBlockIndex)
-                if (startEvent) ctrl.enqueue(encoder.encode(startEvent))
-                currentBlockType = chunkBlockType
-              }
+              if (result.stopProcessing) return
             }
 
-            const updatedChunk = updateChunkIndex(chunkStr, currentBlockIndex)
+            const updatedChunk = updateChunkIndex(chunkStr, anthropicState.currentBlockIndex)
             const content = extractContentFromChunk(chunkStr)
             if (content.text) streamContext.accumulatedText += content.text
             if (content.thinking) streamContext.accumulatedThinking += content.thinking
@@ -185,25 +145,24 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
             streamContext.fullResponse += updatedChunk
             ctrl.enqueue(encoder.encode(updatedChunk))
 
-            if (sourceFormat === 'anthropic' && (isBlockStop || chunkBlockType === 'stop')) {
-              currentBlockType = null
-              currentBlockIndex++
+            if (sourceFormat === 'anthropic') {
+              if (chunkStr.includes('"type":"content_block_stop"')) {
+                anthropicState.currentBlockType = null
+                anthropicState.currentBlockIndex++
+              }
             }
           }
 
-          if (Array.isArray(transformed)) {
-            for (const t of transformed) {
-              if (t.trim()) {
-                // Only process non-empty chunks
-                processChunk(t, controller)
-              }
-            }
-          } else if (transformed) {
-            if (transformed.trim()) {
-              // Only process non-empty chunks
-              processChunk(transformed, controller)
+          if (transformedChunks.length > 0) {
+            for (const t of transformedChunks) {
+              if (t.trim()) processChunk(t, controller)
             }
           }
+          /* 
+          else if (transformed?.trim()) {
+            processChunk(transformed, controller)
+          } 
+          */
         } catch (error) {
           logger.error(
             { error: error instanceof Error ? error.message : String(error) },
@@ -216,21 +175,25 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     flush(controller) {
       if (buffer.trim()) {
         parserType = getParserType(parsingProvider)
-        let events: string[] = []
-        if (parserType === 'sse-line-delimited') {
-          events = buffer.split('\n').filter((e) => e.trim())
-        } else {
-          events = buffer.split('\n\n').filter((e) => e.trim())
-        }
+        const events =
+          parserType === 'sse-line-delimited'
+            ? buffer.split('\n').filter((e) => e.trim())
+            : buffer.split('\n\n').filter((e) => e.trim())
 
         for (const event of events) {
           const eventWithNewline = `${event}\n\n`
           try {
-            const transformed = transformStreamChunk(
-              eventWithNewline,
-              parsingProvider,
-              sourceFormat
-            )
+            // Unified Parsing for Flush
+            const transformedChunks: string[] = []
+            const chunks = streamParser.parse(eventWithNewline)
+            if (chunks) {
+              const chunkArray = Array.isArray(chunks) ? chunks : [chunks]
+              for (const chunk of chunkArray) {
+                const result = streamParser.transform(chunk)
+                if (Array.isArray(result)) transformedChunks.push(...result)
+                else if (result) transformedChunks.push(result)
+              }
+            }
 
             const processChunk = (
               chunkStr: string,
@@ -238,66 +201,36 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
             ) => {
               if (!chunkStr.trim()) return
 
-              const chunkBlockType = detectBlockType(chunkStr)
-              const isBlockStart = chunkStr.includes('"type":"content_block_start"')
-              const isBlockStop = chunkStr.includes('"type":"content_block_stop"')
-
               if (sourceFormat === 'anthropic') {
-                if (chunkBlockType === 'stop') {
-                  let finalChunk = chunkStr
-                  if (currentBlockType !== null) {
-                    if (currentBlockType === 'tool_use') {
-                      finalChunk = patchStopReasonForToolUse(finalChunk)
-                    }
-                    ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
-                    currentBlockType = null
-                    currentBlockIndex++ // Increment index after closing block
-                  }
-                  ctrl.enqueue(encoder.encode(finalChunk))
+                const result = processAnthropicEvent(chunkStr, anthropicState, ctrl, encoder, {
+                  isFlush: true,
+                })
+
+                if (result.finalChunk) {
+                  streamContext.chunkCount++
+                  streamContext.fullResponse += result.finalChunk
+                  ctrl.enqueue(encoder.encode(result.finalChunk))
                   return
                 }
 
-                if (isBlockStart) {
-                  if (chunkBlockType === 'text' && isEmptyTextBlock(chunkStr)) return
-                  if (currentBlockType !== null) {
-                    ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
-                    currentBlockIndex++
-                  }
-                  if (chunkBlockType) currentBlockType = chunkBlockType
-                } else if (chunkBlockType && chunkBlockType !== currentBlockType) {
-                  if (chunkBlockType === 'text' && isEmptyTextBlock(chunkStr)) return
-                  if (currentBlockType !== null) {
-                    ctrl.enqueue(encoder.encode(createBlockStopEvent(currentBlockIndex)))
-                    currentBlockIndex++
-                  }
-                  const startEvent = createBlockStartEvent(chunkBlockType, currentBlockIndex)
-                  if (startEvent) ctrl.enqueue(encoder.encode(startEvent))
-                  currentBlockType = chunkBlockType
-                } else if (currentBlockType === null && chunkBlockType) {
-                  if (chunkBlockType === 'text' && isEmptyTextBlock(chunkStr)) return
-                  const startEvent = createBlockStartEvent(chunkBlockType, currentBlockIndex)
-                  if (startEvent) ctrl.enqueue(encoder.encode(startEvent))
-                  currentBlockType = chunkBlockType
-                }
+                if (result.stopProcessing) return
               }
 
-              const updatedChunk = updateChunkIndex(chunkStr, currentBlockIndex)
+              const updatedChunk = updateChunkIndex(chunkStr, anthropicState.currentBlockIndex)
               streamContext.chunkCount++
               streamContext.fullResponse += updatedChunk
               ctrl.enqueue(encoder.encode(updatedChunk))
 
-              if (sourceFormat === 'anthropic' && (isBlockStop || chunkBlockType === 'stop')) {
-                currentBlockType = null
-                currentBlockIndex++
+              if (sourceFormat === 'anthropic') {
+                if (chunkStr.includes('"type":"content_block_stop"')) {
+                  anthropicState.currentBlockType = null
+                  anthropicState.currentBlockIndex++
+                }
               }
             }
 
-            if (Array.isArray(transformed)) {
-              for (const t of transformed) {
-                processChunk(t, controller)
-              }
-            } else if (transformed) {
-              processChunk(transformed, controller)
+            if (transformedChunks.length > 0) {
+              for (const t of transformedChunks) processChunk(t, controller)
             }
           } catch (error) {
             logger.error(
@@ -309,36 +242,14 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
       }
 
       streamContext.duration = Date.now() - startTime
-      const sanitize = (s: string) =>
-        s
-          .replace(/[\r\n]+/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim()
-      const ri = streamContext.requestInfo || {
-        model: 'unknown',
-        provider: 'unknown',
-        endpoint: '',
-        toolsCount: 0,
-        bodyLength: 0,
+      handleEmptyResponse(streamContext, controller, encoder)
+      logStreamMetrics(streamContext)
+
+      if (sourceFormat === 'anthropic') {
+        const doneSignal = 'data: [DONE]\n\n'
+        streamContext.fullResponse += doneSignal
+        controller.enqueue(encoder.encode(doneSignal))
       }
-
-      // If we have no chunks and no error, it means the upstream returned an empty success response
-      // This usually happens with Gemini/Antigravity when safety filters trigger or the model refuses to output
-      if (streamContext.chunkCount === 0 && !streamContext.error) {
-        const errorMsg =
-          'Upstream model returned empty response (0 tokens). This may be due to safety filters or internal model refusal.'
-        streamContext.error = errorMsg
-        const errorEvent = `event: error\ndata: {"type":"error","error":{"type":"upstream_error","message":"${errorMsg}"}}\n\n`
-        controller.enqueue(encoder.encode(errorEvent))
-      }
-
-      let logMsg = `[Streaming] ${streamContext.reqId} | ${ri.model} (${ri.provider}) | Tools:${ri.toolsCount} | ReqLen:${ri.bodyLength} | ${streamContext.duration}ms | Chunks:${streamContext.chunkCount} | Bytes:${streamContext.totalBytes}${streamContext.error ? ` | Error: ${sanitize(streamContext.error)}` : ''} | Text: "${sanitize(streamContext.accumulatedText)}" | Thinking: "${sanitize(streamContext.accumulatedThinking)}"`
-
-      if (!streamContext.accumulatedText && !streamContext.accumulatedThinking) {
-        logMsg += ` | Raw: "${sanitize(streamContext.fullResponse.slice(0, 1000))}"`
-      }
-
-      logger.info(logMsg)
     },
   })
 }

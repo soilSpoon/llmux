@@ -5,6 +5,7 @@
  * Uses the Responses API format (/v1/responses) at https://chatgpt.com/backend-api/codex
  */
 
+import type { FormatId } from '../../formats/base'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { isResponsesApiRequest } from '../openai/format-detector'
@@ -63,7 +64,26 @@ export class OpenAIWebProvider extends BaseProvider {
    */
   transform(request: UnifiedRequest, model: string): OpenAIRequest {
     // Use standard OpenAI transformation - the /codex endpoint uses Responses API format
-    return transform(request, model)
+    const transformed = transform(request, model)
+
+    // Fix content types for Responses API (text -> input_text)
+    if (transformed.messages) {
+      transformed.messages = transformed.messages.map((msg) => {
+        if (Array.isArray(msg.content)) {
+          // biome-ignore lint/suspicious/noExplicitAny: transforming specific types
+          const newContent = msg.content.map((part: any) => {
+            if (part.type === 'text') {
+              return { ...part, type: 'input_text' }
+            }
+            return part
+          })
+          return { ...msg, content: newContent }
+        }
+        return msg
+      })
+    }
+
+    return transformed
   }
 
   /**
@@ -95,6 +115,25 @@ export class OpenAIWebProvider extends BaseProvider {
    */
   transformStreamChunk(chunk: StreamChunk): string {
     return transformStreamChunk(chunk)
+  }
+
+  /**
+   * Get the schema format ID for this provider's models.
+   * OpenAI Web uses the openai-responses format.
+   */
+  getFormatForModel(_model: string): FormatId {
+    return 'openai-responses'
+  }
+
+  /**
+   * Detect the format from an incoming wire request.
+   * OpenAI Responses format detection.
+   */
+  getFormatForWireRequest(request: unknown): FormatId {
+    if (this.isSupportedRequest(request)) {
+      return 'openai-responses'
+    }
+    throw new Error('Unsupported request format for OpenAI Web provider')
   }
 }
 

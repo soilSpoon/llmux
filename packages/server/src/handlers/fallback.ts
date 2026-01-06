@@ -5,75 +5,18 @@ import type { ModelLookup } from '../models/lookup'
 import type { RouteParams } from '../router'
 import type { Router } from '../routing'
 import type { UpstreamProxy } from '../upstream/proxy'
+import { extractModel, type PathParams } from './model-extraction'
 import { applyModelMappingV2 } from './model-mapping'
 import { handleProxy } from './proxy'
 import { handleStreamingProxy } from './streaming'
+
+export { extractModel, type PathParams } from './model-extraction'
 
 export type RouteHandler = (request: Request, params?: RouteParams) => Promise<Response>
 
 const logger = createLogger({ service: 'fallback-handler' })
 
 export type ProviderChecker = (model: string) => boolean
-
-export interface PathParams {
-  action?: string
-  path?: string
-}
-
-export async function extractModel(
-  request: Request,
-  pathParams?: PathParams
-): Promise<string | null> {
-  if (pathParams?.action) {
-    const parts = pathParams.action.split(':')
-    if (parts.length > 0 && parts[0]) {
-      // Handle Google/Vertex model formats like "gemini-3-pro-preview" or "publishers/google/models/gemini-3-pro-preview"
-      const modelPart = parts[0]
-      // Check if it's a full resource path
-      if (modelPart.includes('/models/')) {
-        const modelsIdx = modelPart.lastIndexOf('/models/')
-        if (modelsIdx >= 0) {
-          return modelPart.slice(modelsIdx + 8)
-        }
-      }
-      return modelPart
-    }
-  }
-
-  if (pathParams?.path) {
-    const modelsIdx = pathParams.path.lastIndexOf('models/')
-    if (modelsIdx >= 0) {
-      const modelPart = pathParams.path.slice(modelsIdx + 7)
-      const colonIdx = modelPart.indexOf(':')
-      if (colonIdx > 0) {
-        return modelPart.slice(0, colonIdx)
-      }
-      // If no colon, the model name might be the end of the path or followed by /
-      const slashIdx = modelPart.indexOf('/')
-      if (slashIdx > 0) {
-        return modelPart.slice(0, slashIdx)
-      }
-      return modelPart
-    }
-  }
-
-  try {
-    const clonedRequest = request.clone()
-    const text = await clonedRequest.text()
-    if (!text) {
-      return null
-    }
-
-    const body = JSON.parse(text)
-    if (typeof body.model === 'string') {
-      return body.model
-    }
-  } catch {
-    return null
-  }
-
-  return null
-}
 
 export class FallbackHandler {
   private getProxy: () => UpstreamProxy | null

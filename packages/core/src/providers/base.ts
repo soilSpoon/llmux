@@ -1,3 +1,5 @@
+import type { FormatId } from '../formats/base'
+import type { UnifiedError } from '../types/error'
 import type { StreamChunk, StreamDelta, UnifiedRequest, UnifiedResponse } from '../types/unified'
 
 /**
@@ -12,6 +14,7 @@ export type ProviderName =
   | 'opencode-zen'
   | 'openai-web'
   | 'github-copilot'
+  | 'google'
 
 const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'openai',
@@ -21,6 +24,7 @@ const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'antigravity',
   'opencode-zen',
   'openai-web',
+  'google',
 ] as const
 
 export function isValidProviderName(value: unknown): value is ProviderName {
@@ -126,6 +130,24 @@ export interface Provider {
    * Transform a unified stream chunk to provider format
    */
   transformStreamChunk?(chunk: StreamChunk): string | string[]
+
+  /**
+   * Parse a provider error into UnifiedError
+   * @param error The raw error object from the provider
+   */
+  parseError(error: unknown): UnifiedError
+
+  /**
+   * Get the schema format ID for a specific model.
+   * Returns the format used when transforming to wire format for this model.
+   */
+  getFormatForModel?(model: string): FormatId
+
+  /**
+   * Get the schema format ID for a wire request.
+   * Detects the format from an incoming request object.
+   */
+  getFormatForWireRequest?(request: unknown): FormatId
 }
 
 /**
@@ -145,4 +167,23 @@ export abstract class BaseProvider implements Provider {
 
   parseStreamChunk?(chunk: string): StreamChunk | StreamChunk[] | null
   transformStreamChunk?(chunk: StreamChunk): string | string[]
+
+  // Optional format methods - to be implemented by providers during refactoring
+  getFormatForModel?(model: string): FormatId
+  getFormatForWireRequest?(request: unknown): FormatId
+
+  /**
+   * Default error parser implementation.
+   * Providers should override this to provide more specific error mapping.
+   */
+  parseError(error: unknown): UnifiedError {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      provider: this.name,
+      code: 'unknown_error',
+      message,
+      retryable: false,
+      originalError: error,
+    }
+  }
 }

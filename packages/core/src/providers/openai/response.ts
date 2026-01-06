@@ -249,6 +249,8 @@ function parseUsage(usage: OpenAIUsage): UsageInfo {
     result.cachedTokens = usage.prompt_tokens_details.cached_tokens
   }
 
+  // Future: Extract write tokens if available in provider response
+
   // Extract thinking/reasoning tokens
   if (usage.completion_tokens_details?.reasoning_tokens) {
     result.thinkingTokens = usage.completion_tokens_details.reasoning_tokens
@@ -265,9 +267,9 @@ function transformUsage(usage: UsageInfo): OpenAIUsage {
   }
 
   // Add token details if present
-  if (usage.cachedTokens) {
+  if (usage.cachedTokens || usage.cacheReadTokens) {
     result.prompt_tokens_details = {
-      cached_tokens: usage.cachedTokens,
+      cached_tokens: usage.cacheReadTokens ?? usage.cachedTokens,
     }
   }
 

@@ -967,4 +967,26 @@ describe("Gemini Response Transformations", () => {
       expect(result.candidates[0]!.content.parts[1]!.text).toBe("Answer");
     });
   });
+
+  describe("modelVersion handling", () => {
+    it("should include modelVersion if provided in UnifiedResponse", () => {
+      const unified = createUnifiedResponse({
+        model: "gemini-3-flash",
+      });
+
+      const result = transformResponse(unified);
+
+      expect(result.modelVersion).toBe("gemini-3-flash");
+    });
+
+    it("should NOT include modelVersion if NOT provided in UnifiedResponse", () => {
+      const unified = createUnifiedResponse({
+        model: undefined,
+      });
+
+      const result = transformResponse(unified);
+
+      expect(result.modelVersion).toBeUndefined();
+    });
+  });
 });

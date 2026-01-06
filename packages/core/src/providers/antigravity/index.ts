@@ -5,6 +5,7 @@
  * Antigravity wraps Gemini-style requests/responses with additional metadata.
  */
 
+import type { FormatId } from '../../formats/base'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { parse, transform } from './request'
@@ -95,6 +96,25 @@ export class AntigravityProvider extends BaseProvider {
    */
   transformStreamChunk(chunk: StreamChunk): string {
     return transformStreamChunk(chunk)
+  }
+
+  /**
+   * Get the schema format ID for this provider's models.
+   * Antigravity uses Google Gemini format.
+   */
+  getFormatForModel(_model: string): FormatId {
+    return 'google-gemini'
+  }
+
+  /**
+   * Detect the format from an incoming wire request.
+   * Google Gemini format detection.
+   */
+  getFormatForWireRequest(request: unknown): FormatId {
+    if (this.isSupportedRequest(request)) {
+      return 'google-gemini'
+    }
+    throw new Error('Unsupported request format for Antigravity provider')
   }
 }
 

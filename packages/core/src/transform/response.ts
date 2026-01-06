@@ -4,6 +4,7 @@ import { getProvider } from '../providers/registry'
 export interface TransformResponseOptions {
   from: ProviderName
   to: ProviderName
+  model?: string
 }
 
 /**
@@ -16,5 +17,10 @@ export function transformResponse(response: unknown, options: TransformResponseO
   const targetProvider = getProvider(options.to)
 
   const unified = sourceProvider.parseResponse(response)
+
+  if (options.model && !unified.model) {
+    unified.model = options.model
+  }
+
   return targetProvider.transformResponse(unified)
 }
