@@ -4,7 +4,9 @@ Instructions for AI coding agents working on the llmux project.
 
 ## Project Overview
 
-llmux is a TypeScript monorepo for bidirectional LLM API transformation. It utilizes a layered architecture to route and transform requests between various AI providers.
+llmux is a TypeScript monorepo for bidirectional LLM API transformation. It utilizes a layered architecture to route and transform requests between various AI providers (OpenAI, Anthropic, Gemini, Antigravity) to provide compatibility across different client formats.
+
+Key goal: Enable compatibility for clients (like ampcode) by transforming schemas and handling provider-specific quirks (e.g., SSE formats, error handling, auth).
 
 ## 🛠️ Build & Development Commands
 
@@ -64,6 +66,12 @@ When modifying `@llmux/server`, respect the following layers:
 - **Formatting**: Use `bun run format` (Biome).
 - **Imports**: Use explicit paths for internal modules.
 - **Logging**: Use `createLogger` from `@llmux/core`.
+
+## ✅ Quality Assurance & Type Safety
+
+- **Strict Validation**: Ensure zero warnings or failures in linting, formatting, testing, and type checking (`bun run check`, `bun run test`) after any modification.
+- **Avoid Suppressions**: Strictly avoid `any`, `@ts-expect-error`, or `biome-ignore`. Solve the underlying issues instead of bypassing them.
+- **Type Safety**: Avoid type assertions (`as`) or casting. Prioritize proper type inference, standard TypeScript types, and utilities (e.g., `type-fest`) to ensure robust type safety at the source and usage sites.
 
 ## 🧪 Testing
 
