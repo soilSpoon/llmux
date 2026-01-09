@@ -1,3 +1,4 @@
+import type { FormatId } from '@llmux/core'
 import { handleProxy, type ProxyOptions } from '@llmux/server'
 import { cmd } from '../cmd'
 
@@ -8,9 +9,9 @@ export const proxyCommand = cmd({
     yargs
       .option('from', {
         alias: 'f',
-        describe: 'Source format (openai, anthropic, gemini)',
+        describe: 'Source format (openai-chat, anthropic-messages, google-gemini)',
         type: 'string',
-        default: 'openai',
+        default: 'openai-chat',
       })
       .option('to', {
         alias: 't',
@@ -34,7 +35,7 @@ export const proxyCommand = cmd({
         type: 'string',
       }),
   async handler(args) {
-    const sourceFormat = args.from as 'openai' | 'anthropic' | 'gemini'
+    const sourceFormat = args.from as FormatId
     const targetProvider = args.to
     const targetModel = args.model
     const apiKey = args['api-key']

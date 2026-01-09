@@ -41,7 +41,13 @@ export function resolveOpencodeZenModel(model: string, protocol: EffectiveProtoc
   return model
 }
 
-export function getOpencodeZenEndpoint(protocol: EffectiveProtocol): string {
+export function getOpencodeZenEndpoint(protocol: 'gemini', model: string): string
+export function getOpencodeZenEndpoint(protocol: 'openai' | 'anthropic'): string
+export function getOpencodeZenEndpoint(protocol: EffectiveProtocol, model?: string): string {
+  if (protocol === 'gemini' && model) {
+    return `https://opencode.ai/zen/v1/models/${model}`
+  }
+
   switch (protocol) {
     case 'openai':
       return 'https://opencode.ai/zen/v1/chat/completions'

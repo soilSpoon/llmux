@@ -46,8 +46,12 @@ function isIntermediateAuthStep(
 }
 
 describe("refreshAntigravityToken", () => {
-  afterEach(() => {
+  afterEach(async () => {
     global.fetch = originalFetch;
+    const { invalidateProjectContextCache } = await import(
+      "../src/providers/antigravity-oauth"
+    );
+    invalidateProjectContextCache();
   });
 
   test("refreshes token successfully", async () => {
@@ -131,7 +135,7 @@ describe("refreshAntigravityToken", () => {
     const result = await refreshAntigravityToken(currentCredential);
 
     expect(result.accessToken).toBe("new_token");
-    expect(result.refreshToken).toMatch(/rotated_token\|[a-z]+-[a-z]+-[a-z0-9]+/);
+    expect(result.refreshToken).toMatch(/rotated_token\|/);
   });
 
   test("throws error when refresh token is missing", async () => {
@@ -298,9 +302,13 @@ describe("refreshAntigravityToken", () => {
 });
 
 describe("authorizeAntigravity", () => {
-  afterEach(() => {
+  afterEach(async () => {
     global.fetch = originalFetch;
     mock.restore();
+    const { invalidateProjectContextCache } = await import(
+      "../src/providers/antigravity-oauth"
+    );
+    invalidateProjectContextCache();
   });
 
   test("returns AuthStep with correct URL parameters", async () => {
@@ -727,9 +735,13 @@ describe("authorizeAntigravity", () => {
 });
 
 describe("fetchProjectID integration tests", () => {
-  afterEach(() => {
+  afterEach(async () => {
     global.fetch = originalFetch;
     mock.restore();
+    const { invalidateProjectContextCache } = await import(
+      "../src/providers/antigravity-oauth"
+    );
+    invalidateProjectContextCache();
   });
 
   test("returns project ID from string response", async () => {
@@ -863,7 +875,7 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
+    ).toBe("");
   });
 
   test("tries fallback endpoints when first fails", async () => {
@@ -956,7 +968,7 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
+    ).toBe("");
   });
 
   test("handles empty string cloudaicompanionProject", async () => {
@@ -1001,7 +1013,7 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
+    ).toBe("");
   });
 
   test("handles object with empty id", async () => {
@@ -1047,6 +1059,6 @@ describe("fetchProjectID integration tests", () => {
     expect(authResult.type).toBe("success");
     expect(
       (authResult as SuccessAuthResult).credential.projectId
-    ).toMatch(/[a-z]+-[a-z]+-[a-z0-9]+/);
+    ).toBe("");
   });
 });

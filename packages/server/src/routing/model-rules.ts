@@ -1,14 +1,45 @@
 import { getRegisteredProviders, isValidProviderName } from '@llmux/core'
+import { KNOWN_PROVIDERS } from './constants'
 import type { UpstreamProvider } from './types'
 
 /**
- * Parses explicit provider suffix from model name
- * e.g. "claude-3-opus:antigravity" -> { model: "claude-3-opus", provider: "antigravity" }
+ * Parses explicit provider from model name.
+ * Supports two formats:
+ * 1. "provider/model" (preferred) - e.g., "antigravity/claude-3-opus"
+ * 2. "model:provider" (legacy) - e.g., "claude-3-opus:antigravity"
+ *
+ * Examples:
+ * - "antigravity/claude-3-opus" -> { model: "claude-3-opus", provider: "antigravity" }
+ * - "claude-3-opus:antigravity" -> { model: "claude-3-opus", provider: "antigravity" } (legacy)
+ * - "claude-3-opus" -> { model: "claude-3-opus", provider: undefined }
  */
 export function parseExplicitProvider(model: string): {
   model: string
   provider?: UpstreamProvider
 } {
+  // Check for provider/model format (e.g. "antigravity/claude-3-opus")
+  if (model.includes('/')) {
+    const parts = model.split('/')
+    // Provider is the first segment
+    const providerCandidate = parts[0]
+
+    if (
+      providerCandidate &&
+      ((isValidProviderName(providerCandidate) &&
+        getRegisteredProviders().includes(providerCandidate)) ||
+        (KNOWN_PROVIDERS as readonly string[]).includes(providerCandidate))
+    ) {
+      const baseModel = model.slice(providerCandidate.length + 1)
+      // Ensure baseModel is not empty
+      if (baseModel) {
+        return {
+          model: baseModel,
+          provider: providerCandidate as UpstreamProvider,
+        }
+      }
+    }
+  }
+
   if (!model.includes(':')) {
     return { model }
   }

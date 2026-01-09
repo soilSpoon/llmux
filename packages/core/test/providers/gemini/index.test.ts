@@ -30,6 +30,7 @@ describe("GeminiProvider", () => {
       expect(provider.config.supportsStreaming).toBe(true);
       expect(provider.config.supportsThinking).toBe(true);
       expect(provider.config.supportsTools).toBe(true);
+      expect(provider.config.supportsTools).toBe(true);
     });
   });
 
@@ -123,7 +124,7 @@ describe("GeminiProvider", () => {
         messages: [createUnifiedMessage("user", "Hello")],
       });
 
-      const result = provider.transform(unified) as GeminiRequest;
+      const result = provider.transform(unified, 'gemini-1.5-pro') as GeminiRequest;
 
       expect(result.contents).toHaveLength(1);
       expect(result.contents[0]!.role).toBe("user");
@@ -136,7 +137,7 @@ describe("GeminiProvider", () => {
         messages: [createUnifiedMessage("user", "Hi")],
       });
 
-      const result = provider.transform(unified) as GeminiRequest;
+      const result = provider.transform(unified, 'gemini-1.5-pro') as GeminiRequest;
 
       expect(result.systemInstruction).toEqual({
         parts: [{ text: "Be helpful" }],
@@ -151,7 +152,7 @@ describe("GeminiProvider", () => {
         },
       });
 
-      const result = provider.transform(unified) as GeminiRequest;
+      const result = provider.transform(unified, 'gemini-1.5-pro') as GeminiRequest;
 
       expect(result.generationConfig?.maxOutputTokens).toBe(1000);
       expect(result.generationConfig?.temperature).toBe(0.7);
@@ -162,7 +163,7 @@ describe("GeminiProvider", () => {
         thinking: { enabled: true, budget: 8192 },
       });
 
-      const result = provider.transform(unified) as GeminiRequest;
+      const result = provider.transform(unified, 'gemini-1.5-pro') as GeminiRequest;
 
       expect(result.generationConfig?.thinkingConfig?.includeThoughts).toBe(
         true
@@ -177,7 +178,7 @@ describe("GeminiProvider", () => {
         tools: [createUnifiedTool("get_weather", "Get weather")],
       });
 
-      const result = provider.transform(unified) as GeminiRequest;
+      const result = provider.transform(unified, 'gemini-1.5-pro') as GeminiRequest;
 
       expect(result.tools).toHaveLength(1);
       expect(result.tools![0]!.functionDeclarations![0]!.name).toBe(

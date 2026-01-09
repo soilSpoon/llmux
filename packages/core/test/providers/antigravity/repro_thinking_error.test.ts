@@ -64,7 +64,7 @@ describe("Antigravity Thinking Block Injection", () => {
     const firstPart = assistantMsg!.parts[0]!;
     expect(firstPart.thought).toBe(true);
     expect(firstPart.text).toContain("restored");
-    expect(firstPart.thought_signature).toBe("skip_thought_signature_validator");
+    expect(firstPart.thoughtSignature).toBe("skip_thought_signature_validator");
     
     // The second part should be the tool call
     expect(assistantMsg!.parts[1]!.functionCall).toBeDefined();
@@ -102,7 +102,7 @@ describe("Antigravity Thinking Block Injection", () => {
     const assistantMsg = result.request.contents[0];
     // Should stay as is
     expect(assistantMsg!.parts[0]!.text).toBe("I am thinking");
-    expect(assistantMsg!.parts[0]!.thought_signature).toBe("sig");
+    expect(assistantMsg!.parts[0]!.thoughtSignature).toBe("sig");
     expect(assistantMsg!.parts).toHaveLength(2);
   });
 });

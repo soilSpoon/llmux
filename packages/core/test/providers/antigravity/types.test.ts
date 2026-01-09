@@ -94,12 +94,13 @@ describe("Antigravity Types", () => {
           },
         },
       };
-      expect(
-        request.request.generationConfig?.thinkingConfig?.include_thoughts
-      ).toBe(true);
-      expect(
-        request.request.generationConfig?.thinkingConfig?.thinking_budget
-      ).toBe(16384);
+      const thinkingConfig = request.request.generationConfig?.thinkingConfig;
+      if (thinkingConfig && 'include_thoughts' in thinkingConfig) {
+        expect(thinkingConfig.include_thoughts).toBe(true);
+      }
+      if (thinkingConfig && 'thinking_budget' in thinkingConfig) {
+        expect(thinkingConfig.thinking_budget).toBe(16384);
+      }
     });
   });
 

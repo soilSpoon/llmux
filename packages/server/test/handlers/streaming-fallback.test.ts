@@ -82,7 +82,7 @@ describe('handleStreamingProxy - Signature Fallback', () => {
     }
 
     const options: ProxyOptions = {
-      sourceFormat: 'anthropic',
+      sourceFormat: 'anthropic-messages',
       targetProvider: 'anthropic',
       apiKey: 'test-key',
       router: mockRouter as any,
@@ -167,7 +167,7 @@ describe('handleStreamingProxy - Signature Fallback', () => {
     }
 
     const options: ProxyOptions = {
-      sourceFormat: 'anthropic',
+      sourceFormat: 'anthropic-messages',
       targetProvider: 'anthropic',
       apiKey: 'test-key',
       router: mockRouter as any,
@@ -252,7 +252,7 @@ describe('handleStreamingProxy - Signature Fallback', () => {
     }
 
     const options: ProxyOptions = {
-      sourceFormat: 'anthropic',
+      sourceFormat: 'anthropic-messages',
       targetProvider: 'anthropic',
       apiKey: 'test-key',
       router: mockRouter as any,

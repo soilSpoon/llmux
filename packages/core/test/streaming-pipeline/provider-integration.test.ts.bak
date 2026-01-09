@@ -1,0 +1,277 @@
+// DEPRECATED: Using old Provider API - migration to Format API complete
+import { describe, test, expect } from 'bun:test'
+import { AnthropicProvider } from '../../src/providers/anthropic'
+import type { StreamChunk } from '../../src/types/unified'
+
+/**
+ * Integration tests for StreamingPipeline with Provider interface.
+ *
+ * Tests that:
+ * 1. Provider.getStreamingPipeline() returns a valid pipeline
+ * 2. Pipeline correctly transforms Anthropic streaming
+ * 3. Pipeline state is maintained across multiple calls
+ */
+
+describe('Provider.getStreamingPipeline() Integration', () => {
+  describe('AnthropicProvider', () => {
+    test('provides a streaming pipeline via getStreamingPipeline()', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      expect(pipeline).toBeDefined()
+      expect(pipeline?.parse).toBeDefined()
+      expect(pipeline?.build).toBeDefined()
+      expect(pipeline?.filter).toBeDefined()
+      expect(pipeline?.flush).toBeDefined()
+    })
+
+    test('pipeline parse/build round-trip for text-delta', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      // Anthropic SSE event
+      const anthropicSSE = `data: ${JSON.stringify({
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: 'Hello world' },
+      })}\n\n`
+
+      // Parse to unified
+      const parsed = pipeline.parse(anthropicSSE)
+      expect(parsed).toBeTruthy()
+      expect((parsed as StreamChunk).type).toBe('text-delta')
+      expect((parsed as StreamChunk).delta?.text).toBe('Hello world')
+
+      // Build back to Anthropic format
+      const built = pipeline.build(parsed as StreamChunk)
+      expect(built).toBeTruthy()
+
+      const builtStr = Array.isArray(built) ? built[built.length - 1] : built
+      expect(builtStr).toContain('text_delta')
+      expect(builtStr).toContain('Hello world')
+    })
+
+    test('pipeline emits message_start on first content block', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      // First text event (no message_start yet)
+      const textChunk: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: 'Hello' },
+        blockIndex: 0,
+      }
+
+      const built = pipeline.build(textChunk)
+      const outputs = Array.isArray(built) ? built : [built]
+
+      // Should have message_start + content_block_delta
+      expect(outputs.length).toBeGreaterThanOrEqual(2)
+      expect(outputs[0]).toContain('"type":"message_start"')
+      expect(outputs[1]).toContain('content_block_delta')
+    })
+
+    test('pipeline does not emit duplicate message_start', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      const chunk1: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: 'Hi' },
+        blockIndex: 0,
+      }
+      const chunk2: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: ' there' },
+        blockIndex: 0,
+      }
+
+      const built1 = pipeline.build(chunk1)
+      const built2 = pipeline.build(chunk2)
+
+      // First should have message_start
+      const outputs1 = Array.isArray(built1) ? built1 : built1 ? [built1] : []
+      expect(outputs1.some((s) => s?.includes('"type":"message_start"'))).toBe(true)
+
+      // Second should not have message_start
+      const outputs2 = Array.isArray(built2) ? built2 : built2 ? [built2] : []
+      expect(outputs2.some((s) => s?.includes('"type":"message_start"'))).toBe(false)
+    })
+
+    test('pipeline patches stop_reason for tool_use blocks', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      // Simulate message flow: message_start → tool_use → finish with end_turn
+      // 1. Text start (for message_start)
+      const textStart: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: '' },
+        blockIndex: 0,
+      }
+      pipeline.build(textStart)
+
+      // 2. Tool use start (sets hasToolUseBlock = true)
+      const toolStart: StreamChunk = {
+        type: 'tool-call-start',
+        toolCall: { id: 'call_1', name: 'test_tool' },
+        blockIndex: 1,
+      }
+      pipeline.build(toolStart)
+
+      // 3. Finish with end_turn (Gemini behavior) - should be patched to tool_use
+      const finishChunk: StreamChunk = {
+        type: 'finish',
+        finishReason: { unified: 'end_turn', raw: 'end_turn' },
+      }
+
+      const built = pipeline.build(finishChunk)
+      const outputs = Array.isArray(built) ? built : (built ? [built] : [])
+      const lastOutput = outputs[outputs.length - 1] || ''
+
+      // Should be patched to tool_use
+      expect(lastOutput).toContain('"stop_reason":"tool_use"')
+    })
+
+    test('pipeline state persists across method calls in same pipeline instance', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      // 1. Build a text-delta (should emit message_start + content)
+      const textChunk: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: 'Hello' },
+        blockIndex: 0,
+      }
+
+      const built1 = pipeline.build(textChunk)
+      const outputs1 = Array.isArray(built1) ? built1 : (built1 ? [built1] : [])
+
+      // Should have message_start
+      expect(outputs1.some((s) => s.includes('"type":"message_start"'))).toBe(true)
+
+      // 2. Build another chunk (should NOT emit message_start again)
+      const textChunk2: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: ' World' },
+        blockIndex: 0,
+      }
+
+      const built2 = pipeline.build(textChunk2)
+      const outputs2 = Array.isArray(built2) ? built2 : (built2 ? [built2] : [])
+
+      // Should NOT have message_start (already sent)
+      expect(outputs2.some((s) => s.includes('"type":"message_start"'))).toBe(false)
+    })
+
+    test('pipeline returns null for empty flush', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      // Don't start any blocks, just flush
+      const flushed = pipeline.flush()
+      expect(flushed).toBeNull()
+    })
+  })
+
+  describe('Multiple pipelines can work independently', () => {
+    test('two anthropic pipelines maintain separate state', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline1 = provider.getStreamingPipeline?.('openai-chat')
+      const pipeline2 = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline1 || !pipeline2) throw new Error('No pipeline')
+
+      // Pipeline 1: emit message_start
+      const chunk: StreamChunk = {
+        type: 'text-delta',
+        delta: { text: 'test' },
+        blockIndex: 0,
+      }
+
+      const built1 = pipeline1.build(chunk)
+      const outputs1 = Array.isArray(built1) ? built1 : built1 ? [built1] : []
+      const hasMessageStart1 = outputs1.some((s) => s?.includes('"type":"message_start"'))
+
+      // Pipeline 2: should also emit message_start (independent state)
+      const built2 = pipeline2.build(chunk)
+      const outputs2 = Array.isArray(built2) ? built2 : built2 ? [built2] : []
+      const hasMessageStart2 = outputs2.some((s) => s?.includes('"type":"message_start"'))
+
+      expect(hasMessageStart1).toBe(true)
+      expect(hasMessageStart2).toBe(true) // Each pipeline has its own state
+    })
+  })
+
+  describe('Edge cases', () => {
+    test('pipeline handles null parse result', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      // Invalid/unknown event
+      const result = pipeline.parse('data: [DONE]\n\n')
+      expect(result).toBeNull()
+    })
+
+    test('pipeline handles array of chunks', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      const chunks: StreamChunk[] = [
+        { type: 'text-delta', delta: { text: 'A' }, blockIndex: 0 },
+        { type: 'text-delta', delta: { text: 'B' }, blockIndex: 0 },
+      ]
+
+      const built = pipeline.build(chunks)
+      expect(built).toBeTruthy()
+      const outputs = Array.isArray(built) ? built : [built]
+      expect(outputs.length).toBeGreaterThan(0)
+    })
+
+    test('pipeline filter skips auto-generated message_start', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      const msgStart = `data: ${JSON.stringify({
+        type: 'message_start',
+        message: { id: 'msg_1' },
+      })}\n\n`
+
+      const shouldInclude = pipeline.filter(msgStart)
+      expect(shouldInclude).toBe(false) // Should be filtered
+    })
+
+    test('pipeline filter includes normal content', () => {
+      const provider = new AnthropicProvider('anthropic')
+      const pipeline = provider.getStreamingPipeline?.('openai-chat')
+
+      if (!pipeline) throw new Error('No pipeline')
+
+      const content = `data: ${JSON.stringify({
+        type: 'content_block_delta',
+        delta: { type: 'text_delta', text: 'Hello' },
+      })}\n\n`
+
+      const shouldInclude = pipeline.filter(content)
+      expect(shouldInclude).toBe(true) // Should be included
+    })
+  })
+})

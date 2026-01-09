@@ -1,7 +1,57 @@
 import type { ProviderName } from '@llmux/core'
-import type { AmpConfig, RoutingConfig } from '../config'
+import type { AmpConfig, AmpModelMapping, AmpTarget, RoutingConfig } from '../config'
 import { parseModelMapping } from '../handlers/model-mapping'
 import type { ModelLookup } from '../models/lookup'
+
+async function resolveProvider(
+  target: string | AmpTarget,
+  modelLookup: ModelLookup | undefined,
+  allMappings: AmpModelMapping[] | undefined,
+  visited: Set<string> = new Set()
+): Promise<{ provider: ProviderName; model: string } | undefined> {
+  const parsed = parseModelMapping(target)
+  let provider = parsed.provider as ProviderName
+
+  if (provider) {
+    return { provider, model: parsed.model }
+  }
+
+  if (modelLookup) {
+    provider = (await modelLookup.getProviderForModel(parsed.model)) as ProviderName
+    if (provider) {
+      return { provider, model: parsed.model }
+    }
+  }
+
+  // Alias lookup: check if this model is defined as another 'from' mapping
+  if (allMappings && !visited.has(parsed.model)) {
+    visited.add(parsed.model)
+    const alias = allMappings.find((m) => m.from === parsed.model)
+    if (alias) {
+      const firstTarget = Array.isArray(alias.to) ? alias.to[0] : alias.to
+      if (firstTarget) {
+        const resolved = await resolveProvider(firstTarget, modelLookup, allMappings, visited)
+        if (resolved) {
+          return resolved
+        }
+      }
+    }
+  }
+
+  // Slash fallback: handle "provider/model" where provider is not in KNOWN_PROVIDERS
+  if (typeof target === 'string' && target.includes('/')) {
+    const parts = target.split('/')
+    const possibleProvider = parts[0]
+    if (possibleProvider && /^[a-zA-Z0-9-_]+$/.test(possibleProvider)) {
+      return {
+        provider: possibleProvider as ProviderName,
+        model: target.substring(possibleProvider.length + 1),
+      }
+    }
+  }
+
+  return undefined
+}
 
 export async function buildRoutingConfig(
   modelMappings?: AmpConfig['modelMappings'],
@@ -19,64 +69,52 @@ export async function buildRoutingConfig(
 
     const primaryTarget = targets[0]
     if (!primaryTarget) continue
-    const primaryParsed = parseModelMapping(primaryTarget)
 
-    let primaryProvider: ProviderName | undefined = primaryParsed.provider as ProviderName
+    const resolvedPrimary = await resolveProvider(primaryTarget, modelLookup, modelMappings)
 
-    if (!primaryProvider && modelLookup) {
-      primaryProvider = (await modelLookup.getProviderForModel(primaryParsed.model)) as ProviderName
-    }
-
-    if (!primaryProvider) {
+    if (!resolvedPrimary) {
       throw new Error(
-        `Provider must be specified for model mapping: ${primaryTarget}. Use format "model:provider" or ensure the model exists in /models endpoint`
+        `Provider must be specified for model mapping: ${primaryTarget}. Use format "provider/model" or ensure the model exists in /models endpoint`
       )
     }
 
     const fallbacks = targets.slice(1)
-    const fallbackModels: string[] = []
+    const resolvedFallbacks: { provider: ProviderName; model: string; originalName: string }[] = []
 
     for (const fallback of fallbacks) {
-      const fallbackParsed = parseModelMapping(fallback)
-      fallbackModels.push(fallbackParsed.model)
+      const resolved = await resolveProvider(fallback, modelLookup, modelMappings)
+      if (!resolved) {
+        throw new Error(
+          `Provider must be specified for fallback mapping: ${fallback}. Use format "provider/model" or ensure the model exists in /models endpoint`
+        )
+      }
+      resolvedFallbacks.push({
+        ...resolved,
+        originalName: typeof fallback === 'string' ? fallback : fallback.model,
+      })
     }
+
+    const fallbackModelIds = resolvedFallbacks.map((r) => r.originalName)
 
     if (routingConfig.modelMapping) {
       routingConfig.modelMapping[mapping.from] = {
-        provider: primaryProvider,
-        model: primaryParsed.model,
-        fallbacks: fallbackModels,
+        provider: resolvedPrimary.provider,
+        model: resolvedPrimary.model,
+        fallbacks: fallbackModelIds,
       }
 
-      if (!routingConfig.modelMapping[primaryParsed.model]) {
-        routingConfig.modelMapping[primaryParsed.model] = {
-          provider: primaryProvider,
-          model: primaryParsed.model,
-          fallbacks: fallbackModels,
+      if (!routingConfig.modelMapping[resolvedPrimary.model]) {
+        routingConfig.modelMapping[resolvedPrimary.model] = {
+          provider: resolvedPrimary.provider,
+          model: resolvedPrimary.model,
         }
       }
 
-      for (const fallback of fallbacks) {
-        const fallbackParsed = parseModelMapping(fallback)
-
-        let fallbackProvider: ProviderName | undefined = fallbackParsed.provider as ProviderName
-
-        if (!fallbackProvider && modelLookup) {
-          fallbackProvider = (await modelLookup.getProviderForModel(
-            fallbackParsed.model
-          )) as ProviderName
-        }
-
-        if (!fallbackProvider) {
-          throw new Error(
-            `Provider must be specified for fallback mapping: ${fallback}. Use format "model:provider" or ensure the model exists in /models endpoint`
-          )
-        }
-
-        if (!routingConfig.modelMapping[fallbackParsed.model]) {
-          routingConfig.modelMapping[fallbackParsed.model] = {
-            provider: fallbackProvider,
-            model: fallbackParsed.model,
+      for (const resolved of resolvedFallbacks) {
+        if (!routingConfig.modelMapping[resolved.originalName]) {
+          routingConfig.modelMapping[resolved.originalName] = {
+            provider: resolved.provider,
+            model: resolved.model,
           }
         }
       }

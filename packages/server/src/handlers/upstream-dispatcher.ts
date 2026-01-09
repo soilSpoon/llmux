@@ -167,22 +167,28 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         }
 
         if (result.action === 'switch-model') {
-          // We need to update context for next iteration.
-          // The builder calls prepareRequestContext, which uses options.targetModel/Provider.
-          // We can't easily mutate options passed to builder.
-          // We should pass `startContext` or overrides to builder.
+          // Update options for next iteration with new provider/model
+          if (result.newProvider) {
+            options.targetProvider = result.newProvider
+          }
+          if (result.newModel) {
+            options.targetModel = result.newModel
+          }
 
-          // TODO: Support switch-model by modifying input or context passed to builder
-          logger.warn(
-            'Model switching fallback triggered but not fully implemented in dispatcher yet'
-          )
-          // Reset retry state partly?
+          // Reset retry state for new provider/model
           retryState.accountIndex = 0
           retryState.antigravityEndpointIndex = 0
           retryState.attempt = 0
 
-          // Ideally we'd loop back with new model.
-          // For now, let's treat as retry if we can't switch, or fail.
+          logger.info(
+            {
+              reqId,
+              newProvider: result.newProvider,
+              newModel: result.newModel,
+            },
+            'Switching to fallback provider/model'
+          )
+
           continue
         }
 
@@ -195,6 +201,75 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       if (options.router?.handleSuccess) {
         options.router.handleSuccess(request.meta.provider, request.meta.model)
       }
+
+      // === DEBUG: non-streaming 응답 로깅 ===
+      if (mode === 'non-streaming') {
+        try {
+          const fs = await import('node:fs')
+          const debugDir = '/tmp/llmux-debug'
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+
+          if (!fs.existsSync(debugDir)) {
+            fs.mkdirSync(debugDir, { recursive: true })
+          }
+
+          // 응답 클론해서 본문 읽기
+          const responseClone = lastResponse.clone()
+          const responseText = await responseClone.text()
+          let responseBody: unknown
+          try {
+            responseBody = JSON.parse(responseText)
+          } catch {
+            responseBody = { _raw: responseText }
+          }
+
+          const responsePath = `${debugDir}/${timestamp}-${reqId}-3-response.json`
+          fs.writeFileSync(
+            responsePath,
+            JSON.stringify(
+              {
+                _meta: {
+                  reqId,
+                  provider: request.meta.provider,
+                  model: request.meta.model,
+                  originalModel: request.meta.originalModel,
+                  endpoint: request.endpoint,
+                  status: lastResponse.status,
+                  mode,
+                  timestamp: new Date().toISOString(),
+                },
+                headers: Object.fromEntries(lastResponse.headers.entries()),
+                body: responseBody,
+              },
+              null,
+              2
+            )
+          )
+
+          // 응답에서 contents 개수 요약
+          const contentsCount =
+            (responseBody as { candidates?: { content?: { parts?: unknown[] } }[] })
+              ?.candidates?.[0]?.content?.parts?.length || 0
+
+          logger.debug(
+            {
+              reqId,
+              provider: request.meta.provider,
+              model: request.meta.model,
+              status: lastResponse.status,
+              contentsCount,
+              debugFile: responsePath,
+            },
+            '[DEBUG] Non-streaming response saved'
+          )
+        } catch (debugErr) {
+          logger.warn(
+            { reqId, error: String(debugErr) },
+            '[DEBUG] Failed to write response debug file'
+          )
+        }
+      }
+      // === END DEBUG ===
 
       if (input.onSuccessfulAttempt) {
         input.onSuccessfulAttempt(request.meta, lastResponse)

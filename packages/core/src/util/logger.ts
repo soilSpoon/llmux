@@ -15,7 +15,7 @@ import pino, { type Logger } from 'pino'
 const logLevel: string = process.env.DEBUG ? 'debug' : (process.env.LOG_LEVEL ?? 'info')
 
 // Create base logger with pino
-const pinoLogger: Logger = pino({
+const baseLogger: Logger = pino({
   level: logLevel,
   transport: {
     target: 'pino-pretty',
@@ -28,6 +28,22 @@ const pinoLogger: Logger = pino({
   },
 })
 
+export interface AppLogger extends Logger {
+  debugTemp(obj: unknown, msg?: string): void
+  debugTemp(msg: string): void
+}
+
+const pinoLogger = baseLogger as AppLogger
+
+// Temporary debug method for easier cleanup later (same level as debug, but searchable as debugTemp)
+pinoLogger.debugTemp = (objOrMsg: unknown, msg?: string) => {
+  if (typeof objOrMsg === 'string') {
+    pinoLogger.debug(objOrMsg)
+  } else {
+    pinoLogger.debug(objOrMsg as object, msg)
+  }
+}
+
 export interface LogContext {
   service?: string
   module?: string
@@ -38,13 +54,13 @@ export interface LogContext {
 /**
  * Create a scoped logger with context tags
  */
-export function createLogger(context: LogContext): ReturnType<typeof pinoLogger.child> {
-  return pinoLogger.child(context)
+export function createLogger(context: LogContext): AppLogger {
+  return pinoLogger.child(context) as AppLogger
 }
 
 /**
  * Default logger instance
  */
-export const logger: typeof pinoLogger = pinoLogger
+export const logger: AppLogger = pinoLogger
 
 export type { pino }

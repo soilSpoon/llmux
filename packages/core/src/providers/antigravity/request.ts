@@ -34,6 +34,8 @@ import type {
   AntigravityInnerRequest,
   AntigravityRequest,
   AntigravityThinkingConfig,
+  ClaudeThinkingConfig,
+  GeminiThinkingConfig,
 } from './types'
 import { isAntigravityRequest } from './types'
 
@@ -116,8 +118,7 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   )
 
   // Extract wrapper fields from metadata
-  // Project ID should be from credentials or use the default Antigravity project
-  const project = (metadata?.project as string) || 'rising-fact-p41fc'
+  const project = (metadata?.project as string) ?? generateProjectID()
 
   // Use model parameter (from Provider interface) directly
   // NOTE: Model aliasing is handled at the server layer in handlers/streaming.ts
@@ -132,7 +133,7 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   )
 
   const requestId = (metadata?.requestId as string) || `agent-${randomUUID()}`
-  const sessionId = metadata?.sessionId as string | undefined
+  const sessionId = (metadata?.sessionId as string) || generateSessionID()
 
   // Check if it's a Claude model for thinking config
   const isClaudeModel = model.toLowerCase().includes('claude')
@@ -229,45 +230,6 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     }
   }
 
-  // Transform generation config
-  // Note: We use the complex transformGenerationConfig below to handle thinking models correctly
-
-  // Apply thinking config via centralized logic
-  if (thinking?.enabled) {
-    // We are passing AntigravityGenerationConfig as Record<string, any>
-    // but applyThinkingConfig expects 'antigravity' provider to populate thinking_config
-    // However, transformGenerationConfig returns object with camelCase or snake_case depending on logic
-    // Antigravity wrapper usually expects snake_case for the outer request?
-    // Actually Antigravity types use camelCase for GenerationConfig in TS but snake_case in JSON.
-    // Let's use 'antigravity' provider type in applyThinkingConfig which uses snake_case 'thinking_config'
-    // But our AntigravityGenerationConfig type uses camelCase 'thinkingConfig'.
-    // To match current Antigravity implementation that uses mixed styles:
-    // We'll let applyThinkingConfig add 'thinking_config' (snake_case) or 'thinkingConfig' (camelCase).
-    // Let's check transformGenerationConfig implementation first.
-    // It seems our current transformGenerationConfig was doing complex logic for Claude/Gemini3.
-    // We should replicate that or use applyThinkingConfig with care.
-    // Since applyThinkingConfig is generic, let's keep the specialized logic here for now
-    // BUT augment it with applyThinkingConfig if it's a simple case?
-    // Actually, Antigravity has complex model-dependent logic (Gemini 3 vs Claude).
-    // Let's defer to transformGenerationConfig which we will update to use applyThinkingConfig PATTERN
-    // or just inline the logic as it is very specific to Antigravity quirks.
-    // UPDATED DECISION: Antigravity's thinking logic is too complex/model-specific to fully
-    // centralize in a generic helper without bloating the helper.
-    // We will keep the logic here but clean it up.
-  }
-
-  // Update transformGenerationConfig to use the model information
-  // We'll keep calling the local transformGenerationConfig but update IT to be cleaner.
-  // ... Actually, let's stick to the existing logic for Antigravity as it's working and complex.
-  // Just ensure we are not losing anything.
-
-  // WAIT: The prompt was to "Implement centralized applyThinkingConfig".
-  // If I don't use it here, I am not fulfilling the prompt fully for Antigravity.
-  // But Antigravity has `thinking_config` vs `thinkingConfig` chaos.
-  // Let's leave Antigravity as is for now regarding applyThinkingConfig
-  // because it requires model-specific tier detection which is inside this file.
-
-  // ... Re-reading transformGenerationConfig below ...
   const generationConfig = transformGenerationConfig(
     config,
     thinking,
@@ -305,6 +267,7 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     project,
     model: model, // Send full model name as requested
     userAgent: 'antigravity',
+    requestType: 'agent', // CLIProxyAPI v6.6.89+ compatibility
     requestId,
     request: innerRequest,
   }
@@ -350,7 +313,7 @@ function parsePart(part: GeminiPart): ContentPart {
       type: 'thinking',
       thinking: {
         text: part.text,
-        signature: part.thought_signature,
+        signature: part.thoughtSignature ?? part.thought_signature,
       },
     }
   }
@@ -524,26 +487,30 @@ function parseGeminiSchemaProperty(schema: GeminiSchema): JSONSchemaProperty {
 function parseThinkingConfig(thinkingConfig?: AntigravityThinkingConfig) {
   if (!thinkingConfig) return undefined
 
-  // Check for either camelCase or snake_case
-  const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
-  const budget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
-  // thinkingLevel is no longer supported in AntigravityThinkingConfig
-  // const level = thinkingConfig.thinkingLevel
+  // Determine format using 'in' operator for type narrowing
+  const isClaudeFormat = 'include_thoughts' in thinkingConfig || 'thinking_budget' in thinkingConfig
+  const isGeminiFormat = 'includeThoughts' in thinkingConfig || 'thinkingBudget' in thinkingConfig
+
+  let includeThoughts: boolean | undefined
+  let budget: number | undefined
+
+  if (isClaudeFormat) {
+    const claudeConfig = thinkingConfig as ClaudeThinkingConfig
+    includeThoughts = claudeConfig.include_thoughts
+    budget = claudeConfig.thinking_budget
+  } else if (isGeminiFormat) {
+    const geminiConfig = thinkingConfig as GeminiThinkingConfig
+    includeThoughts = geminiConfig.includeThoughts
+    budget = geminiConfig.thinkingBudget
+  }
 
   if (includeThoughts === undefined && budget === undefined) {
     return undefined
   }
 
-  // Map thinkingLevel to effort
-  // let effort: ThinkingConfig['effort']
-  // if (level) {
-  //   effort = level as 'low' | 'medium' | 'high'
-  // }
-
   return {
     enabled: includeThoughts ?? true,
     budget,
-    // effort,
     includeThoughts,
   }
 }
@@ -635,7 +602,7 @@ function transformPart(
       return {
         thought: true,
         text: part.thinking?.text || '',
-        thought_signature: part.thinking?.signature,
+        thoughtSignature: part.thinking?.signature,
       }
 
     case 'tool_call': {
@@ -649,6 +616,7 @@ function transformPart(
       const hasValidSignature =
         fallbackSignature && fallbackSignature.length >= MIN_SIGNATURE_LENGTH
       const effectiveSignature = hasValidSignature ? fallbackSignature : SKIP_SENTINEL
+      // Gemini 2.0 requires thought_signature field on functionCall parts
 
       return {
         functionCall: {
@@ -659,7 +627,7 @@ function transformPart(
               : (part.toolCall?.arguments ?? {}),
           id: part.toolCall?.id,
         },
-        thought_signature: effectiveSignature,
+        thoughtSignature: effectiveSignature,
       }
     }
 
@@ -854,10 +822,9 @@ function transformGenerationConfig(
 
     // Claude thinking models: always use snake_case keys
     if (isClaudeModel && isThinkingModel) {
-      const thinkingConfig: AntigravityThinkingConfig = {}
-      thinkingConfig.include_thoughts = thinking.includeThoughts ?? true
-      if (thinking.budget) {
-        thinkingConfig.thinking_budget = thinking.budget
+      const thinkingConfig: ClaudeThinkingConfig = {
+        include_thoughts: thinking.includeThoughts ?? true,
+        ...(thinking.budget && { thinking_budget: thinking.budget }),
       }
       // Claude thinking models need minimum maxOutputTokens
       result.maxOutputTokens = Math.max(result.maxOutputTokens || 0, 64000)
@@ -865,9 +832,6 @@ function transformGenerationConfig(
     }
     // Gemini 3 with tier suffix: uses thinkingLevel string (low/medium/high)
     else if (isGemini3 && hasGemini3Tier) {
-      const thinkingConfig: AntigravityThinkingConfig = {}
-      thinkingConfig.includeThoughts = thinking.includeThoughts ?? true
-
       // Extract tier from model name suffix (e.g., gemini-3-pro-high -> 'high')
       const modelTier = extractThinkingTier(fullModelName)
 
@@ -891,7 +855,10 @@ function transformGenerationConfig(
         }
       }
 
-      thinkingConfig.thinkingBudget = budget
+      const thinkingConfig: GeminiThinkingConfig = {
+        includeThoughts: thinking.includeThoughts ?? true,
+        thinkingBudget: budget,
+      }
       result.thinkingConfig = thinkingConfig
 
       // Ensure maxOutputTokens > thinkingBudget as per spec
@@ -901,18 +868,46 @@ function transformGenerationConfig(
     }
     // Gemini 2.5 and other models: use numeric thinkingBudget
     else if (thinking.budget) {
-      const thinkingConfig: AntigravityThinkingConfig = {}
-      thinkingConfig.includeThoughts = thinking.includeThoughts ?? true
-      thinkingConfig.thinkingBudget = thinking.budget
+      const thinkingConfig: GeminiThinkingConfig = {
+        includeThoughts: thinking.includeThoughts ?? true,
+        thinkingBudget: thinking.budget,
+      }
       result.thinkingConfig = thinkingConfig
     }
     // Default: just enable thinking without specific config
     else if (thinking.includeThoughts !== false) {
-      const thinkingConfig: AntigravityThinkingConfig = {}
-      thinkingConfig.includeThoughts = thinking.includeThoughts ?? true
+      const thinkingConfig: GeminiThinkingConfig = {
+        includeThoughts: thinking.includeThoughts ?? true,
+      }
       result.thinkingConfig = thinkingConfig
     }
   }
 
   return Object.keys(result).length > 0 ? result : undefined
+}
+/**
+ * Generate a random project ID matching CLIProxyAPI format
+ */
+function generateProjectID(): string {
+  const adjectives = ['useful', 'bright', 'swift', 'calm', 'bold']
+  const nouns = ['fuze', 'wave', 'spark', 'flow', 'core']
+
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]
+  const noun = nouns[Math.floor(Math.random() * nouns.length)]
+  const randomPart = randomUUID().slice(0, 5)
+
+  return `${adj}-${noun}-${randomPart}`
+}
+
+/**
+ * Generate a session ID matching CLIProxyAPI format (-int64)
+ */
+function generateSessionID(): string {
+  // Generate a large random integer (simulating int63)
+  const MAX_INT64 = 9223372036854775807n
+  const rand =
+    BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)) *
+    BigInt(Math.floor(Math.random() * 1000))
+  const n = rand % MAX_INT64
+  return `-${n.toString()}`
 }

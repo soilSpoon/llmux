@@ -1,6 +1,6 @@
 import type { FormatId } from '../formats/base'
+import type { StreamChunk, StreamDelta, UnifiedRequest, UnifiedResponse } from '../types'
 import type { UnifiedError } from '../types/error'
-import type { StreamChunk, StreamDelta, UnifiedRequest, UnifiedResponse } from '../types/unified'
 
 /**
  * Supported provider names
@@ -74,7 +74,6 @@ export interface ProviderConfig {
   supportsThinking: boolean
   supportsTools: boolean
   authType?: AuthType
-  defaultMaxTokens?: number
   defaultStreamParser?: StreamParserType
 }
 
@@ -97,11 +96,6 @@ export interface Provider {
   isSupportedRequest(request: unknown): boolean
 
   /**
-   * Check if the model name is supported by this provider
-   */
-  isSupportedModel(model: string): boolean
-
-  /**
    * Parse provider-specific request format into UnifiedRequest
    */
   parse(request: unknown): UnifiedRequest
@@ -113,8 +107,10 @@ export interface Provider {
 
   /**
    * Parse provider-specific response format into UnifiedResponse
+   * @param response - The provider-specific response
+   * @param model - Optional model name for format detection in hybrid providers
    */
-  parseResponse(response: unknown): UnifiedResponse
+  parseResponse(response: unknown, model?: string): UnifiedResponse
 
   /**
    * Transform UnifiedResponse into provider-specific response format
@@ -158,11 +154,10 @@ export abstract class BaseProvider implements Provider {
   abstract readonly config: ProviderConfig
 
   abstract isSupportedRequest(request: unknown): boolean
-  abstract isSupportedModel(model: string): boolean
 
   abstract parse(request: unknown): UnifiedRequest
   abstract transform(request: UnifiedRequest, model: string): unknown
-  abstract parseResponse(response: unknown): UnifiedResponse
+  abstract parseResponse(response: unknown, model?: string): UnifiedResponse
   abstract transformResponse(response: UnifiedResponse): unknown
 
   parseStreamChunk?(chunk: string): StreamChunk | StreamChunk[] | null

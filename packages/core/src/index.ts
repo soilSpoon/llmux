@@ -33,11 +33,16 @@ export {
 } from './cache/signature'
 export { SQLiteStorage } from './cache/storage'
 export { AnthropicMessagesFormat } from './formats/anthropic-messages'
+export { AnthropicStreamingBuilder } from './formats/anthropic-messages/anthropic-streaming-builder'
 // Schema Formats
 export type { FormatContext, FormatId, SchemaFormat } from './formats/base'
+// Format utilities
+export { detectFormatFromUrl, formatIdToProviderName } from './formats/format-utils'
 export { GoogleGeminiFormat } from './formats/google-gemini'
 export { OpenAIChatFormat } from './formats/openai-chat'
+export { OpenAIChatStreamingBuilder } from './formats/openai-chat/openai-streaming-builder'
 export { OpenAIResponsesFormat } from './formats/openai-responses'
+export { getFormat } from './formats/registry'
 
 // AI SDK Provider
 export { AiSdkProvider } from './providers/ai-sdk'
@@ -137,6 +142,7 @@ export type {
   ResponsesUsage,
 } from './responses'
 export {
+  OpenAIResponsesStreamingBuilder,
   parseSSELine,
   ResponsesStreamTransformer,
   transformResponsesRequest,
@@ -153,6 +159,7 @@ export type {
   RequestMetadata,
   StopReason,
   StreamChunk,
+  StreamingPipeline,
   ThinkingBlock,
   ThinkingConfig,
   ToolCall,

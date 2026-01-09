@@ -181,33 +181,11 @@ export class FallbackHandler {
         // If we detected a provider via ModelLookup, call streaming handler directly
         // since the AMP dispatcher may not have a registered handler for this provider
         if (detectedProvider) {
-          // Parse body to detect source format
-          let sourceFormat: 'openai' | 'anthropic' | 'gemini' = 'anthropic'
-
-          // Try to determine format from URL first
-          if (request.url.includes('/v1/messages') && !request.url.includes('/chat/completions')) {
-            sourceFormat = 'anthropic'
-          } else if (request.url.includes('/v1/chat/completions')) {
-            sourceFormat = 'openai'
-          } else if (request.url.includes('generateContent')) {
-            sourceFormat = 'gemini'
-          } else {
-            // Fallback to body inspection if URL is ambiguous
-            try {
-              const text = finalBodyText // Body is already text
-              const json = JSON.parse(text)
-              const detected = detectFormat(json)
-              // Only use detected format if it's one of the standard formats
-              if (detected === 'openai' || detected === 'anthropic' || detected === 'gemini') {
-                sourceFormat = detected
-              }
-            } catch {
-              // Default to anthropic if parsing fails
-            }
-          }
+          // Use centralized detectFormat with URL
+          const sourceFormat = detectFormat(request.url)
 
           const bodyJson = JSON.parse(finalBodyText)
-          const isStreaming = bodyJson.stream === true
+          const isStreaming = bodyJson.stream
 
           if (isStreaming) {
             logger.info(
@@ -219,6 +197,7 @@ export class FallbackHandler {
               sourceFormat,
               targetProvider: detectedProvider,
               targetModel: model,
+              originalModel,
               thinking: mappingResult.thinking,
               modelMappings: this.modelMappings,
               router: this.router,
@@ -234,6 +213,7 @@ export class FallbackHandler {
             sourceFormat,
             targetProvider: detectedProvider,
             targetModel: model,
+            originalModel,
             thinking: mappingResult.thinking,
             modelMappings: this.modelMappings,
             router: this.router,

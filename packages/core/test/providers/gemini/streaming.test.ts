@@ -9,19 +9,21 @@ describe('Gemini Streaming Transformations', () => {
         const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}`
 
         const result = parseStreamChunk(sse)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result
 
         expect(result).not.toBeNull()
-        expect(result?.type).toBe('content')
-        expect(result?.delta?.text).toBe('Hello')
+        expect(parsed?.type).toBe('content')
+        expect(parsed?.delta?.text).toBe('Hello')
       })
 
       it('should handle data: with extra whitespace', () => {
         const sse = `data:   {"candidates":[{"content":{"role":"model","parts":[{"text":"Hi"}]}}]}`
 
         const result = parseStreamChunk(sse)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result
 
         expect(result).not.toBeNull()
-        expect(result?.delta?.text).toBe('Hi')
+        expect(parsed?.delta?.text).toBe('Hi')
       })
 
       it('should return null for empty data', () => {
@@ -71,8 +73,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('content')
-        expect(result?.delta?.text).toBe('Hello, world!')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('content')
+        expect(parsed?.delta?.text).toBe('Hello, world!')
       })
 
       it('should concatenate multiple text parts', () => {
@@ -90,7 +94,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.text).toBe('Hello world')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.text).toBe('Hello world')
       })
 
       it('should handle empty text', () => {
@@ -108,8 +114,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('content')
-        expect(result?.delta?.text).toBe('')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('content')
+        expect(parsed?.delta?.text).toBe('')
       })
     })
 
@@ -136,9 +144,11 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('tool_call')
-        expect(result?.delta?.toolCall?.name).toBe('get_weather')
-        expect(result?.delta?.toolCall?.arguments).toEqual({ location: 'NYC' })
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('tool_call')
+        expect(parsed?.delta?.toolCall?.name).toBe('get_weather')
+        expect(parsed?.delta?.toolCall?.arguments).toEqual({ location: 'NYC' })
       })
 
       it('should generate id for function call', () => {
@@ -158,7 +168,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.toolCall?.id).toBeDefined()
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.toolCall?.id).toBeDefined()
       })
     })
 
@@ -180,9 +192,11 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('thinking')
-        expect(result?.delta?.thinking?.text).toBe('Let me think...')
-        expect(result?.delta?.thinking?.signature).toBe('sig')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('thinking')
+        expect(parsed?.delta?.thinking?.text).toBe('Let me think...')
+        expect(parsed?.delta?.thinking?.signature).toBe('sig')
       })
     })
 
@@ -200,7 +214,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.stopReason).toBe('end_turn')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.stopReason).toBe('end_turn')
       })
 
       it('should map MAX_TOKENS to max_tokens', () => {
@@ -216,7 +232,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.stopReason).toBe('max_tokens')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.stopReason).toBe('max_tokens')
       })
 
       it('should detect tool_use when functionCall present', () => {
@@ -235,7 +253,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.stopReason).toBe('tool_use')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.stopReason).toBe('tool_use')
       })
     })
 
@@ -258,7 +278,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.usage).toEqual({
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.usage).toEqual({
           inputTokens: 10,
           outputTokens: 20,
           totalTokens: 30,
@@ -284,7 +306,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.usage?.thinkingTokens).toBe(200)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.usage?.thinkingTokens).toBe(200)
       })
     })
 
@@ -307,8 +331,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('done')
-        expect(result?.stopReason).toBe('end_turn')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('done')
+        expect(parsed?.stopReason).toBe('end_turn')
       })
     })
 
@@ -336,11 +362,12 @@ describe('Gemini Streaming Transformations', () => {
         const sse = `data: ${JSON.stringify(chunk)}`
 
         const result = parseStreamChunk(sse)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result
 
         // Should return done chunk when finishReason present but no content
         expect(result).not.toBeNull()
-        expect(result?.type).toBe('done')
-        expect(result?.stopReason).toBe('end_turn')
+        expect(parsed?.type).toBe('done')
+        expect(parsed?.stopReason).toBe('end_turn')
       })
     })
   })
@@ -500,8 +527,10 @@ describe('Gemini Streaming Transformations', () => {
         const sse = transformStreamChunk(original)
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('content')
-        expect(result?.delta?.text).toBe('Hello, world!')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('content')
+        expect(parsed?.delta?.text).toBe('Hello, world!')
       })
 
       it('should preserve tool_call through round-trip', () => {
@@ -520,9 +549,11 @@ describe('Gemini Streaming Transformations', () => {
         const sse = transformStreamChunk(original)
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('tool_call')
-        expect(result?.delta?.toolCall?.name).toBe('get_weather')
-        expect(result?.delta?.toolCall?.arguments).toEqual({ location: 'NYC' })
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('tool_call')
+        expect(parsed?.delta?.toolCall?.name).toBe('get_weather')
+        expect(parsed?.delta?.toolCall?.arguments).toEqual({ location: 'NYC' })
       })
 
       it('should preserve thinking through round-trip', () => {
@@ -537,9 +568,11 @@ describe('Gemini Streaming Transformations', () => {
         const sse = transformStreamChunk(original)
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('thinking')
-        expect(result?.delta?.thinking?.text).toBe('Let me think...')
-        expect(result?.delta?.thinking?.signature).toBe('sig123')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('thinking')
+        expect(parsed?.delta?.thinking?.text).toBe('Let me think...')
+        expect(parsed?.delta?.thinking?.signature).toBe('sig123')
       })
     })
   })
@@ -618,18 +651,20 @@ describe('Gemini Streaming Transformations', () => {
         const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}   `
 
         const result = parseStreamChunk(sse)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result
 
         expect(result).not.toBeNull()
-        expect(result?.delta?.text).toBe('Hello')
+        expect(parsed?.delta?.text).toBe('Hello')
       })
 
       it('should handle JSON with trailing newlines', () => {
         const sse = `data: {"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}\n\n`
 
         const result = parseStreamChunk(sse)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result
 
         expect(result).not.toBeNull()
-        expect(result?.delta?.text).toBe('Hello')
+        expect(parsed?.delta?.text).toBe('Hello')
       })
     })
 
@@ -668,9 +703,11 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('content')
-        expect(result?.delta?.text).toBe(largeText)
-        expect(result?.delta?.text?.length).toBe(100000)
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('content')
+        expect(parsed?.delta?.text).toBe(largeText)
+        expect(parsed?.delta?.text?.length).toBe(100000)
       })
 
       it('should handle many parts in a single chunk', () => {
@@ -689,8 +726,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('content')
-        expect(result?.delta?.text).toBe(parts.map((p) => p.text).join(''))
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('content')
+        expect(parsed?.delta?.text).toBe(parts.map((p) => p.text).join(''))
       })
     })
 
@@ -710,7 +749,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.text).toBe('你好世界 🌍 مرحبا العالم')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.text).toBe('你好世界 🌍 مرحبا العالم')
       })
 
       it('should handle emoji sequences', () => {
@@ -728,7 +769,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.text).toBe('👨‍👩‍👧‍👦 👩🏽‍💻 🏳️‍🌈')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.text).toBe('👨‍👩‍👧‍👦 👩🏽‍💻 🏳️‍🌈')
       })
 
       it('should handle escaped unicode in JSON', () => {
@@ -736,7 +779,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.text).toBe('你好')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.text).toBe('你好')
       })
     })
 
@@ -763,7 +808,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.toolCall?.arguments).toEqual({ content: 'He said "Hello"' })
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.toolCall?.arguments).toEqual({ content: 'He said "Hello"' })
       })
 
       it('should handle newlines and tabs in function args', () => {
@@ -788,7 +835,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.toolCall?.arguments).toEqual({ content: 'line1\n\tline2\r\nline3' })
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.toolCall?.arguments).toEqual({ content: 'line1\n\tline2\r\nline3' })
       })
 
       it('should handle backslashes in function args', () => {
@@ -813,7 +862,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.toolCall?.arguments).toEqual({ path: 'C:\\Users\\test\\file.txt' })
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.toolCall?.arguments).toEqual({ path: 'C:\\Users\\test\\file.txt' })
       })
     })
 
@@ -894,7 +945,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.text).toBe('First candidate')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.text).toBe('First candidate')
       })
 
       it('should use first candidate even if subsequent have different finish reasons', () => {
@@ -920,8 +973,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.text).toBe('First')
-        expect(result?.stopReason).toBe('end_turn')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.text).toBe('First')
+        expect(parsed?.stopReason).toBe('end_turn')
       })
     })
 
@@ -942,8 +997,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.usage?.inputTokens).toBe(10)
-        expect(result?.usage?.outputTokens).toBeUndefined()
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.usage?.inputTokens).toBe(10)
+        expect(parsed?.usage?.outputTokens).toBeUndefined()
       })
 
       it('should handle usageMetadata with zero values', () => {
@@ -964,7 +1021,9 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.usage).toEqual({
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.usage).toEqual({
           inputTokens: 0,
           outputTokens: 0,
           totalTokens: 0,
@@ -985,8 +1044,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.usage?.inputTokens).toBeUndefined()
-        expect(result?.usage?.outputTokens).toBeUndefined()
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.usage?.inputTokens).toBeUndefined()
+        expect(parsed?.usage?.outputTokens).toBeUndefined()
         })
         })
 
@@ -1013,9 +1074,11 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('tool_call')
-        expect(result?.delta?.partialJson).toBe('{"x": 10')
-        expect(result?.delta?.toolCall?.name).toBe('calculate')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('tool_call')
+        expect(parsed?.delta?.partialJson).toBe('{"x": 10')
+        expect(parsed?.delta?.toolCall?.name).toBe('calculate')
         })
 
         it('should handle empty partialJson gracefully', () => {
@@ -1040,8 +1103,10 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('tool_call')
-        expect(result?.delta?.partialJson).toBe('')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('tool_call')
+        expect(parsed?.delta?.partialJson).toBe('')
         })
 
         it('should accumulate partialJson chunks to complete JSON', () => {
@@ -1102,8 +1167,10 @@ describe('Gemini Streaming Transformations', () => {
         let accumulated = ''
         for (const chunkData of chunks) {
           const result = parseStreamChunk(`data: ${JSON.stringify(chunkData)}`)
-          if (result?.delta?.partialJson) {
-            accumulated += result.delta.partialJson
+          const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+          if (parsed?.delta?.partialJson) {
+            accumulated += parsed.delta.partialJson
           }
         }
 
@@ -1131,10 +1198,11 @@ describe('Gemini Streaming Transformations', () => {
         }
 
         const parseResult = parseStreamChunk(`data: ${JSON.stringify(parseChunk)}`)
-        expect(parseResult?.delta?.partialJson).toBe('{"key": "val')
+        const parsedChunk = Array.isArray(parseResult) ? parseResult[parseResult.length - 1] : parseResult
+        expect(parsedChunk?.delta?.partialJson).toBe('{"key": "val')
 
         // Transform back to Gemini format
-        const transformResult = transformStreamChunk(parseResult!)
+        const transformResult = transformStreamChunk(parsedChunk!)
         const data = JSON.parse(transformResult.replace('data: ', ''))
 
         expect(data.candidates[0].content.parts[0].functionCall.args).toBe('{"key": "val')
@@ -1162,9 +1230,11 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.type).toBe('tool_call')
-        expect(result?.delta?.partialJson).toBe('{"id":123,"name":"Alice","active":true}')
-        expect(result?.delta?.toolCall?.name).toBe('update_user')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.type).toBe('tool_call')
+        expect(parsed?.delta?.partialJson).toBe('{"id":123,"name":"Alice","active":true}')
+        expect(parsed?.delta?.toolCall?.name).toBe('update_user')
         })
 
         it('should preserve tool ID during partialJson streaming', () => {
@@ -1190,9 +1260,11 @@ describe('Gemini Streaming Transformations', () => {
 
         const result = parseStreamChunk(sse)
 
-        expect(result?.delta?.partialJson).toBe('{"param": 1')
-        expect(result?.delta?.toolCall?.id).toBe('call_xyz789')
-        expect(result?.delta?.toolCall?.name).toBe('get_info')
+        const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+        expect(parsed?.delta?.partialJson).toBe('{"param": 1')
+        expect(parsed?.delta?.toolCall?.id).toBe('call_xyz789')
+        expect(parsed?.delta?.toolCall?.name).toBe('get_info')
         })
         })
         })

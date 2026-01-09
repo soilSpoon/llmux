@@ -1,6 +1,24 @@
 import { describe, expect, it } from 'bun:test'
-import { parseStreamChunk, transformStreamChunk } from '../../../src/providers/openai/streaming'
+import { getFormat } from '../../../src/formats/registry'
 import type { StreamChunk } from '../../../src/types/unified'
+
+// Helper to access streaming functions from the format
+const format = getFormat('openai-chat')
+const parseStreamChunk = (chunk: string) => {
+  if (!format.parseStreamChunk) return null
+  const result = format.parseStreamChunk(chunk)
+  // Test expects single result, but format returns array | null
+  // For these tests, we assume single result
+  if (Array.isArray(result)) return result[0] || null
+  return result
+}
+const transformStreamChunk = (chunk: StreamChunk) => {
+  if (!format.buildStreamChunk) return ''
+  const result = format.buildStreamChunk(chunk, { model: '', provider: 'openai' })
+  // Test expects string, but format returns string | string[]
+  if (Array.isArray(result)) return result.join('')
+  return result
+}
 
 describe('OpenAI Streaming', () => {
   describe('parseStreamChunk', () => {

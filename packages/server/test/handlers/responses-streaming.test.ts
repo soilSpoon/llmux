@@ -295,13 +295,16 @@ describe("handleResponses - Streaming", () => {
       ) as typeof fetch;
 
       const request = createStreamingRequest({
-        model: "gpt-4o",
+        model: "gemini-2.0-flash",
         input: "Test Antigravity format",
         stream: true,
       });
 
-      // Using OpenAI as provider since we're mocking the actual request
-      const response = await handleResponses(request, baseOptions);
+      // Use Antigravity provider
+      const response = await handleResponses(request, {
+        ...baseOptions,
+        targetProvider: "antigravity",
+      });
 
       expect(response.status).toBe(200);
       expect(response.headers.get("Content-Type")).toBe("text/event-stream");

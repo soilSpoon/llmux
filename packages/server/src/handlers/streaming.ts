@@ -1,6 +1,7 @@
 import { createLogger, type ProviderName } from '@llmux/core'
 import { createErrorResponse } from './error-utils'
 import { createStreamTransformer, type StreamContext } from './stream-transformer'
+import { getSignatureCache } from './thinking/cache-instance'
 import type { ProxyOptions } from './types'
 import { executeUpstream, getSignatureStore, NonRetriableError } from './upstream-executor'
 
@@ -30,6 +31,7 @@ export async function handleStreamingProxy(
     fullResponse: '',
     accumulatedText: '',
     accumulatedThinking: '',
+    accumulatedSignatures: [],
   }
 
   try {
@@ -68,7 +70,7 @@ export async function handleStreamingProxy(
       provider: effectiveTargetProvider,
       endpoint: response.url,
       toolsCount: (body as { tools?: unknown[] }).tools?.length || 0,
-      bodyLength: 0,
+      bodyLength: JSON.stringify(body).length,
     }
 
     if (options.router?.handleSuccess) {
@@ -112,6 +114,8 @@ export async function handleStreamingProxy(
                 `Saved ${count} signatures for project: ${currentProjectId}`
               )
             },
+            signatureCache: getSignatureCache(),
+            sessionId: reqId,
           }
         : undefined,
     })

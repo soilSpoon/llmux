@@ -25,7 +25,7 @@ export class SignatureCache {
     this.maxEntriesPerSession = options.maxEntriesPerSession ?? 100
   }
 
-  store(key: CacheKey, signature: string, family: ModelFamily): void {
+  store(key: CacheKey, signature: string, family: ModelFamily, thinkingText?: string): void {
     const { sessionId, model, textHash } = key
     const entryKey = `${model}:${textHash}`
 
@@ -34,6 +34,7 @@ export class SignatureCache {
       family,
       timestamp: Date.now(),
       sessionId,
+      thinkingText: thinkingText || null,
     }
 
     this.storage.set(sessionId, entryKey, entry)
@@ -113,13 +114,9 @@ export function getModelFamily(model: string): ModelFamily {
 }
 
 export function createTextHash(text: string): string {
-  let hash = 0
-  for (let i = 0; i < text.length; i++) {
-    const char = text.charCodeAt(i)
-    hash = (hash << 5) - hash + char
-    hash = hash & hash
-  }
-  return Math.abs(hash).toString(36)
+  // Use Bun.hash (WyHash) which is much faster than SHA-256 and has good collision resistance
+  // Returns a 64-bit integer as a string
+  return Bun.hash(text).toString()
 }
 
 export { type CacheEntry, MemoryStorage, type SignatureStorage, SQLiteStorage } from './storage'

@@ -8,12 +8,10 @@
  */
 
 import type { FormatId } from '../../formats/base'
+import { getFormat } from '../../formats/registry'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig } from '../base'
-import { parse, transform } from './request'
-import { parseResponse, transformResponse } from './response'
-import { parseStreamChunk, transformStreamChunk } from './streaming'
-import { type GeminiRequest, type GeminiResponse, isGeminiRequest } from './types'
+import type { GeminiRequest, GeminiResponse } from './types'
 
 export class GeminiProvider extends BaseProvider {
   readonly name: 'gemini' | 'gemini-cli'
@@ -28,59 +26,67 @@ export class GeminiProvider extends BaseProvider {
       supportsThinking: true,
       supportsTools: true,
       authType: 'apiKey',
-      defaultMaxTokens: 8192,
       defaultStreamParser: 'sse-line-delimited',
     }
   }
 
   isSupportedRequest(request: unknown): boolean {
-    return isGeminiRequest(request)
-  }
-
-  isSupportedModel(model: string): boolean {
-    return model.startsWith('gemini')
+    return getFormat('google-gemini').isSupportedWireRequest(request)
   }
 
   /**
    * Parse GeminiRequest into UnifiedRequest
    */
   parse(request: unknown): UnifiedRequest {
-    return parse(request as GeminiRequest)
+    return getFormat('google-gemini').parseRequest(request)
   }
 
   /**
    * Transform UnifiedRequest into GeminiRequest
    */
-  transform(request: UnifiedRequest): GeminiRequest {
-    return transform(request)
+  transform(request: UnifiedRequest, model: string): GeminiRequest {
+    return getFormat('google-gemini').buildWireRequest(request, {
+      provider: this.name,
+      model,
+    }) as GeminiRequest
   }
 
   /**
    * Parse GeminiResponse into UnifiedResponse
    */
   parseResponse(response: unknown): UnifiedResponse {
-    return parseResponse(response as GeminiResponse)
+    return getFormat('google-gemini').parseResponse(response)
   }
 
   /**
    * Transform UnifiedResponse into GeminiResponse
    */
   transformResponse(response: UnifiedResponse): GeminiResponse {
-    return transformResponse(response)
+    return getFormat('google-gemini').buildWireResponse(response, {
+      provider: this.name,
+      model: response.model || 'unknown',
+    }) as GeminiResponse
   }
 
   /**
    * Parse SSE stream chunk from Gemini format
    */
   parseStreamChunk(chunk: string): StreamChunk | null {
-    return parseStreamChunk(chunk)
+    const parsed = getFormat('google-gemini').parseStreamChunk?.(chunk)
+    // Handle array or single return
+    if (Array.isArray(parsed)) return parsed[0] || null
+    return parsed || null
   }
 
   /**
    * Transform unified stream chunk to Gemini SSE format
    */
   transformStreamChunk(chunk: StreamChunk): string {
-    return transformStreamChunk(chunk)
+    const result = getFormat('google-gemini').buildStreamChunk?.(chunk, {
+      provider: this.name,
+      model: 'unknown',
+    })
+    return Array.isArray(result) ? result.join('\n') : result || ''
   }
 
   /**
@@ -160,8 +166,4 @@ export class GeminiProvider extends BaseProvider {
   }
 }
 
-// Export the provider class and types
-export { parse, transform } from './request'
-export { parseResponse, transformResponse } from './response'
-export { parseStreamChunk, transformStreamChunk } from './streaming'
 export * from './types'

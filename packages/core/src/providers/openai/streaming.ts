@@ -32,6 +32,14 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   } else if (trimmed.startsWith('{')) {
     // If it starts with {, it's a raw JSON object string
     data = trimmed
+  } else if (trimmed.includes('data:')) {
+    // Handle chunks that might contain 'event: ...\ndata: ...' or just 'data: ...' inside
+    const dataMatch = trimmed.match(/^data:\s*(.+)$/m)
+    if (dataMatch?.[1]) {
+      data = dataMatch[1].trim()
+    } else {
+      return null
+    }
   } else {
     // Other lines are ignored
     return null

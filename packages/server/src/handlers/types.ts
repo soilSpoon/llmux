@@ -6,6 +6,7 @@ export interface ProxyOptions {
   sourceFormat: RequestFormat
   targetProvider?: string
   targetModel?: string
+  originalModel?: string
   apiKey?: string
   thinking?: boolean
   modelMappings?: AmpModelMapping[]

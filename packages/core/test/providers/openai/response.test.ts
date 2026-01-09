@@ -1,10 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import {
-  parseResponse,
-  transformResponse,
-} from "../../../src/providers/openai/response";
+import * as OpenAIResponseMod from "../../../src/formats/openai-chat/response";
 import type { OpenAIResponse } from "../../../src/providers/openai/types";
 import { createUnifiedResponse } from "../_utils/fixtures";
+
+// Rename imports
+const parseResponse = OpenAIResponseMod.parseResponse;
+const transformResponse = OpenAIResponseMod.transformResponse;
 
 describe("OpenAI Response Transform", () => {
   describe("parseResponse (OpenAIResponse → UnifiedResponse)", () => {
@@ -322,7 +323,7 @@ describe("OpenAI Response Transform", () => {
       expect(result.stopReason).toBeNull();
     });
 
-    it("handles empty choices gracefully", () => {
+    it("throws error on empty choices", () => {
       const openaiResponse: OpenAIResponse = {
         id: "chatcmpl-123",
         object: "chat.completion",
@@ -331,10 +332,7 @@ describe("OpenAI Response Transform", () => {
         choices: [],
       };
 
-      const result = parseResponse(openaiResponse);
-
-      expect(result.content).toEqual([]);
-      expect(result.stopReason).toBeNull();
+      expect(() => parseResponse(openaiResponse)).toThrow();
     });
 
     it("handles response without usage gracefully", () => {

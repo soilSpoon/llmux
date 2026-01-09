@@ -36,7 +36,7 @@ export interface UnifiedResponse {
   usage?: UsageInfo
   model?: string
   thinking?: ThinkingBlock[]
-  metadata?: Record<string, unknown>
+  metadata?: ResponseMetadata
 }
 
 /**
@@ -161,12 +161,32 @@ export interface SystemBlock {
  * RequestMetadata - Additional request metadata
  */
 export interface RequestMetadata {
+  // Common metadata
   userId?: string
   sessionId?: string
   conversationId?: string
   user?: string // OpenAI user identifier
   promptCacheKey?: string // For centralized caching
-  [key: string]: unknown
+
+  // Previously required, but making optional for compatibility with tests/partial updates
+  project?: string
+  userAgent?: string
+  requestType?: string
+  requestId?: string
+
+  // Antigravity / Google Cloud specific
+  duetProject?: string
+  ideType?: string
+  platform?: string
+  pluginType?: string
+
+  // OpenAI specific
+  serviceTier?: string
+  parallelToolCalls?: boolean
+
+  // Other observed fields
+  model?: string
+  customField?: unknown // For tests
 }
 
 /**
@@ -185,7 +205,7 @@ export interface UsageInfo {
 }
 
 /**
- * StopReason - Reason for generation completion
+ * StopReason - Reason for generation completion (unified)
  */
 export type StopReason =
   | 'end_turn'
@@ -195,6 +215,30 @@ export type StopReason =
   | 'content_filter'
   | 'error'
   | null
+
+/**
+ * FinishReason - Reason for generation completion with raw provider value
+ * Inspired by Vercel AI SDK's LanguageModelV3FinishReason
+ *
+ * Preserves both the unified reason for consistent handling and the raw
+ * provider-specific value for debugging and provider-specific logic.
+ */
+export interface FinishReason {
+  /**
+   * Unified finish reason that works across all providers.
+   * Maps provider-specific values to a consistent set of reasons.
+   */
+  unified: StopReason
+
+  /**
+   * Raw provider-specific finish reason string.
+   * Examples:
+   * - OpenAI: "stop", "length", "tool_calls", "content_filter"
+   * - Anthropic: "end_turn", "max_tokens", "tool_use", "stop_sequence"
+   * - Gemini: "STOP", "MAX_TOKENS", "SAFETY", "RECITATION"
+   */
+  raw: string
+}
 
 /**
  * UnifiedTool - Tool/function definition
@@ -209,6 +253,7 @@ export interface UnifiedTool {
  * JSONSchema - Simplified JSON Schema for tool parameters
  */
 export interface JSONSchema {
+  [key: string]: unknown // Allow additional JSON Schema keywords
   type: 'object' | 'string' | 'number' | 'integer' | 'boolean' | 'array'
   properties?: Record<string, JSONSchemaProperty>
   required?: string[]
@@ -235,23 +280,174 @@ export interface JSONSchemaProperty {
 }
 
 /**
+ * UnifiedResponseMetadata - Response-level metadata for lossless streaming transformation
+ *
+ * Captures all fields from response.created/response.in_progress SSE events.
+ * Design principle: No rawResponse - all fields are explicitly typed.
+ *
+ * This is the unified format used across the system, using camelCase.
+ */
+export interface ResponseMetadata {
+  [key: string]: unknown // Allow any additional fields for lossless round-trip
+  responseId?: string
+  id?: string // Alias for responseId
+  object?: 'response' | string
+  status?: 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'incomplete'
+  model?: string
+  createdAt?: number
+  created_at?: number // Alias for createdAt (snake_case)
+  completedAt?: number
+  completed_at?: number // Alias for completedAt (snake_case)
+
+  background?: boolean
+  instructions?: string
+  obfuscation?: boolean
+
+  temperature?: number
+  top_p?: number // For round-trip
+  topP?: number
+  max_output_tokens?: number // For round-trip
+  maxOutputTokens?: number
+  parallel_tool_calls?: boolean // For round-trip
+  parallelToolCalls?: boolean
+  store?: boolean
+  prompt_cache_key?: string // For round-trip
+  promptCacheKey?: string
+  truncation?: 'auto' | 'disabled'
+  top_logprobs?: number // For round-trip
+  topLogprobs?: number
+  service_tier?: string // For round-trip
+  serviceTier?: 'auto' | 'default' | 'flex' | 'priority' | string
+  safety_identifier?: string // For round-trip
+  safetyIdentifier?: string
+  max_tool_calls?: number | null // For round-trip
+  maxToolCalls?: number | null
+  previousResponseId?: string | null
+  previous_response_id?: string | null // For round-trip
+  promptCacheRetention?: number | null
+  prompt_cache_retention?: number | null // For round-trip
+
+  tools?: Array<{
+    type: string
+    name?: string
+    description?: string
+    parameters?: Record<string, unknown> | JSONSchema
+  }>
+  tool_choice?: string | { type: string; name?: string }
+
+  toolChoice?:
+    | 'auto'
+    | 'none'
+    | 'required'
+    | string
+    | { type: string; name?: string; function?: { name: string } }
+
+  reasoning?: {
+    enabled?: boolean
+    effort?: 'none' | 'low' | 'medium' | 'high'
+    summary?: 'auto' | 'concise' | 'detailed' | 'none'
+    maxTokens?: number
+    budget?: number
+    max_tokens?: number // For backward compatibility with some internal clones
+  }
+
+  text?: {
+    format?: {
+      type?: 'text' | 'json_object' | 'json_schema' | string
+      schema?: JSONSchema
+    }
+    verbosity?: string
+  }
+
+  output?: unknown[]
+  input?: string[]
+
+  error?: {
+    message?: string
+    code?: string
+    type?: string
+  } | null
+
+  incompleteDetails?: {
+    reason?: 'max_output_tokens' | 'time' | 'content_filter' | 'stop' | string
+  } | null
+
+  metadata?: Record<string, unknown>
+  user?: string
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// STREAMING TYPES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * UnifiedStreamChunkType - Granular stream chunk types
+ *
+ * Inspired by Vercel AI SDK's LanguageModelV3StreamPart pattern with *-start/*-delta/*-end.
+ * Enables better state tracking than simple delta-only streaming.
+ *
+ * Types:
+ * - text-delta: Incremental text content
+ * - tool-call-start: Start of a tool call (includes id, name)
+ * - tool-input-delta: Incremental tool input JSON
+ * - tool-call-end: End of a tool call
+ * - thinking-start: Start of thinking block
+ * - thinking-delta: Incremental thinking content
+ * - thinking-end: End of thinking block
+ * - usage: Token usage update
+ * - finish: Stream completion with finish reason
+ * - error: Error during streaming
+ */
+export type UnifiedStreamChunkType =
+  // Text content
+  | 'text-delta'
+  // Tool calls (start/delta/end pattern)
+  | 'tool-call-start'
+  | 'tool-input-delta'
+  | 'tool-call-end'
+  // Thinking blocks (start/delta/end pattern)
+  | 'thinking-start'
+  | 'thinking-delta'
+  | 'thinking-end'
+  // Meta events
+  | 'usage'
+  | 'finish'
+  | 'error'
+
+/**
  * StreamChunk - Represents a single streaming chunk
+ *
+ * This is the format-agnostic unified stream representation.
+ * Formats parse provider-specific SSE events into these chunks.
  *
  * Multi-block streaming support:
  * - blockIndex: 0-based index identifying which content block this chunk belongs to
  * - blockType: The type of content block (text, tool_call, thinking, etc.)
- * - type: 'block_stop' signals the end of a specific content block
+ *
+ * Granular stream types:
+ * - Uses UnifiedStreamChunkType for Vercel AI SDK-style *-start/*-delta/*-end pattern
+ * - Enables precise state tracking for complex content like tool calls and thinking
  */
 export interface StreamChunk {
+  /**
+   * Granular chunk type for precise streaming state tracking.
+   *
+   * Use UnifiedStreamChunkType values like 'text-delta', 'tool-call-start',
+   * 'tool-input-delta', 'thinking-delta', 'finish', etc.
+   *
+   * Legacy types ('content', 'tool_call', etc.) are supported for backward compatibility.
+   */
   type:
+    | UnifiedStreamChunkType
+    // Legacy types for backward compatibility
     | 'content'
     | 'tool_call'
     | 'tool_result'
     | 'thinking'
-    | 'usage'
     | 'block_stop'
     | 'done'
-    | 'error'
+
+  id?: string
 
   /** 0-based block index for multi-block streaming (defaults to 0 for single-block providers) */
   blockIndex?: number
@@ -261,14 +457,40 @@ export interface StreamChunk {
 
   delta?: StreamDelta
   usage?: UsageInfo
-  stopReason?: StopReason
-  error?: string
-  model?: string
+
   /**
-   * For 'done' chunks: if true, skip emitting the stop reason delta (e.g. message_delta).
+   * Finish reason with both unified and raw values.
+   * For 'finish' type chunks, provides detailed stop reason information.
+   */
+  finishReason?: FinishReason
+
+  /** @deprecated Use finishReason.unified instead */
+  stopReason?: StopReason
+
+  error?: string
+
+  /**
+   * Response metadata from OpenAI Responses API events.
+   * Captured from response.created and response.in_progress events to preserve
+   * all original response fields including instructions, obfuscation, etc.
+   */
+  responseMetadata?: ResponseMetadata
+  model?: string
+
+  /**
+   * For 'done'/'finish' chunks: if true, skip emitting the stop reason delta.
    * Used when the stop reason was already emitted in a previous chunk.
    */
   skipStopDelta?: boolean
+
+  /**
+   * Tool call metadata for 'tool-call-start' and 'tool-call-end' events.
+   * Contains the tool call ID and name (name only available at start).
+   */
+  toolCall?: {
+    id: string
+    name?: string
+  }
 }
 
 /**
@@ -293,4 +515,56 @@ export interface StreamDelta extends Partial<ContentPart> {
    * Client should accumulate these chunks to reconstruct complete JSON argument objects.
    */
   partialJson?: string
+}
+
+/**
+ * StreamingPipeline - Provider-specific streaming transformation strategy
+ *
+ * Handles stateful streaming transformations for a specific provider's wire format.
+ * Unlike SchemaFormat (which is stateless), StreamingPipeline maintains state
+ * to handle provider-specific streaming concerns like:
+ * - Auto-emitting message_start on first content block (Anthropic)
+ * - Filtering duplicate events from transformations
+ * - Emitting final cleanup events (e.g., block_stop)
+ */
+export interface StreamingPipeline {
+  /**
+   * Parse raw SSE into unified StreamChunk format.
+   *
+   * @param chunk Raw SSE string (e.g., "data: {...}\n\n" or "data: {...}\n")
+   * @returns Unified StreamChunk, array of chunks, or null if unparseable
+   */
+  parse(chunk: string): StreamChunk | StreamChunk[] | null
+
+  /**
+   * Build unified StreamChunk into target provider SSE format.
+   *
+   * @param chunk Unified StreamChunk to transform
+   * @returns Provider-specific SSE string(s) or null if not buildable
+   *
+   * May return multiple strings (e.g., when injecting message_start).
+   */
+  build(chunk: StreamChunk | StreamChunk[]): string | string[] | null
+
+  /**
+   * Filter: Determine if output should be included in the stream.
+   *
+   * Use this to skip duplicate or redundant events.
+   * Called AFTER build(), allowing format-specific filtering.
+   *
+   * @param output The SSE string to potentially filter
+   * @returns true if output should be sent, false to skip
+   */
+  filter(output: string): boolean
+
+  /**
+   * Flush: Called when stream ends, to emit any final cleanup events.
+   *
+   * Used for stateful transformations that need to emit final events:
+   * - Anthropic: Emit final block_stop event
+   * - OpenAI: No special flush needed
+   *
+   * @returns Final SSE string(s) to emit, or null if nothing to send
+   */
+  flush(): string | null
 }

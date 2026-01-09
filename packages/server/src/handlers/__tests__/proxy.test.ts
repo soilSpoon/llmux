@@ -49,7 +49,7 @@ describe("handleProxy with modelMappings", () => {
   }
 
   const baseOptions: ProxyOptions = {
-    sourceFormat: "openai",
+    sourceFormat: "openai-chat",
     targetProvider: "openai",
     apiKey: "test-api-key",
   };

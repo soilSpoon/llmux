@@ -55,10 +55,10 @@ describe("handleStreamingProxy with modelMappings", () => {
   }
 
   const baseOptions: ProxyOptions = {
-    sourceFormat: "openai",
-    targetProvider: "openai",
-    apiKey: "test-api-key",
-  };
+    sourceFormat: 'openai-chat',
+    targetProvider: 'openai',
+    apiKey: 'test-api-key',
+  }
 
   describe("매핑 적용", () => {
     it("매핑이 있을 때 request body의 model이 변환된다", async () => {
@@ -176,9 +176,9 @@ describe("handleStreamingProxy with modelMappings", () => {
       });
       await handleStreamingProxy(request, {
         ...baseOptions,
-        sourceFormat: "anthropic",
-        targetProvider: "anthropic",
-      });
+        sourceFormat: 'anthropic-messages',
+        targetProvider: 'anthropic',
+      })
 
       expect(capturedBody).not.toHaveProperty("stream_options");
     });

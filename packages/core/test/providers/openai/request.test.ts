@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { parse, transform } from "../../../src/providers/openai/request";
+import * as OpenAIRequestMod from "../../../src/formats/openai-chat/request";
 import type {
   OpenAIRequest,
   OpenAIAssistantMessage,
@@ -10,6 +10,9 @@ import {
   createUnifiedTool,
   createUnifiedToolCall,
 } from "../_utils/fixtures";
+
+const parse = OpenAIRequestMod.parseRequest;
+const transform = OpenAIRequestMod.transformRequest;
 
 describe("OpenAI Request Transform", () => {
   describe("transform (UnifiedRequest → OpenAIRequest)", () => {

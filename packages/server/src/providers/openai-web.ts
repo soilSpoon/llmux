@@ -186,7 +186,16 @@ export interface CodexBodyOptions {
 }
 
 export async function buildCodexBody(options: CodexBodyOptions): Promise<Record<string, unknown>> {
-  const instructions = options.systemInstructions || (await getCodexInstructions(options.model))
+  // Always fetch instructions from GitHub - strict Opencode parity.
+  // We ignore user-provided instructions to avoid "Instructions are not valid" and ensure correct Codex behavior.
+  if (options.systemInstructions) {
+    logger.debug(
+      { model: options.model, length: options.systemInstructions.length },
+      '[openai-web] Ignoring provided systemInstructions in favor of GitHub Codex instructions'
+    )
+  }
+
+  const instructions = await getCodexInstructions(options.model)
 
   const transformedTools = options.tools ? transformToolsForCodex(options.tools) : undefined
 

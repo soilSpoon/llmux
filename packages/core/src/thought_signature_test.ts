@@ -53,9 +53,10 @@ describe('Gemini 3 Flash thoughtSignature Verification', () => {
     const unifiedChunk = parseStreamChunk(chunkStr)
 
     expect(unifiedChunk).not.toBeNull()
-    if (unifiedChunk) {
-      expect(unifiedChunk.type).toBe('tool_call')
-      expect(unifiedChunk.delta?.thoughtSignature).toBe('sig_stream_123')
+    const chunk = Array.isArray(unifiedChunk) ? unifiedChunk[unifiedChunk.length - 1] : unifiedChunk
+    if (chunk) {
+      expect(chunk.type).toBe('tool_call')
+      expect(chunk.delta?.thoughtSignature).toBe('sig_stream_123')
     }
   })
 })

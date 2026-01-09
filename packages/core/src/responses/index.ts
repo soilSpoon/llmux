@@ -2,6 +2,7 @@
  * OpenAI Responses API Types
  */
 
+export { OpenAIResponsesStreamingBuilder } from '../formats/openai-responses/streaming-builder'
 /**
  * Streaming transformation
  */

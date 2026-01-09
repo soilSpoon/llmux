@@ -6,6 +6,7 @@ import type {
   JSONSchema,
   JSONSchemaProperty,
   RequestMetadata,
+  ResponseMetadata,
   StopReason,
   StreamChunk,
   StreamDelta,
@@ -417,6 +418,43 @@ describe("StreamChunk", () => {
     }
 
     expect(accumulated).toBe('{"key": "value"}');
+  });
+});
+
+describe("ResponseMetadata", () => {
+  it("should have maxToolCalls field with number type", () => {
+    const metadata: ResponseMetadata = {
+      maxToolCalls: 10,
+    };
+    expect(metadata.maxToolCalls).toBe(10);
+  });
+
+  it("should have previousResponseId field with string type", () => {
+    const metadata: ResponseMetadata = {
+      previousResponseId: "resp_abc123",
+    };
+    expect(metadata.previousResponseId).toBe("resp_abc123");
+  });
+
+  it("should have promptCacheRetention field with number type", () => {
+    const metadata: ResponseMetadata = {
+      promptCacheRetention: 3600,
+    };
+    expect(metadata.promptCacheRetention).toBe(3600);
+  });
+
+  it("should accept all new fields together with existing fields", () => {
+    const metadata: ResponseMetadata = {
+      responseId: "resp_123",
+      model: "gpt-4o",
+      status: "completed",
+      maxToolCalls: 5,
+      previousResponseId: "resp_prev",
+      promptCacheRetention: 1800,
+    };
+    expect(metadata.maxToolCalls).toBe(5);
+    expect(metadata.previousResponseId).toBe("resp_prev");
+    expect(metadata.promptCacheRetention).toBe(1800);
   });
 });
 

@@ -1,51 +1,19 @@
-import { getProvider, getRegisteredProviders, isValidProviderName } from '@llmux/core'
+import type { FormatId } from '@llmux/core'
+import { detectFormatFromUrl } from '@llmux/core'
 
-export type RequestFormat = 'openai' | 'anthropic' | 'gemini' | 'antigravity'
+export type RequestFormat = FormatId
 
-export function detectFormat(body: unknown): RequestFormat {
-  if (!body || typeof body !== 'object') {
-    throw new Error('Unknown request format')
-  }
+/**
+ * Detect the request format from URL
+ *
+ * @param url The request URL path
+ * @throws Error (400) if format cannot be detected from URL
+ */
+export function detectFormat(url: string): FormatId {
+  const fromUrl = detectFormatFromUrl(url)
+  if (fromUrl) return fromUrl
 
-  const providers = getRegisteredProviders()
-  // Explicitly type priority as ProviderName[] (or compatible) if possible,
-  // but since we are iterating strings, we can just use `as ProviderName` when checking/getting.
-  const priority = ['antigravity', 'gemini', 'anthropic', 'openai'] as const
-
-  // Check priority providers first
-  for (const name of priority) {
-    // Check if the priority provider is actually registered
-    // Using explicit check instead of casting
-    if (isValidProviderName(name) && providers.includes(name)) {
-      try {
-        const provider = getProvider(name)
-        if (provider.isSupportedRequest(body)) {
-          return name
-        }
-      } catch {
-        // Ignore
-      }
-    }
-  }
-
-  // Check remaining providers
-  for (const name of providers) {
-    // Skip if already checked in priority list
-    if ((priority as readonly string[]).includes(name)) continue
-    try {
-      const provider = getProvider(name)
-      if (provider.isSupportedRequest(body)) {
-        // Map provider names to RequestFormat types
-        if (name === 'openai-web') return 'openai'
-        if (name === 'opencode-zen') continue // Skip hybrid/delegating providers
-        if (['openai', 'anthropic', 'gemini', 'antigravity'].includes(name)) {
-          return name as RequestFormat
-        }
-      }
-    } catch {
-      // Ignore errors accessing providers
-    }
-  }
-
-  throw new Error('Unknown request format')
+  throw new Error(
+    'Unknown request format. Please use a standard API endpoint like /v1/chat/completions'
+  )
 }

@@ -115,7 +115,7 @@ async function createProxyLikeHandler(
   params: BuildProxyOptionsParams
 ): Promise<Response> {
   const { body, overrideSourceFormat, defaultTargetProvider, modelMappings, router } = params
-  const sourceFormat = overrideSourceFormat ?? detectFormat(body)
+  const sourceFormat = overrideSourceFormat ?? detectFormat(request.url)
   const targetProvider = request.headers.get('X-Target-Provider') || defaultTargetProvider
 
   const options: ProxyOptions = {
@@ -127,7 +127,7 @@ async function createProxyLikeHandler(
     router,
   }
 
-  if (body.stream) {
+  if (body.stream === true) {
     return handleStreamingProxy(request, options)
   }
   return handleProxy(request, options)
@@ -155,7 +155,7 @@ function createProxyHandler(
 function createAutoHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
-    const detectedFormat = detectFormat(body)
+    const detectedFormat = detectFormat(request.url)
     return createProxyLikeHandler(request, {
       request,
       body,
@@ -236,7 +236,7 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
   const messagesHandler = createProxyHandler(
     options.modelMappings,
     options.router,
-    'anthropic',
+    'anthropic-messages',
     'anthropic'
   )
   const generateContentHandler = createProxyHandler(options.modelMappings, options.router)

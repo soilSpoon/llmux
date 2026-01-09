@@ -12,6 +12,7 @@ import type {
   UnifiedTool,
   UnifiedToolChoice,
 } from '../../types/unified'
+import { createLogger } from '../../util/logger'
 import type {
   OpenAIAssistantMessage,
   OpenAIContentPart,
@@ -28,6 +29,8 @@ import type {
   OpenAIUserMessage,
 } from './types'
 
+const logger = createLogger({ module: 'openai-transform' })
+
 /**
  * Parse an OpenAI request into UnifiedRequest format.
  *
@@ -38,7 +41,9 @@ import type {
 export function parse(request: OpenAIRequest): UnifiedRequest {
   const result: UnifiedRequest = {
     messages: [],
-    metadata: {},
+    metadata: {
+      model: request.model,
+    },
   }
 
   // Extract user and potential cache key
@@ -49,7 +54,11 @@ export function parse(request: OpenAIRequest): UnifiedRequest {
   }
 
   let systemContent: string | undefined
-  const messages = request.messages || request.input || []
+  // Fallback to input if messages is empty (handle both undefined and empty array)
+  const messages =
+    Array.isArray(request.messages) && request.messages.length > 0
+      ? request.messages
+      : request.input || []
 
   // Reconstruct messages if tool calls are flattened into the array
   // (only needed when using input field with Responses API format)
@@ -65,7 +74,10 @@ export function parse(request: OpenAIRequest): UnifiedRequest {
       // Extract system/developer message content
       systemContent = extractTextContent(msg.content)
     } else {
-      result.messages.push(parseMessage(msg))
+      const parsed = parseMessage(msg)
+      if (parsed) {
+        result.messages.push(parsed)
+      }
     }
   }
 
@@ -176,7 +188,7 @@ import { applyThinkingConfig } from '../../transform/thinking'
  * @param model - The model to use (defaults to 'gpt-4')
  * @returns The OpenAI request
  */
-export function transform(request: UnifiedRequest, model: string = 'gpt-4'): OpenAIRequest {
+export function transform(request: UnifiedRequest, model: string): OpenAIRequest {
   const result: OpenAIRequest = {
     model,
     messages: [],
@@ -435,7 +447,7 @@ function reconstructFlattenedToolCalls(messages: unknown[]): OpenAIMessage[] {
 // Message Parsing
 // =============================================================================
 
-function parseMessage(msg: OpenAIMessage): UnifiedMessage {
+function parseMessage(msg: OpenAIMessage): UnifiedMessage | null {
   switch (msg.role) {
     case 'user':
       return parseUserMessage(msg)
@@ -447,8 +459,8 @@ function parseMessage(msg: OpenAIMessage): UnifiedMessage {
     case 'developer':
       throw new Error('System/Developer messages should be handled separately')
     default: {
-      const _exhaustiveCheck: never = msg
-      throw new Error(`Unknown message role: ${(_exhaustiveCheck as OpenAIMessage).role}`)
+      // Ignore unknown roles per spec (silent stripping)
+      return null
     }
   }
 }
@@ -643,6 +655,12 @@ function transformContentPart(part: ContentPart): OpenAIContentPart {
     case 'text':
       if (part.text === undefined) {
         throw new Error('Text content part must have text')
+      }
+      if (part.cacheControl) {
+        logger.warn({
+          msg: 'Dropping unsupported cache_control in OpenAI transform',
+          cacheControl: part.cacheControl,
+        })
       }
       return { type: 'text', text: part.text }
     case 'image':

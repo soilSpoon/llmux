@@ -6,18 +6,12 @@
  */
 
 import type { FormatId } from '../../formats/base'
+import type { OpenAIResponsesRequest } from '../../formats/openai-responses/types'
+import { getFormat } from '../../formats/registry'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { isResponsesApiRequest } from '../openai/format-detector'
-import { parse, transform } from '../openai/request'
-import { parseResponse, transformResponse } from '../openai/response'
-import { parseStreamChunk, transformStreamChunk } from '../openai/streaming'
-import {
-  isOpenAIRequest,
-  isOpenAIResponse,
-  type OpenAIRequest,
-  type OpenAIResponse,
-} from '../openai/types'
+import { isOpenAIRequest, type OpenAIResponse } from '../openai/types'
 
 /**
  * OpenAI Web Provider Configuration
@@ -35,6 +29,9 @@ const OPENAI_WEB_CONFIG: ProviderConfig = {
  *
  * Uses the same Responses API format as standard OpenAI, but authenticated
  * via ChatGPT OAuth and routed through chatgpt.com/backend-api/codex
+ *
+ * NOTE: Instruction validation and injection is handled by the server package's
+ * buildCodexBody function, which fetches instructions from GitHub.
  */
 export class OpenAIWebProvider extends BaseProvider {
   readonly name: ProviderName = 'openai-web'
@@ -44,77 +41,67 @@ export class OpenAIWebProvider extends BaseProvider {
     return isOpenAIRequest(request) && isResponsesApiRequest(request)
   }
 
-  isSupportedModel(model: string): boolean {
-    return model.startsWith('gpt-5') || model.includes('codex')
-  }
-
   /**
    * Parse an OpenAI request into UnifiedRequest format.
    */
   parse(request: unknown): UnifiedRequest {
-    if (!isOpenAIRequest(request)) {
-      throw new Error('Invalid OpenAI request: must have model and messages')
-    }
-    return parse(request)
+    return getFormat('openai-responses').parseRequest(request)
   }
 
   /**
    * Transform a UnifiedRequest into OpenAI Responses API format.
    * The /backend-api/codex endpoint uses the same format as /v1/responses
+   *
+   * NOTE: Final instruction validation is handled by server's buildCodexBody
    */
-  transform(request: UnifiedRequest, model: string): OpenAIRequest {
-    // Use standard OpenAI transformation - the /codex endpoint uses Responses API format
-    const transformed = transform(request, model)
-
-    // Fix content types for Responses API (text -> input_text)
-    if (transformed.messages) {
-      transformed.messages = transformed.messages.map((msg) => {
-        if (Array.isArray(msg.content)) {
-          // biome-ignore lint/suspicious/noExplicitAny: transforming specific types
-          const newContent = msg.content.map((part: any) => {
-            if (part.type === 'text') {
-              return { ...part, type: 'input_text' }
-            }
-            return part
-          })
-          return { ...msg, content: newContent }
-        }
-        return msg
-      })
-    }
-
-    return transformed
+  transform(request: UnifiedRequest, model: string): OpenAIResponsesRequest {
+    return getFormat('openai-responses').buildWireRequest(request, {
+      model,
+      provider: this.name,
+    }) as OpenAIResponsesRequest
   }
 
   /**
    * Parse an OpenAI response into UnifiedResponse format.
    */
   parseResponse(response: unknown): UnifiedResponse {
-    if (!isOpenAIResponse(response)) {
-      throw new Error('Invalid OpenAI response: must have id, object, and choices')
-    }
-    return parseResponse(response)
+    return getFormat('openai-responses').parseResponse(response)
   }
 
   /**
    * Transform a UnifiedResponse into OpenAI response format.
    */
   transformResponse(response: UnifiedResponse): OpenAIResponse {
-    return transformResponse(response)
+    return getFormat('openai-responses').buildWireResponse(response, {
+      model: response.model || 'unknown',
+      provider: this.name,
+    }) as OpenAIResponse
   }
 
   /**
-   * Parse an OpenAI SSE streaming chunk.
+   * Parse an OpenAI Responses API SSE streaming chunk.
    */
-  parseStreamChunk(chunk: string): StreamChunk | null {
-    return parseStreamChunk(chunk)
+  parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
+    const format = getFormat('openai-responses')
+    if (!format.parseStreamChunk) {
+      throw new Error('openai-responses format missing parseStreamChunk')
+    }
+    return format.parseStreamChunk(chunk)
   }
 
   /**
    * Transform a StreamChunk into OpenAI SSE format.
    */
   transformStreamChunk(chunk: StreamChunk): string {
-    return transformStreamChunk(chunk)
+    const format = getFormat('openai-responses')
+    if (!format.buildStreamChunk) {
+      throw new Error('openai-responses format missing buildStreamChunk')
+    }
+    const result = format.buildStreamChunk(chunk, {
+      model: 'unknown',
+      provider: this.name,
+    })
+    return Array.isArray(result) ? result.join('\n') : result
   }
 
   /**

@@ -5,6 +5,7 @@ export interface CacheEntry {
   family: ModelFamily
   timestamp: number
   sessionId: string
+  thinkingText?: string | null
 }
 
 export interface SignatureStorage {
@@ -81,6 +82,7 @@ export class SQLiteStorage implements SignatureStorage {
         signature TEXT NOT NULL,
         family TEXT NOT NULL,
         timestamp INTEGER NOT NULL,
+        thinking_text TEXT,
         PRIMARY KEY (session_id, entry_key)
       )
     `)
@@ -95,29 +97,44 @@ export class SQLiteStorage implements SignatureStorage {
   get(sessionId: string, entryKey: string): CacheEntry | undefined {
     const row = this.db
       .query(
-        'SELECT signature, family, timestamp FROM signatures WHERE session_id = ? AND entry_key = ?'
+        'SELECT signature, family, timestamp, thinking_text FROM signatures WHERE session_id = ? AND entry_key = ?'
       )
       .get(sessionId, entryKey) as {
       signature: string
       family: ModelFamily
       timestamp: number
+      thinking_text?: string | null
     } | null
 
     if (!row) return undefined
 
-    return {
+    const result: CacheEntry = {
       signature: row.signature,
       family: row.family as ModelFamily,
       timestamp: row.timestamp,
       sessionId,
     }
+
+    // Only include thinkingText if it exists (backward compatibility)
+    if (row.thinking_text) {
+      result.thinkingText = row.thinking_text
+    }
+
+    return result
   }
 
   set(sessionId: string, entryKey: string, entry: CacheEntry): void {
     this.db.run(
-      `INSERT OR REPLACE INTO signatures (session_id, entry_key, signature, family, timestamp)
-       VALUES (?, ?, ?, ?, ?)`,
-      [sessionId, entryKey, entry.signature, entry.family, entry.timestamp]
+      `INSERT OR REPLACE INTO signatures (session_id, entry_key, signature, family, timestamp, thinking_text)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [
+        sessionId,
+        entryKey,
+        entry.signature,
+        entry.family,
+        entry.timestamp,
+        entry.thinkingText ?? null,
+      ]
     )
   }
 
@@ -134,22 +151,29 @@ export class SQLiteStorage implements SignatureStorage {
 
   getSessionEntries(sessionId: string): Map<string, CacheEntry> {
     const rows = this.db
-      .query('SELECT entry_key, signature, family, timestamp FROM signatures WHERE session_id = ?')
+      .query(
+        'SELECT entry_key, signature, family, timestamp, thinking_text FROM signatures WHERE session_id = ?'
+      )
       .all(sessionId) as Array<{
       entry_key: string
       signature: string
       family: string
       timestamp: number
+      thinking_text: string | null
     }>
 
     const entries = new Map<string, CacheEntry>()
     for (const row of rows) {
-      entries.set(row.entry_key, {
+      const entry: CacheEntry = {
         signature: row.signature,
         family: row.family as ModelFamily,
         timestamp: row.timestamp,
         sessionId,
-      })
+      }
+      if (row.thinking_text) {
+        entry.thinkingText = row.thinking_text
+      }
+      entries.set(row.entry_key, entry)
     }
     return entries
   }

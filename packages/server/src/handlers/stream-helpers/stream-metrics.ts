@@ -18,6 +18,7 @@ export interface StreamMetrics {
   fullResponse: string
   accumulatedText: string
   accumulatedThinking: string
+  accumulatedSignatures: string[]
 }
 
 export function createStreamMetrics(reqId: string): StreamMetrics {
@@ -29,6 +30,7 @@ export function createStreamMetrics(reqId: string): StreamMetrics {
     fullResponse: '',
     accumulatedText: '',
     accumulatedThinking: '',
+    accumulatedSignatures: [],
   }
 }
 
@@ -63,6 +65,20 @@ export function handleEmptyResponse(
   encoder: TextEncoder
 ): void {
   if (metrics.chunkCount === 0 && !metrics.error) {
+    // 디버깅: 실제 받은 응답 내용 로깅
+    logger.warn(
+      {
+        reqId: metrics.reqId,
+        chunkCount: metrics.chunkCount,
+        totalBytes: metrics.totalBytes,
+        fullResponseLength: metrics.fullResponse.length,
+        fullResponsePreview: metrics.fullResponse.slice(0, 500),
+        accumulatedTextLength: metrics.accumulatedText.length,
+        accumulatedThinkingLength: metrics.accumulatedThinking.length,
+      },
+      'Empty response detected - details'
+    )
+
     const errorMsg =
       'Upstream model returned empty response (0 tokens). This may be due to safety filters or internal model refusal.'
     metrics.error = errorMsg

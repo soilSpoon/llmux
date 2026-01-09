@@ -35,10 +35,23 @@ describe('opencode-zen provider', () => {
   })
 
   describe('getOpencodeZenEndpoint', () => {
-    test('returns correct endpoints for each protocol', () => {
+    test('returns correct endpoints for openai and anthropic protocols', () => {
       expect(getOpencodeZenEndpoint('openai')).toBe('https://opencode.ai/zen/v1/chat/completions')
       expect(getOpencodeZenEndpoint('anthropic')).toBe('https://opencode.ai/zen/v1/messages')
-      expect(getOpencodeZenEndpoint('gemini')).toBe('https://opencode.ai/zen/v1/generateContent')
+    })
+
+    test('returns model-specific endpoint for gemini when model is provided', () => {
+      expect(getOpencodeZenEndpoint('gemini', 'gemini-3-pro')).toBe(
+        'https://opencode.ai/zen/v1/models/gemini-3-pro'
+      )
+      expect(getOpencodeZenEndpoint('gemini', 'gemini-3-flash')).toBe(
+        'https://opencode.ai/zen/v1/models/gemini-3-flash'
+      )
+    })
+
+    test('returns default endpoint for non-gemini protocols', () => {
+      expect(getOpencodeZenEndpoint('openai')).toBe('https://opencode.ai/zen/v1/chat/completions')
+      expect(getOpencodeZenEndpoint('anthropic')).toBe('https://opencode.ai/zen/v1/messages')
     })
   })
 

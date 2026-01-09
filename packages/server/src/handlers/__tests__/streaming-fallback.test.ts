@@ -73,7 +73,7 @@ describe("handleStreamingProxy model fallback", () => {
     });
 
     const baseOptions: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "antigravity",
       apiKey: "test-api-key",
       router,

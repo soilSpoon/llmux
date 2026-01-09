@@ -20,7 +20,7 @@ describe("transformStreamChunk", () => {
       const openaiChunk =
         'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"Hello"},"finish_reason":null}]}\n';
 
-      const result = transformStreamChunk(openaiChunk, "openai", "anthropic");
+      const result = transformStreamChunk(openaiChunk, "openai", "anthropic-messages");
 
       expect(result).toContain("data:");
       expect(result).toContain("content_block_delta");
@@ -29,7 +29,7 @@ describe("transformStreamChunk", () => {
     test("handles [DONE] message", () => {
       const doneChunk = "data: [DONE]\n";
 
-      const result = transformStreamChunk(doneChunk, "openai", "anthropic");
+      const result = transformStreamChunk(doneChunk, "openai", "anthropic-messages");
 
       expect(result).toContain("data: [DONE]");
     });
@@ -43,7 +43,7 @@ describe("transformStreamChunk", () => {
       const result = transformStreamChunk(
         anthropicChunk,
         "anthropic",
-        "openai"
+        "openai-chat"
       );
 
       expect(result).toContain("data:");
@@ -56,7 +56,7 @@ describe("transformStreamChunk", () => {
       const geminiChunk =
         'data: {"candidates":[{"content":{"parts":[{"text":"Hi"}],"role":"model"}}]}\n';
 
-      const result = transformStreamChunk(geminiChunk, "gemini", "openai");
+      const result = transformStreamChunk(geminiChunk, "gemini", "openai-chat");
 
       expect(result).toContain("data:");
       expect(result).toContain("chat.completion.chunk");
@@ -67,7 +67,7 @@ describe("transformStreamChunk", () => {
     test("returns chunk unchanged when same format", () => {
       const chunk = 'data: {"test":"value"}\n';
 
-      const result = transformStreamChunk(chunk, "openai", "openai");
+      const result = transformStreamChunk(chunk, "openai", "openai-chat");
 
       expect(result).toBe(chunk);
     });
@@ -77,7 +77,7 @@ describe("transformStreamChunk", () => {
     test("returns original chunk when parsing returns null", () => {
       const invalidChunk = "data: {invalid json}\n";
 
-      const result = transformStreamChunk(invalidChunk, "openai", "anthropic");
+      const result = transformStreamChunk(invalidChunk, "openai", "anthropic-messages");
 
       // When parseStreamChunk returns null, original chunk is returned for safety
       expect(result).toBe(invalidChunk);
@@ -86,7 +86,7 @@ describe("transformStreamChunk", () => {
     test("handles empty lines gracefully", () => {
       const emptyChunk = "\n\n";
 
-      const result = transformStreamChunk(emptyChunk, "openai", "anthropic");
+      const result = transformStreamChunk(emptyChunk, "openai", "anthropic-messages");
 
       expect(result).toBe("\n");
     });
@@ -96,7 +96,7 @@ describe("transformStreamChunk", () => {
     test("transforms to Gemini format", () => {
       const openaiChunk = 'data: {"choices":[{"delta":{"content":"Test"}}]}\n';
 
-      const result = transformStreamChunk(openaiChunk, "openai", "gemini");
+      const result = transformStreamChunk(openaiChunk, "openai", "google-gemini");
 
       expect(result).toContain("candidates");
     });
@@ -105,7 +105,7 @@ describe("transformStreamChunk", () => {
       const openaiChunk =
         'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n';
 
-      const result = transformStreamChunk(openaiChunk, "openai", "anthropic");
+      const result = transformStreamChunk(openaiChunk, "openai", "anthropic-messages");
 
       expect(Array.isArray(result)).toBe(true);
       expect(result[0]).toContain("data:");
@@ -121,7 +121,7 @@ describe("transformStreamChunk", () => {
       const result = transformStreamChunk(
         anthropicPartialJsonChunk,
         "anthropic",
-        "anthropic"
+        "anthropic-messages"
       );
 
       // Should pass through unchanged (same provider)
@@ -136,7 +136,7 @@ describe("transformStreamChunk", () => {
       const result = transformStreamChunk(
         openaiPartialJsonChunk,
         "openai",
-        "anthropic"
+        "anthropic-messages"
       );
 
       // Result should be formatted for Anthropic streaming
@@ -152,7 +152,7 @@ describe("transformStreamChunk", () => {
       const result = transformStreamChunk(
         anthropicPartialJsonChunk,
         "anthropic",
-        "openai"
+        "openai-chat"
       );
 
       // Result should be formatted for OpenAI streaming
@@ -167,7 +167,7 @@ describe("transformStreamChunk", () => {
       const result = transformStreamChunk(
         anthropicEmptyPartialJson,
         "anthropic",
-        "openai"
+        "openai-chat"
       );
 
       // Should handle gracefully without errors
@@ -186,7 +186,7 @@ describe("transformStreamChunk", () => {
       let accumulated = "";
       for (const chunk of chunks) {
         // Each transformation should preserve the partial JSON semantics
-        const result = transformStreamChunk(chunk, "anthropic", "openai");
+        const result = transformStreamChunk(chunk, "anthropic", "openai-chat");
         expect(result).toBeDefined();
       }
 
@@ -203,7 +203,7 @@ describe("transformStreamChunk", () => {
       const result = transformStreamChunk(
         specialCharsChunk,
         "anthropic",
-        "openai"
+        "openai-chat"
       );
 
       expect(result).toBeDefined();
@@ -213,7 +213,7 @@ describe("transformStreamChunk", () => {
       const unicodeChunk =
         'data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\\"text\\":\\"你好"}}\n';
 
-      const result = transformStreamChunk(unicodeChunk, "anthropic", "openai");
+      const result = transformStreamChunk(unicodeChunk, "anthropic", "openai-chat");
 
       expect(result).toBeDefined();
     });
@@ -228,9 +228,9 @@ describe("transformStreamChunk", () => {
       const textResult = transformStreamChunk(
         textChunk,
         "anthropic",
-        "openai"
+        "openai-chat"
       );
-      const jsonResult = transformStreamChunk(jsonChunk, "anthropic", "openai");
+      const jsonResult = transformStreamChunk(jsonChunk, "anthropic", "openai-chat");
 
       expect(textResult).toBeDefined();
       expect(jsonResult).toBeDefined();

@@ -62,7 +62,7 @@ describe("OpencodeZenProvider", () => {
         metadata: { model: "glm-4.7-free" },
       });
 
-      const result = provider.transform(unified, 'glm-4.7-free') as {
+      const result = provider.transformWithModel(unified, 'glm-4.7-free') as {
         model?: string;
         messages?: unknown[];
       };
@@ -78,7 +78,7 @@ describe("OpencodeZenProvider", () => {
         metadata: { model: "claude-3-sonnet" },
       });
 
-      const result = provider.transform(unified, 'claude-3-sonnet') as {
+      const result = provider.transformWithModel(unified, 'claude-3-sonnet') as {
         messages?: unknown[];
         max_tokens?: number;
       };
@@ -88,12 +88,43 @@ describe("OpencodeZenProvider", () => {
       expect(result.max_tokens).toBeDefined();
     });
 
+    it("should transform to Gemini format for Gemini models", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Hello")],
+        metadata: { model: "gemini-3-flash" },
+      });
+
+      const result = provider.transformWithModel(unified, 'gemini-3-flash') as {
+        contents?: unknown[];
+      };
+
+      expect(result.contents).toBeDefined();
+      // Gemini format has contents array
+      expect(Array.isArray(result.contents)).toBe(true);
+    });
+
+    it("should transform to OpenAI Responses format for GPT-5 model", () => {
+      const unified = createUnifiedRequest({
+        messages: [createUnifiedMessage("user", "Hello")],
+        metadata: { model: "gpt-5-codex" },
+      });
+
+      const result = provider.transformWithModel(unified, 'gpt-5-codex') as {
+        input?: unknown[];
+        model?: string;
+      };
+
+      // OpenAI Responses format uses 'input' instead of 'messages'
+      expect(result.input).toBeDefined();
+      expect(Array.isArray(result.input)).toBe(true);
+    });
+
     it("should default to OpenAI format when no model specified", () => {
       const unified = createUnifiedRequest({
         messages: [createUnifiedMessage("user", "Hello")],
       });
 
-      const result = provider.transform(unified, 'test-model') as { messages?: unknown[] };
+      const result = provider.transformWithModel(unified, 'test-model') as { messages?: unknown[] };
 
       expect(result.messages).toBeDefined();
       expect(Array.isArray(result.messages)).toBe(true);
@@ -178,6 +209,19 @@ describe("OpencodeZenProvider", () => {
       // Anthropic chunks may return array or single chunk
       // Just verify it doesn't throw and returns something
       expect(parsedResult).not.toBeNull();
+    });
+
+    it("should parse Gemini-style stream chunk", () => {
+      const chunk =
+        'data: {"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"Hello"}]}}]}';
+
+      const result = provider.parseStreamChunk(chunk);
+
+      expect(result).not.toBeNull();
+      if (result && !Array.isArray(result)) {
+        expect(result.type).toBe("content");
+        expect(result.delta?.text).toBe("Hello");
+      }
     });
 
     it("should handle [DONE] signal", () => {

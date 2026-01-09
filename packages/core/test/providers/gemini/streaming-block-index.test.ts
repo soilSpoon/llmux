@@ -16,12 +16,13 @@ describe("Gemini Streaming Block Index Support", () => {
     });
 
     const result = parseStreamChunk(`data: ${chunk}`);
+    const parsed = Array.isArray(result) ? result[result.length - 1] : result;
 
-    expect(result).not.toBeNull();
-    expect(result?.type).toBe("content");
-    expect(result?.blockIndex).toBe(3);
-    expect(result?.blockType).toBe("text");
-    expect(result?.delta?.text).toBe("Hello");
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe("content");
+    expect(parsed?.blockIndex).toBe(3);
+    expect(parsed?.blockType).toBe("text");
+    expect(parsed?.delta?.text).toBe("Hello");
   });
 
   it("should propagate candidate index as blockIndex for tool call", () => {
@@ -45,12 +46,13 @@ describe("Gemini Streaming Block Index Support", () => {
     });
 
     const result = parseStreamChunk(`data: ${chunk}`);
+    const parsed = Array.isArray(result) ? result[result.length - 1] : result;
 
-    expect(result).not.toBeNull();
-    expect(result?.type).toBe("tool_call");
-    expect(result?.blockIndex).toBe(5);
-    expect(result?.blockType).toBe("tool_call");
-    expect(result?.delta?.toolCall?.name).toBe("test_tool");
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe("tool_call");
+    expect(parsed?.blockIndex).toBe(5);
+    expect(parsed?.blockType).toBe("tool_call");
+    expect(parsed?.delta?.toolCall?.name).toBe("test_tool");
   });
 
   it("should propagate candidate index as blockIndex for thinking", () => {
@@ -73,11 +75,13 @@ describe("Gemini Streaming Block Index Support", () => {
 
     const result = parseStreamChunk(`data: ${chunk}`);
 
-    expect(result).not.toBeNull();
-    expect(result?.type).toBe("thinking");
-    expect(result?.blockIndex).toBe(1);
-    expect(result?.blockType).toBe("thinking");
-    expect(result?.delta?.thinking?.text).toBe("Thinking...");
+    const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe("thinking");
+    expect(parsed?.blockIndex).toBe(1);
+    expect(parsed?.blockType).toBe("thinking");
+    expect(parsed?.delta?.thinking?.text).toBe("Thinking...");
   });
 
   it("should propagate candidate index as blockIndex for done chunk", () => {
@@ -92,10 +96,12 @@ describe("Gemini Streaming Block Index Support", () => {
 
     const result = parseStreamChunk(`data: ${chunk}`);
 
-    expect(result).not.toBeNull();
-    expect(result?.type).toBe("done");
-    expect(result?.blockIndex).toBe(2);
-    expect(result?.stopReason).toBe("end_turn");
+    const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe("done");
+    expect(parsed?.blockIndex).toBe(2);
+    expect(parsed?.stopReason).toBe("end_turn");
   });
 
   it("should default to blockIndex 0 if index is missing", () => {
@@ -113,8 +119,10 @@ describe("Gemini Streaming Block Index Support", () => {
 
     const result = parseStreamChunk(`data: ${chunk}`);
 
-    expect(result).not.toBeNull();
-    expect(result?.type).toBe("content");
-    expect(result?.blockIndex).toBe(0);
+    const parsed = Array.isArray(result) ? result[result.length - 1] : result;
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.type).toBe("content");
+    expect(parsed?.blockIndex).toBe(0);
   });
 });

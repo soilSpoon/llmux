@@ -11,6 +11,7 @@ export interface OAuthCredential {
   idToken?: string
   accountId?: string
   lastRefresh?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface ApiKeyCredential {

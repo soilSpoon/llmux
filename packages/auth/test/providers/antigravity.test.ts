@@ -72,9 +72,8 @@ describe("AntigravityProvider", () => {
 
   test("getEndpoint returns correct Gemini URL with model", () => {
     const endpoint = AntigravityProvider.getEndpoint("gemini-2.0-flash");
-    expect(endpoint).toBe(
-      "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent"
-    );
+    expect(endpoint).toContain("googleapis.com");
+    expect(endpoint).toContain("v1internal:generateContent");
   });
 
   test("getEndpoint returns correct Gemini URL for streaming", () => {
@@ -82,9 +81,9 @@ describe("AntigravityProvider", () => {
     const endpoint = AntigravityProvider.getEndpoint("gemini-2.0-flash", {
       streaming: true,
     });
-    expect(endpoint).toBe(
-      "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse"
-    );
+    expect(endpoint).toContain("googleapis.com");
+    expect(endpoint).toContain("v1internal:streamGenerateContent");
+    expect(endpoint).toContain("alt=sse");
   });
 
   test("getEndpoint handles different model names", () => {

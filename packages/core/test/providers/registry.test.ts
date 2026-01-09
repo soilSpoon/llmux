@@ -30,10 +30,6 @@ class MockProvider extends BaseProvider {
     return true;
   }
 
-  isSupportedModel(_model: string): boolean {
-    return true;
-  }
-
   parse(_request: unknown): UnifiedRequest {
     return { messages: [] };
   }
@@ -214,10 +210,6 @@ describe("Provider Registry", () => {
         };
 
         isSupportedRequest(_request: unknown): boolean {
-          return true;
-        }
-
-        isSupportedModel(_model: string): boolean {
           return true;
         }
 

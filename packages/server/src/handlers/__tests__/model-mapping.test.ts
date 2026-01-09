@@ -54,14 +54,9 @@ describe('applyModelMapping', () => {
 // ============================================================================
 
 describe('parseModelMapping', () => {
-  it('should parse shorthand format "model:provider"', () => {
+  it('should NOT parse legacy "model:provider" format (unsupported)', () => {
     const result = parseModelMapping('gpt-5.1:openai')
-    expect(result).toEqual({ model: 'gpt-5.1', provider: 'openai' })
-  })
-
-  it('should handle model with provider containing hyphens', () => {
-    const result = parseModelMapping('claude-opus-4-5:antigravity')
-    expect(result).toEqual({ model: 'claude-opus-4-5', provider: 'antigravity' })
+    expect(result).toEqual({ model: 'gpt-5.1:openai', provider: undefined })
   })
 
   it('should handle model without provider (passthrough)', () => {
@@ -69,24 +64,62 @@ describe('parseModelMapping', () => {
     expect(result).toEqual({ model: 'gpt-5.1', provider: undefined })
   })
 
-  it('should handle model with colons in name (split on last colon)', () => {
+  it('should not parse models with colons as provider suffix', () => {
     const result = parseModelMapping('model:with:colons:openai')
-    expect(result).toEqual({ model: 'model:with:colons', provider: 'openai' })
+    expect(result).toEqual({ model: 'model:with:colons:openai', provider: undefined })
   })
 
-  it('should return undefined provider for empty string after colon', () => {
+  it('should return whole string as model for "model:" format', () => {
     const result = parseModelMapping('model:')
-    expect(result).toEqual({ model: 'model', provider: undefined })
+    expect(result).toEqual({ model: 'model:', provider: undefined })
+  })
+
+  // provider/model format tests
+  describe('provider/model format', () => {
+    it('should parse "provider/model" format', () => {
+      const result = parseModelMapping('antigravity/claude-opus-4-5-thinking')
+      expect(result).toEqual({ model: 'claude-opus-4-5-thinking', provider: 'antigravity' })
+    })
+
+    it('should parse openai-web provider', () => {
+      const result = parseModelMapping('openai-web/gpt-5.1')
+      expect(result).toEqual({ model: 'gpt-5.1', provider: 'openai-web' })
+    })
+
+    it('should parse opencode-zen provider', () => {
+      const result = parseModelMapping('opencode-zen/big-pickle')
+      expect(result).toEqual({ model: 'big-pickle', provider: 'opencode-zen' })
+    })
+
+    it('should parse anthropic provider', () => {
+      const result = parseModelMapping('anthropic/claude-3-opus')
+      expect(result).toEqual({ model: 'claude-3-opus', provider: 'anthropic' })
+    })
+
+    it('should not parse unknown provider/model format', () => {
+      const result = parseModelMapping('unknown-provider/some-model')
+      expect(result).toEqual({ model: 'unknown-provider/some-model', provider: undefined })
+    })
+
+    it('should handle model names with slashes when provider is unknown', () => {
+      const result = parseModelMapping('owner/repo-model')
+      expect(result).toEqual({ model: 'owner/repo-model', provider: undefined })
+    })
+
+    it('should prioritize provider/model over model:provider when both exist', () => {
+      const result = parseModelMapping('antigravity/model:suffix')
+      expect(result).toEqual({ model: 'model:suffix', provider: 'antigravity' })
+    })
   })
 })
 
 describe('applyModelMappingV2', () => {
   const mappings: AmpModelMapping[] = [
-    { from: 'claude-opus-4-5-20251101', to: 'claude-opus-4-5-thinking:antigravity' },
-    { from: 'gpt-5.1', to: 'gpt-5.1:openai' },
-    { from: 'gemini-pro', to: 'gemini-pro:gemini' },
+    { from: 'claude-opus-4-5-20251101', to: 'antigravity/claude-opus-4-5-thinking' },
+    { from: 'gpt-5.1', to: 'openai/gpt-5.1' },
+    { from: 'gemini-pro', to: 'gemini/gemini-pro' },
     { from: 'legacy-model', to: 'new-model' },
-    { from: 'multi-target', to: ['first-model:openai', 'second:anthropic'] },
+    { from: 'multi-target', to: ['openai/first-model', 'anthropic/second'] },
   ]
 
   it('should parse shorthand mapping and return model + provider', () => {
@@ -127,6 +160,35 @@ describe('applyModelMappingV2', () => {
   it('should return original model when mappings is empty', () => {
     const result = applyModelMappingV2('any-model', [])
     expect(result).toEqual({ model: 'any-model', provider: undefined })
+  })
+
+  describe('provider/model format support', () => {
+    const newFormatMappings: AmpModelMapping[] = [
+      { from: 'claude-opus-4-5-20251101', to: 'antigravity/claude-opus-4-5-thinking' },
+      { from: 'gpt-5.1', to: 'openai-web/gpt-5.1' },
+      { from: 'big-pickle', to: 'opencode-zen/big-pickle' },
+      { from: 'multi-format', to: ['antigravity/model-a', 'openai-web/model-b'] },
+    ]
+
+    it('should parse antigravity/model format', () => {
+      const result = applyModelMappingV2('claude-opus-4-5-20251101', newFormatMappings)
+      expect(result).toEqual({ model: 'claude-opus-4-5-thinking', provider: 'antigravity' })
+    })
+
+    it('should parse openai-web/model format', () => {
+      const result = applyModelMappingV2('gpt-5.1', newFormatMappings)
+      expect(result).toEqual({ model: 'gpt-5.1', provider: 'openai-web' })
+    })
+
+    it('should parse opencode-zen/model format', () => {
+      const result = applyModelMappingV2('big-pickle', newFormatMappings)
+      expect(result).toEqual({ model: 'big-pickle', provider: 'opencode-zen' })
+    })
+
+    it('should use first element with provider/model format in array', () => {
+      const result = applyModelMappingV2('multi-format', newFormatMappings)
+      expect(result).toEqual({ model: 'model-a', provider: 'antigravity' })
+    })
   })
 })
 

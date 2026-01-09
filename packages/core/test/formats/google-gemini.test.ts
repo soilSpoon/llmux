@@ -1,372 +1,199 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, test } from 'bun:test'
 import { GoogleGeminiFormat } from '../../src/formats/google-gemini'
-import type { FormatContext } from '../../src/formats/base'
-import type { StreamChunk } from '../../src/types/unified'
 import {
-  createUnifiedMessage,
-  createUnifiedRequest,
-  createUnifiedResponse,
-  createUnifiedTool,
-  createUnifiedToolCall,
-} from '../providers/_utils/fixtures'
+  validateRequestRoundTrip,
+  validateResponseRoundTrip,
+  validateStreamRoundTrip,
+} from './helpers'
+import { GoogleGeminiFixtures } from './fixtures/gemini/index'
 
-describe('GoogleGeminiFormat', () => {
-  const ctx: FormatContext = {
-    provider: 'google',
-    model: 'gemini-1.5-pro',
-  }
+describe('Google Gemini Format', () => {
+  const ctx = { provider: 'gemini' as const, model: 'gemini-1.5-pro' }
 
-  describe('id', () => {
-    it('should have id "google-gemini"', () => {
-      expect(GoogleGeminiFormat.id).toBe('google-gemini')
-    })
-  })
-
-  describe('isSupportedWireRequest', () => {
-    it('should return true for valid Gemini request', () => {
-      const req = {
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
-      }
-      expect(GoogleGeminiFormat.isSupportedWireRequest(req)).toBe(true)
+  describe('Requests', () => {
+    test('should round-trip simple user message', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.simple,
+        ctx
+      )
     })
 
-    it('should return false for request with messages field (OpenAI style)', () => {
-      const req = {
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
-        messages: [{ role: 'user', content: 'Hello' }],
-      }
-      expect(GoogleGeminiFormat.isSupportedWireRequest(req)).toBe(false)
+    test('should round-trip multimodal content', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.multipartContent,
+        ctx
+      )
     })
 
-    it('should return false for request without contents', () => {
-      const req = {
-        generationConfig: { temperature: 0.5 },
-      }
-      expect(GoogleGeminiFormat.isSupportedWireRequest(req)).toBe(false)
+    test('should round-trip tool use (definitions)', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withTools,
+        ctx
+      )
     })
 
-    it('should return false for non-object values', () => {
-      expect(GoogleGeminiFormat.isSupportedWireRequest(null)).toBe(false)
-      expect(GoogleGeminiFormat.isSupportedWireRequest(undefined)).toBe(false)
-      expect(GoogleGeminiFormat.isSupportedWireRequest('string')).toBe(false)
-    })
-  })
-
-  describe('isSupportedWireResponse', () => {
-    it('should return true for valid Gemini response', () => {
-      const res = {
-        candidates: [
-          {
-            content: { role: 'model', parts: [{ text: 'Hello!' }] },
-            finishReason: 'STOP',
-          },
-        ],
-      }
-      expect(GoogleGeminiFormat.isSupportedWireResponse(res)).toBe(true)
+    test('should round-trip tool results', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withToolResult,
+        ctx
+      )
     })
 
-    it('should return false for non-object values', () => {
-      expect(GoogleGeminiFormat.isSupportedWireResponse(null)).toBe(false)
-      expect(GoogleGeminiFormat.isSupportedWireResponse(undefined)).toBe(false)
-    })
-  })
-
-  describe('parseRequest', () => {
-    it('should parse a simple Gemini request', () => {
-      const req = {
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
-      }
-
-      const result = GoogleGeminiFormat.parseRequest(req)
-
-      expect(result.messages).toHaveLength(1)
-      const msg = result.messages[0]!
-      expect(msg.role).toBe('user')
-      const part = msg.parts[0]!
-      expect(part.type).toBe('text')
-      expect(part.text).toBe('Hello')
+    test('should round-trip tool results with array response (wrapped in object)', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withToolResultArrayResponse,
+        ctx
+      )
     })
 
-    it('should parse system instruction', () => {
-      const req = {
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
-        systemInstruction: { parts: [{ text: 'You are helpful.' }] },
-      }
-
-      const result = GoogleGeminiFormat.parseRequest(req)
-
-      expect(result.system).toBe('You are helpful.')
+    test('should round-trip system prompt', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withSystem,
+        ctx
+      )
     })
 
-    it('should parse tool call', () => {
-      const req = {
+    test('should round-trip config', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withConfig,
+        ctx
+      )
+    })
+
+    test('should resolve functionResponse name from functionCall.id when name is empty', () => {
+      // This test ensures that when a client sends functionResponse with empty name,
+      // the system resolves the name from the corresponding functionCall using the id
+      const result = validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withToolResultEmptyName,
+        ctx
+      )
+      
+      // After round-trip, the functionResponse should have the correct name resolved
+      const rebuilt = result.rebuilt as { contents: Array<{ parts: Array<{ functionResponse?: { name: string } }> }> }
+      const functionResponsePart = rebuilt.contents[2]?.parts?.[0]
+      expect(functionResponsePart?.functionResponse?.name).toBe('Read')
+      
+      const secondResponsePart = rebuilt.contents[2]?.parts?.[1]
+      expect(secondResponsePart?.functionResponse?.name).toBe('glob')
+    })
+
+    test('should resolve functionResponse name by position when both name and id are empty (AMP scenario)', () => {
+      // This is the real problematic scenario from AMP client
+      // functionResponse has neither name NOR id - must match by position/index
+      const result = validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withToolResultEmptyNameNoId,
+        ctx
+      )
+      
+      // After round-trip, the functionResponse should have names resolved by position
+      const rebuilt = result.rebuilt as { contents: Array<{ parts: Array<{ functionResponse?: { name: string } }> }> }
+      const functionResponsePart = rebuilt.contents[2]?.parts?.[0]
+      expect(functionResponsePart?.functionResponse?.name).toBe('Read')
+      
+      const secondResponsePart = rebuilt.contents[2]?.parts?.[1]
+      expect(secondResponsePart?.functionResponse?.name).toBe('glob')
+    })
+
+    test('should handle functionResponse without id (legacy format)', () => {
+      validateRequestRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.requests.withToolResultNoId,
+        ctx
+      )
+    })
+
+    test('should propagate thinking signature to tool calls', () => {
+      const input = {
         contents: [
+          { role: 'user', parts: [{ text: 'Help me write code.' }] },
           {
             role: 'model',
             parts: [
               {
-                functionCall: {
-                  name: 'get_weather',
-                  args: { location: 'NYC' },
-                },
+                thought: true,
+                text: 'Thinking...',
+                thoughtSignature: 'sig_1234567890',
               },
-            ],
-          },
-        ],
-      }
-
-      const result = GoogleGeminiFormat.parseRequest(req)
-
-      const msg = result.messages[0]!
-      expect(msg.role).toBe('assistant')
-      const part = msg.parts[0]!
-      expect(part.type).toBe('tool_call')
-      expect(part.toolCall?.name).toBe('get_weather')
-    })
-
-    it('should parse generation config', () => {
-      const req = {
-        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
-        generationConfig: {
-          maxOutputTokens: 1000,
-          temperature: 0.7,
-          topP: 0.9,
-        },
-      }
-
-      const result = GoogleGeminiFormat.parseRequest(req)
-
-      expect(result.config?.maxTokens).toBe(1000)
-      expect(result.config?.temperature).toBe(0.7)
-      expect(result.config?.topP).toBe(0.9)
-    })
-  })
-
-  describe('buildWireRequest', () => {
-    it('should build a simple Gemini request', () => {
-      const unified = createUnifiedRequest({
-        messages: [createUnifiedMessage('user', 'Hello')],
-      })
-
-      const result = GoogleGeminiFormat.buildWireRequest(unified, ctx) as {
-        contents: Array<{ role: string; parts: Array<{ text: string }> }>
-      }
-
-      expect(result.contents).toHaveLength(1)
-      expect(result.contents[0]!.role).toBe('user')
-      expect(result.contents[0]!.parts[0]!.text).toBe('Hello')
-    })
-
-    it('should include system instruction', () => {
-      const unified = createUnifiedRequest({
-        system: 'You are helpful.',
-        messages: [createUnifiedMessage('user', 'Hello')],
-      })
-
-      const result = GoogleGeminiFormat.buildWireRequest(unified, ctx) as {
-        systemInstruction: { parts: Array<{ text: string }> }
-      }
-
-      expect(result.systemInstruction).toBeDefined()
-      expect(result.systemInstruction.parts[0]!.text).toBe('You are helpful.')
-    })
-
-    it('should transform tool calls', () => {
-      const unified = createUnifiedRequest({
-        messages: [
-          {
-            role: 'assistant',
-            parts: [
               {
-                type: 'tool_call',
-                toolCall: createUnifiedToolCall('get_weather', { location: 'NYC' }, 'call_123'),
+                functionCall: {
+                  name: 'list_files',
+                  args: { dir: '.' },
+                  id: 'call_1',
+                },
               },
             ],
           },
         ],
-      })
-
-      const result = GoogleGeminiFormat.buildWireRequest(unified, ctx) as {
-        contents: Array<{
-          parts: Array<{ functionCall?: { name: string; args: Record<string, unknown> } }>
-        }>
       }
 
-      const part = result.contents[0]!.parts[0]!
-      expect(part.functionCall).toBeDefined()
-      expect(part.functionCall?.name).toBe('get_weather')
-      expect(part.functionCall?.args['location']).toBe('NYC')
-    })
-
-    it('should transform tools', () => {
-      const unified = createUnifiedRequest({
-        messages: [createUnifiedMessage('user', 'Hello')],
-        tools: [
-          createUnifiedTool('get_weather', 'Get weather', {
-            type: 'object',
-            properties: { location: { type: 'string' } },
-          }),
-        ],
-      })
-
-      const result = GoogleGeminiFormat.buildWireRequest(unified, ctx) as {
-        tools: Array<{ functionDeclarations: Array<{ name: string }> }>
-      }
-
-      expect(result.tools).toHaveLength(1)
-      expect(result.tools[0]!.functionDeclarations).toHaveLength(1)
-      expect(result.tools[0]!.functionDeclarations[0]!.name).toBe('get_weather')
+      const result = validateRequestRoundTrip(GoogleGeminiFormat, input as any, ctx)
+      
+      const rebuilt = result.rebuilt as any
+      const rebuiltParts = rebuilt.contents[1].parts
+      const toolCallPart = rebuiltParts.find((p: any) => p.functionCall)
+      
+      expect(toolCallPart).toBeDefined()
+      expect(toolCallPart!.thoughtSignature).toBe('sig_1234567890')
+      expect(toolCallPart!.thought_signature).toBe('sig_1234567890')
     })
   })
 
-  describe('parseResponse', () => {
-    it('should parse a simple response', () => {
-      const res = {
-        candidates: [
-          {
-            content: { role: 'model', parts: [{ text: 'Hello!' }] },
-            finishReason: 'STOP',
-          },
-        ],
-      }
-
-      const result = GoogleGeminiFormat.parseResponse(res)
-
-      expect(result.content).toHaveLength(1)
-      expect(result.content[0]!.text).toBe('Hello!')
-      expect(result.stopReason).toBe('end_turn')
+  describe('Responses', () => {
+    test('should round-trip simple response', () => {
+      validateResponseRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.responses.simple,
+        ctx
+      )
     })
 
-    it('should parse response with function call', () => {
-      const res = {
-        candidates: [
-          {
-            content: {
-              role: 'model',
-              parts: [
-                {
-                  functionCall: {
-                    name: 'get_weather',
-                    args: { location: 'NYC' },
-                  },
-                },
-              ],
-            },
-            finishReason: 'functionCall', // Gemini sends STOP or specialized reason depending on version
-          },
-        ],
-      }
-
-      const result = GoogleGeminiFormat.parseResponse(res)
-
-      expect(result.content).toHaveLength(1)
-      expect(result.content[0]!.type).toBe('tool_call')
-      expect(result.content[0]!.toolCall?.name).toBe('get_weather')
+    test('should round-trip tool call response', () => {
+      validateResponseRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.responses.withToolCall,
+        ctx
+      )
     })
   })
 
-  describe('buildWireResponse', () => {
-    it('should build a simple response', () => {
-      const unified = createUnifiedResponse({
-        content: [{ type: 'text', text: 'Hello!' }],
-        stopReason: 'end_turn',
-      })
-
-      const result = GoogleGeminiFormat.buildWireResponse(unified, ctx) as {
-        candidates: Array<{
-          content: { parts: Array<{ text: string }> }
-          finishReason: string
-        }>
-      }
-
-      expect(result.candidates).toHaveLength(1)
-      expect(result.candidates[0]!.content.parts[0]!.text).toBe('Hello!')
-      expect(result.candidates[0]!.finishReason).toBe('STOP')
+  describe('Streaming', () => {
+    test('should parse and round-trip stream chunks', () => {
+      validateStreamRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.streaming.chunks,
+        ctx,
+        { text: 'Hello!' }
+      )
     })
 
-    it('should build response with tool call', () => {
-      const unified = createUnifiedResponse({
-        content: [
-          {
-            type: 'tool_call',
-            toolCall: {
-              id: 'call_123',
-              name: 'get_weather',
-              arguments: { location: 'NYC' },
-            },
-          },
-        ],
-        stopReason: 'tool_use',
-      })
-
-      const result = GoogleGeminiFormat.buildWireResponse(unified, ctx) as {
-        candidates: Array<{
-          content: { parts: Array<{ functionCall?: { name: string } }> }
-        }>
-      }
-
-      expect(result.candidates[0]!.content.parts[0]!.functionCall).toBeDefined()
-      expect(result.candidates[0]!.content.parts[0]!.functionCall?.name).toBe('get_weather')
-    })
-  })
-
-  describe('parseStreamChunk', () => {
-    it('should parse content chunk', () => {
-      const chunk =
-        'data: {"candidates":[{"content":{"parts":[{"text":"Hello"}]}}]}'
-
-      const result = GoogleGeminiFormat.parseStreamChunk!(chunk)
-
-      expect(result).not.toBeNull()
-      const streamChunk = result as StreamChunk
-      expect(streamChunk.type).toBe('content')
-      expect(streamChunk.delta?.text).toBe('Hello')
+    test('should parse and round-trip tool call stream chunks', () => {
+      const result = validateStreamRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.streaming.toolCallChunks,
+        ctx
+      )
+      expect(result.toolCalls.length).toBeGreaterThan(0)
     })
 
-    it('should parse usage included with content chunk', () => {
-      const chunk =
-        'data: {"candidates":[{"content":{"parts":[{"text":"Done"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":5,"totalTokenCount":15}}'
-
-      const result = GoogleGeminiFormat.parseStreamChunk!(chunk)
-
-      expect(result).not.toBeNull()
-      const streamChunk = result as StreamChunk
-      expect(streamChunk.usage).toBeDefined()
-      expect(streamChunk.usage?.totalTokens).toBe(15)
-    })
-  })
-
-  describe('buildStreamChunk', () => {
-    it('should build a content chunk', () => {
-      const chunk: StreamChunk = {
-        type: 'content',
-        delta: { type: 'text', text: 'Hello' },
-      }
-
-      const result = GoogleGeminiFormat.buildStreamChunk!(chunk, ctx)
-
-      expect(typeof result).toBe('string')
-      const resultStr = result as string
-      expect(resultStr).toContain('data:')
-      expect(resultStr).toContain('Hello')
-    })
-
-    it('should build a usage chunk', () => {
-      const chunk: StreamChunk = {
-        type: 'usage',
-        usage: {
-          inputTokens: 10,
-          outputTokens: 5,
-          totalTokens: 15,
-        },
-      }
-
-      const result = GoogleGeminiFormat.buildStreamChunk!(chunk, ctx)
-
-      expect(result).toBeDefined()
-      const resultStr = result as string
-      expect(resultStr).toContain('usageMetadata')
-      expect(resultStr).toContain('15')
+    test('should handle thinking + functionCall in same chunk (extended thinking with tool use)', () => {
+      const result = validateStreamRoundTrip(
+        GoogleGeminiFormat,
+        GoogleGeminiFixtures.streaming.thinkingWithToolCallChunks,
+        ctx
+      )
+      // Should have both thinking and tool calls extracted
+      expect(result.thinking.length).toBeGreaterThan(0)
+      expect(result.toolCalls.length).toBeGreaterThan(0)
+      expect(result.toolCalls[0]?.delta?.toolCall?.name).toBe('oracle')
     })
   })
 })

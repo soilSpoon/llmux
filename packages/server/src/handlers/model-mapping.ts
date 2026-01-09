@@ -1,4 +1,5 @@
 import type { AmpModelMapping, AmpTarget } from '../config'
+import { KNOWN_PROVIDERS } from '../routing/constants'
 
 /**
  * Parsed model mapping result with optional provider
@@ -12,12 +13,17 @@ export interface ParsedModelMapping {
 }
 
 /**
- * Parse a shorthand mapping string "model:provider" into components.
- * Uses the LAST colon as the separator to allow models with colons in their names.
+ * Parse a model mapping string into components.
+ * Supports two formats:
+ * 1. "provider/model" (preferred) - e.g., "antigravity/claude-opus-4-5-thinking"
+ * 2. "model:provider" (legacy) - Uses the LAST colon as separator
+ *
  * Also handles AmpTarget objects directly.
  *
  * Examples:
- * - "gpt-5.1:openai" -> { model: "gpt-5.1", provider: "openai" }
+ * - "antigravity/claude-opus-4-5-thinking" -> { model: "claude-opus-4-5-thinking", provider: "antigravity" }
+ * - "openai-web/gpt-5.1" -> { model: "gpt-5.1", provider: "openai-web" }
+ * - "gpt-5.1:openai" -> { model: "gpt-5.1", provider: "openai" } (legacy)
  * - "gpt-5.1" -> { model: "gpt-5.1", provider: undefined }
  * - "model:with:colons:openai" -> { model: "model:with:colons", provider: "openai" }
  * - { model: "gpt-5.1", provider: "openai" } -> { model: "gpt-5.1", provider: "openai" }
@@ -34,17 +40,26 @@ export function parseModelMapping(mapping: string | AmpTarget): ParsedModelMappi
     }
   }
 
-  const lastColonIndex = mapping.lastIndexOf(':')
-
-  // No colon found, or colon is at the end (e.g., "model:")
-  if (lastColonIndex === -1 || lastColonIndex === mapping.length - 1) {
-    return { model: mapping.replace(/:$/, ''), provider: undefined }
+  // Check for provider/model format
+  if (mapping.includes('/')) {
+    const parts = mapping.split('/')
+    // Ensure we only treat it as a provider if it's the first segment and it's a known/valid provider
+    // This prevents generic models like "owner/model" from being misparsed
+    const providerCandidate = parts[0]
+    if (
+      providerCandidate &&
+      ((KNOWN_PROVIDERS as readonly string[]).includes(providerCandidate) ||
+        (providerCandidate.includes('openai') && !providerCandidate.includes('/'))) // loose check for custom openai-compat
+    ) {
+      const model = mapping.slice(providerCandidate.length + 1)
+      return { model, provider: providerCandidate }
+    }
   }
 
-  const model = mapping.slice(0, lastColonIndex)
-  const provider = mapping.slice(lastColonIndex + 1)
+  // Legacy "model:provider" format is no longer supported as of 2026-01-08 per user request.
+  // We treat everything else as just the model name.
 
-  return { model, provider }
+  return { model: mapping, provider: undefined }
 }
 
 /**

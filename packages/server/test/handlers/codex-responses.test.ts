@@ -50,13 +50,15 @@ describe("Codex Responses Handler", () => {
         );
         // Parse body but don't use it in this test
         JSON.parse(init?.body as string);
-        return new Response(
-          JSON.stringify({
-            id: "resp_123",
-            output: [{ type: "message", content: [{ type: "output_text", text: "Hello" }] }],
-          }),
-          { status: 200 }
-        );
+        // Return SSE format that openai-web expects
+        const sseBody = `event: response.completed
+data: {"response":{"id":"resp_123","output":[{"type":"message","content":[{"type":"output_text","text":"Hello"}]}]}}
+
+`;
+        return new Response(sseBody, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        });
       }) as any;
 
       const request = new Request("http://localhost/v1/responses", {
@@ -154,7 +156,7 @@ describe("Codex Responses Handler", () => {
       expect(capturedInstructions?.length).toBeGreaterThan(0);
     });
 
-    test("uses provided instructions when specified", async () => {
+    test("overrides provided instructions with Codex instructions", async () => {
       const { OpenAIWebProvider } = await import("@llmux/auth");
       const { handleResponses } = await import("../../src/handlers/responses");
 
@@ -167,14 +169,24 @@ describe("Codex Responses Handler", () => {
       });
 
       let capturedBody: any;
-      globalThis.fetch = mock(async (_url: string, init?: RequestInit) => {
-        capturedBody = JSON.parse(init?.body as string);
-        return new Response(JSON.stringify({ id: "resp_123", output: [] }), {
-          status: 200,
-        });
+      globalThis.fetch = mock(async (url: string, init?: RequestInit) => {
+        // Intercept GitHub instruction fetch if possible, or let it fail/fallback
+        if (url.includes("githubusercontent")) {
+             return new Response("GitHub Codex Instructions", { status: 200 });
+        }
+        
+        // Intercept OpenAI Web API request
+        if (url.includes("chatgpt.com/backend-api/codex")) {
+            capturedBody = JSON.parse(init?.body as string);
+            return new Response(JSON.stringify({ id: "resp_123", output: [] }), {
+            status: 200,
+            });
+        }
+        
+        return new Response("Not Found", { status: 404 });
       }) as any;
 
-      const customInstructions = "You are a helpful assistant.";
+      const customInstructions = "You are a helpful coding assistant specialized in TypeScript... (long enough to pass length check if it existed)";
       const request = new Request("http://localhost/v1/responses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -187,7 +199,10 @@ describe("Codex Responses Handler", () => {
 
       await handleResponses(request, { targetProvider: "openai-web" });
 
-      expect(capturedBody.instructions).toBe(customInstructions);
+      // Should verify that capturedBody.instructions is NOT the customInstructions
+      // It should be either "GitHub Codex Instructions" (if fetch mocked) or fallback
+      expect(capturedBody.instructions).not.toBe(customInstructions);
+      expect(capturedBody.instructions).toBeDefined();
     });
 
     test("returns 401 when no openai-web credentials found", async () => {

@@ -29,7 +29,7 @@ export function parseResponse(response: OpenAIResponse): UnifiedResponse {
 
   // Handle empty choices
   if (!response.choices || response.choices.length === 0) {
-    return result
+    throw new Error('Invalid OpenAI response: missing choices')
   }
 
   const choice = response.choices[0]
@@ -239,20 +239,20 @@ function parseUsage(usage: OpenAIUsage): UsageInfo {
   }
 
   const result: UsageInfo = {
-    inputTokens: usage.prompt_tokens ?? 0,
-    outputTokens: usage.completion_tokens ?? 0,
-    totalTokens: usage.total_tokens ?? 0,
+    inputTokens: usage?.prompt_tokens ?? 0,
+    outputTokens: usage?.completion_tokens ?? 0,
+    totalTokens: usage?.total_tokens ?? 0,
   }
 
   // Extract cached tokens
-  if (usage.prompt_tokens_details?.cached_tokens) {
+  if (usage?.prompt_tokens_details?.cached_tokens) {
     result.cachedTokens = usage.prompt_tokens_details.cached_tokens
   }
 
   // Future: Extract write tokens if available in provider response
 
   // Extract thinking/reasoning tokens
-  if (usage.completion_tokens_details?.reasoning_tokens) {
+  if (usage?.completion_tokens_details?.reasoning_tokens) {
     result.thinkingTokens = usage.completion_tokens_details.reasoning_tokens
   }
 

@@ -10,6 +10,7 @@ import {
 } from '../providers'
 import type { Router } from '../routing'
 import { accountRotationManager } from './account-rotation'
+import { familyRateLimitManager, type ModelFamily } from './family-rate-limiting'
 import { applyModelMappingV2 } from './model-mapping'
 
 const logger = createLogger({ service: 'request-handler' })
@@ -27,6 +28,7 @@ export interface PrepareContextOptions {
   sourceFormat: RequestFormat
   targetProvider?: string
   targetModel?: string
+  originalModel?: string
   thinking?: boolean
   router?: Router
   modelMappings?: AmpModelMapping[]
@@ -42,13 +44,14 @@ export async function prepareRequestContext(
     sourceFormat,
     targetProvider: optionsTargetProvider,
     targetModel: optionsTargetModel,
+    originalModel: optionsOriginalModel,
     thinking: optionsThinking,
     router,
     modelMappings,
     headerTargetProvider,
   } = options
 
-  const originalModel = body.model ?? 'unknown'
+  const originalModel = optionsOriginalModel || body.model || 'unknown'
   let currentModel = optionsTargetModel || originalModel
   let initialTargetProvider = optionsTargetProvider
 
@@ -142,6 +145,7 @@ export interface ErrorHandlingContext {
   currentProjectId?: string
   router?: Router
   retryAfterMs?: number
+  family?: ModelFamily
 }
 
 export interface ErrorHandlingResult {
@@ -220,9 +224,19 @@ export async function handleUpstreamError(
   // Rate limit handling
   if (status === 429) {
     const retryAfter = context.retryAfterMs !== undefined ? context.retryAfterMs : 30000
+    const family = context.family || getModelFamily(model, provider)
+    const isClaudeWeekly =
+      provider === 'antigravity' && family === 'claude' && isClaudeWeeklyLimit(model)
 
     logger.warn(
-      { reqId, status, retryAfter, originalRetryAfter: context.retryAfterMs },
+      {
+        reqId,
+        status,
+        retryAfter,
+        originalRetryAfter: context.retryAfterMs,
+        family,
+        isClaudeWeekly,
+      },
       'Rate limited'
     )
 
@@ -239,8 +253,14 @@ export async function handleUpstreamError(
       }
     }
 
-    // Mark current as rate limited (all providers)
+    // Mark current as rate limited per family (family-specific tracking)
     // For Antigravity, we only reach here if we've exhausted all endpoints for the current account
+    familyRateLimitManager.markRateLimited(
+      retryState.accountIndex,
+      family,
+      retryAfter,
+      isClaudeWeekly
+    )
     accountRotationManager.markRateLimited(provider, model, retryState.accountIndex, retryAfter)
 
     // Check if all accounts are limited
@@ -357,4 +377,41 @@ export function removeThinkingFromBody(body: unknown): void {
     if ('thinking' in b) delete b.thinking
     if ('reasoning_effort' in b) delete b.reasoning_effort
   }
+}
+
+/**
+ * Determine model family from model name and provider
+ * Used for family-specific rate limiting
+ */
+function getModelFamily(model: string, provider: ProviderName): ModelFamily {
+  const lowerModel = model.toLowerCase()
+
+  if (provider === 'anthropic' || lowerModel.includes('claude')) {
+    return 'claude'
+  }
+
+  if (lowerModel.includes('flash')) {
+    return 'gemini-flash'
+  }
+
+  if (lowerModel.includes('pro') || lowerModel.includes('thinking')) {
+    return 'gemini-pro'
+  }
+
+  // Default to gemini-flash for Gemini models
+  if (provider === 'antigravity' || lowerModel.includes('gemini')) {
+    return 'gemini-flash'
+  }
+
+  return 'gemini-flash'
+}
+
+/**
+ * Check if a Claude model rate limit is likely a weekly hard limit
+ * Weekly limits occur when usage exceeds quota and cannot be recovered until reset
+ */
+function isClaudeWeeklyLimit(model: string): boolean {
+  // Heuristic: Claude models usually have weekly hard limits
+  // This is a conservative check; actual detection would require API headers
+  return model.toLowerCase().includes('claude')
 }

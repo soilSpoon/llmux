@@ -1,55 +1,52 @@
-import {
-  parse as parseAnthropicRequest,
-  transform as transformToAnthropicRequest,
-} from '../providers/anthropic/request'
-import {
-  parseResponse as parseAnthropicResponse,
-  transformResponse as transformToAnthropicResponse,
-} from '../providers/anthropic/response'
-import {
-  parseStreamChunk as parseAnthropicStreamChunk,
-  transformStreamChunk as transformToAnthropicStreamChunk,
-} from '../providers/anthropic/streaming'
-import { isAnthropicRequest, isAnthropicResponse } from '../providers/anthropic/types'
-import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../types/unified'
+import { createAnthropicStreamingPipeline } from '../providers/anthropic/streaming-pipeline'
+import type {
+  StreamChunk,
+  StreamingPipeline,
+  UnifiedRequest,
+  UnifiedResponse,
+} from '../types/unified'
+import { parseRequest, transformRequest } from './anthropic-messages/request'
+import { parseResponse, transformResponse } from './anthropic-messages/response'
+import { parseStreamChunk, transformStreamChunk } from './anthropic-messages/streaming'
+import { isAnthropicRequest, isAnthropicResponse } from './anthropic-messages/types'
 import type { FormatContext, SchemaFormat } from './base'
 
 export const AnthropicMessagesFormat: SchemaFormat = {
   id: 'anthropic-messages',
 
   isSupportedWireRequest(req: unknown): boolean {
-    // biome-ignore lint/suspicious/noExplicitAny: existing types are loose
-    return isAnthropicRequest(req as any)
+    return isAnthropicRequest(req)
   },
 
   isSupportedWireResponse(res: unknown): boolean {
-    // biome-ignore lint/suspicious/noExplicitAny: existing types are loose
-    return isAnthropicResponse(res as any)
+    return isAnthropicResponse(res)
   },
 
   parseRequest(req: unknown): UnifiedRequest {
-    // biome-ignore lint/suspicious/noExplicitAny: existing types are loose
-    return parseAnthropicRequest(req as any)
+    return parseRequest(req)
   },
 
-  buildWireRequest(unified: UnifiedRequest, _ctx: FormatContext): unknown {
-    return transformToAnthropicRequest(unified)
+  buildWireRequest(unified: UnifiedRequest, ctx: FormatContext): unknown {
+    return transformRequest(unified, ctx.model)
   },
 
   parseResponse(res: unknown): UnifiedResponse {
-    // biome-ignore lint/suspicious/noExplicitAny: existing types are loose
-    return parseAnthropicResponse(res as any)
+    return parseResponse(res)
   },
 
   buildWireResponse(unified: UnifiedResponse, _ctx: FormatContext): unknown {
-    return transformToAnthropicResponse(unified)
+    return transformResponse(unified)
   },
 
   parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
-    return parseAnthropicStreamChunk(chunk)
+    return parseStreamChunk(chunk)
   },
 
   buildStreamChunk(chunk: StreamChunk, _ctx: FormatContext): string | string[] {
-    return transformToAnthropicStreamChunk(chunk)
+    return transformStreamChunk(chunk)
+  },
+
+  getStreamingPipeline(ctx: FormatContext): StreamingPipeline {
+    return createAnthropicStreamingPipeline(ctx.model)
   },
 }

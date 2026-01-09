@@ -29,17 +29,31 @@ export class ModelRouter {
     // 2. Static config mapping
     if (this.config.modelMappings?.[model]) {
       const mapping = this.config.modelMappings[model]
-      const fallbacks = (mapping.fallbacks || [])
-        .map((fbModel) => {
-          const fbMapping = this.config.modelMappings?.[fbModel]
-          if (fbMapping) {
-            return { provider: fbMapping.provider, model: fbMapping.model }
+      const fallbacks: Array<{ provider: UpstreamProvider; model: string }> = []
+
+      for (const fbModel of mapping.fallbacks || []) {
+        const fbMapping = this.config.modelMappings?.[fbModel]
+        if (fbMapping) {
+          fallbacks.push({ provider: fbMapping.provider, model: fbMapping.model })
+        } else if (this.config.modelLookup) {
+          // Try modelLookup for models not in static mappings
+          try {
+            const lookupProvider = await this.config.modelLookup.getProviderForModel(fbModel)
+            if (lookupProvider) {
+              fallbacks.push({ provider: lookupProvider as UpstreamProvider, model: fbModel })
+            } else {
+              logger.warn(
+                { fbModel },
+                'Fallback model not found in mappings or modelLookup, skipping'
+              )
+            }
+          } catch (error) {
+            logger.warn({ fbModel, error }, 'ModelLookup failed for fallback model, skipping')
           }
-          // Fallback must be in mappings, otherwise skip
+        } else {
           logger.warn({ fbModel }, 'Fallback model not found in mappings, skipping')
-          return null
-        })
-        .filter((fb): fb is { provider: UpstreamProvider; model: string } => fb !== null)
+        }
+      }
 
       return {
         providerId: mapping.provider,

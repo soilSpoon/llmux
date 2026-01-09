@@ -13,8 +13,9 @@ import type {
 
 /**
  * Parse SSE stream chunk from Gemini format to unified StreamChunk
+ * May return an array of chunks when combining thinking + functionCall
  */
-export function parseStreamChunk(chunk: string): StreamChunk | null {
+export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
   // Handle non-data lines
   if (!chunk.startsWith('data:')) {
     return null
@@ -53,14 +54,26 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
   const parts = candidate.content.parts ?? []
   const blockIndex = candidate.index ?? 0
 
-  // Check for thinking parts
+  // Collect all part types present in this chunk
   const thinkingPart = parts.find((p) => p.thought === true)
+  const functionCallPart = parts.find((p) => p.functionCall)
+  const textParts = parts.filter((p) => p.text !== undefined && !p.thought)
+
+  // Handle combined thinking + functionCall (Gemini 3 extended thinking with tool use)
+  // Both need to be emitted, with thinking first
+  if (thinkingPart && functionCallPart) {
+    return [
+      parseThinkingChunk(thinkingPart, undefined, data.usageMetadata, blockIndex),
+      parseFunctionCallChunk(functionCallPart, candidate.finishReason, undefined, blockIndex),
+    ]
+  }
+
+  // Handle thinking only
   if (thinkingPart) {
     return parseThinkingChunk(thinkingPart, candidate.finishReason, data.usageMetadata, blockIndex)
   }
 
-  // Check for function call
-  const functionCallPart = parts.find((p) => p.functionCall)
+  // Handle function call only
   if (functionCallPart) {
     return parseFunctionCallChunk(
       functionCallPart,
@@ -70,8 +83,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | null {
     )
   }
 
-  // Check for text content
-  const textParts = parts.filter((p) => p.text !== undefined && !p.thought)
+  // Handle text content
   if (textParts.length > 0) {
     return parseTextChunk(textParts, candidate.finishReason, data.usageMetadata, blockIndex)
   }

@@ -26,7 +26,7 @@ const API_PATHS = [
   '/api/provider',
 ] as const
 
-const BROWSER_REDIRECT_PATHS = ['/threads', '/docs', '/settings', '/auth'] as const
+const BROWSER_REDIRECT_PATHS = ['/threads', '/docs', '/settings', '/auth', '/install'] as const
 
 const STATIC_PATHS = ['/threads.rss', '/news.rss'] as const
 

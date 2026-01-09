@@ -1,11 +1,7 @@
-import { type ProviderName, transformResponse } from '@llmux/core'
+import { formatIdToProviderName, type ProviderName, transformResponse } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import { resolveOpencodeZenProtocol } from '../providers'
 import { createErrorResponse, createJsonResponse } from './response-headers'
-
-function formatToProvider(format: RequestFormat): ProviderName {
-  return format as ProviderName
-}
 
 export async function handleJsonResponse(
   response: Response,
@@ -51,7 +47,7 @@ export async function handleJsonResponse(
 
   const transformed = transformResponse(upstreamBody, {
     from: fromProvider,
-    to: formatToProvider(sourceFormat),
+    to: formatIdToProviderName(sourceFormat),
     model,
   })
 

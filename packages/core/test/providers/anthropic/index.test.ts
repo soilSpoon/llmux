@@ -34,7 +34,7 @@ describe("AnthropicProvider", () => {
       expect(provider.config.supportsStreaming).toBe(true);
       expect(provider.config.supportsThinking).toBe(true);
       expect(provider.config.supportsTools).toBe(true);
-      expect(provider.config.defaultMaxTokens).toBe(4096);
+
     });
   });
 
@@ -118,7 +118,7 @@ describe("AnthropicProvider", () => {
         messages: [createUnifiedMessage("user", "Hello!")],
       });
 
-      const result = provider.transform(unified) as AnthropicRequest;
+      const result = provider.transform(unified, 'claude-3-5-sonnet-20241022') as AnthropicRequest;
 
       expect(result.messages).toHaveLength(1);
       expect(result.messages[0]!.role).toBe("user");
@@ -130,7 +130,7 @@ describe("AnthropicProvider", () => {
         config: {},
       });
 
-      const result = provider.transform(unified) as AnthropicRequest;
+      const result = provider.transform(unified, 'claude-3-5-sonnet-20241022') as AnthropicRequest;
 
       expect(result.max_tokens).toBe(4096);
     });
@@ -141,7 +141,7 @@ describe("AnthropicProvider", () => {
         messages: [createUnifiedMessage("user", "Hi")],
       });
 
-      const result = provider.transform(unified) as AnthropicRequest;
+      const result = provider.transform(unified, 'claude-3-5-sonnet-20241022') as AnthropicRequest;
 
       expect(result.system).toEqual([{ type: "text", text: "Be helpful." }]);
     });
@@ -151,7 +151,7 @@ describe("AnthropicProvider", () => {
         tools: [createUnifiedTool("test_tool", "A test")],
       });
 
-      const result = provider.transform(unified) as AnthropicRequest;
+      const result = provider.transform(unified, 'claude-3-5-sonnet-20241022') as AnthropicRequest;
 
       expect(result.tools).toHaveLength(1);
       expect(result.tools![0]!.name).toBe("test_tool");
@@ -162,7 +162,7 @@ describe("AnthropicProvider", () => {
         thinking: { enabled: true, budget: 8000 },
       });
 
-      const result = provider.transform(unified) as AnthropicRequest;
+      const result = provider.transform(unified, 'claude-3-5-sonnet-20241022') as AnthropicRequest;
 
       expect(result.thinking?.type).toBe("enabled");
       if (result.thinking?.type === "enabled") {
@@ -393,7 +393,7 @@ data: {"type":"ping"}`;
         ],
       };
 
-      const anthropic = provider.transform(unified) as AnthropicRequest;
+      const anthropic = provider.transform(unified, 'claude-3-5-sonnet-20241022') as AnthropicRequest;
       const roundTripped = provider.parse(anthropic);
 
       expect(roundTripped.messages[1]!.parts[1]!.type).toBe("tool_call");

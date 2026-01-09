@@ -66,13 +66,10 @@ export async function prepareAntigravityRequest(
     headers.Accept = 'text/event-stream'
   }
 
-  if (cred.quotaProjectId) {
-    headers['x-quota-project'] = cred.quotaProjectId
-  }
-
   let projectId: string
   if (overrideProjectId) {
     projectId = overrideProjectId
+    logger.debugTemp({ reqId, projectId, reason: 'override' }, 'Using override projectId')
   } else {
     const storedProjectId = cred.projectId
     logger.debug(
@@ -80,13 +77,22 @@ export async function prepareAntigravityRequest(
       'Checking stored projectId'
     )
     projectId = storedProjectId || (await fetchAntigravityProjectID(cred.accessToken as string))
-    logger.debug(
-      { reqId, projectId, source: storedProjectId ? 'stored' : 'fetched' },
-      'Resolved projectId'
+    logger.debugTemp(
+      { reqId, projectId, storedProjectId, source: storedProjectId ? 'stored' : 'fetched' },
+      'Resolved projectId for Antigravity'
     )
   }
 
-  const endpoint = `${ANTIGRAVITY_ENDPOINT_FALLBACKS[0]}${ANTIGRAVITY_API_PATH_STREAM}`
+  // Rotate endpoints: use Daily (0) or Prod (1) based on account index
+  // This distributes load and provides fallback in case one endpoint is rate-limited
+  const endpointIndex = resolvedAccountIndex % 2
+  const baseUrl = ANTIGRAVITY_ENDPOINT_FALLBACKS[endpointIndex]
+  const endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
+
+  logger.debug(
+    { reqId, accountIndex: resolvedAccountIndex, endpointIndex, endpoint },
+    'Selected endpoint for account rotation'
+  )
 
   return {
     headers,
@@ -117,6 +123,67 @@ export function shouldFallbackToDefaultProject(
   defaultProjectId: string = ANTIGRAVITY_DEFAULT_PROJECT_ID
 ): boolean {
   return isLicenseError(ctx) && ctx.currentProject !== defaultProjectId
+}
+
+export function processAntigravitySystemInstruction(
+  payload: Record<string, unknown>
+): Record<string, unknown> {
+  try {
+    const data = { ...payload }
+    const modelName = (data.model as string) || ''
+
+    // Parity check: Go project only applies this for Claude or Gemini 3 Pro Preview
+    if (
+      !modelName.toLowerCase().includes('claude') &&
+      !modelName.toLowerCase().includes('gemini-3-pro-preview')
+    ) {
+      return data
+    }
+
+    if (!data.request || typeof data.request !== 'object') {
+      data.request = {}
+    }
+    const request = data.request as Record<string, unknown>
+
+    if (!request.systemInstruction || typeof request.systemInstruction !== 'object') {
+      request.systemInstruction = {}
+    }
+    const systemInstruction = request.systemInstruction as Record<string, unknown>
+
+    // Store existing parts before modification
+    const existingParts = Array.isArray(systemInstruction.parts)
+      ? (systemInstruction.parts as unknown[])
+      : []
+
+    // Set role to 'user'
+    systemInstruction.role = 'user'
+
+    // System instruction text (exactly as in Go project)
+    const SYSTEM_INSTRUCTION_TEXT =
+      'You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.**Absolute paths only****Proactiveness**'
+
+    // Parity with Go project:
+    // parts[0] = systemInstruction
+    // parts[1] = "Please ignore following [ignore]" + systemInstruction + "[/ignore]"
+    // then append existing parts
+    systemInstruction.parts = [
+      { text: SYSTEM_INSTRUCTION_TEXT },
+      { text: `Please ignore following [ignore]${SYSTEM_INSTRUCTION_TEXT}[/ignore]` },
+    ]
+
+    // Append existing parts
+    if (existingParts.length > 0) {
+      systemInstruction.parts = [...(systemInstruction.parts as unknown[]), ...existingParts]
+    }
+
+    return data
+  } catch (error) {
+    logger.warn(
+      { error: error instanceof Error ? error.message : String(error) },
+      'Failed to process system instruction, returning original payload'
+    )
+    return payload
+  }
 }
 
 export { ANTIGRAVITY_DEFAULT_PROJECT_ID }

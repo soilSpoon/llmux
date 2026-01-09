@@ -31,6 +31,7 @@ describe("OpenAIProvider", () => {
         supportsThinking: true,
         supportsTools: true,
         authType: "apiKey",
+
       });
     });
   });
@@ -54,6 +55,22 @@ describe("OpenAIProvider", () => {
       expect(result.messages[0]!.parts[0]!.text).toBe("Hello!");
       expect(result.config?.temperature).toBe(0.7);
       expect(result.config?.maxTokens).toBe(1000);
+    });
+
+    it("parses request using format.parseRequest", () => {
+      const request = {
+        model: "gpt-4",
+        messages: [{ role: "user", content: "Hello" }],
+      };
+
+      const unified = provider.parse(request);
+
+      expect(unified.metadata?.model).toBe("gpt-4");
+      expect(unified.messages).toHaveLength(1);
+      expect(unified.messages[0]).toEqual({
+        role: "user",
+        parts: [{ type: "text", text: "Hello" }],
+      });
     });
 
     it("throws on invalid request", () => {

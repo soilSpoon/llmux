@@ -47,10 +47,10 @@ describe('Routing Integration', () => {
 
   describe('model mapping with provider integration', () => {
     // These tests verify the V2 mapping syntax works with routing
-    it('should parse model:provider mapping correctly', async () => {
+    it('should parse provider/model format correctly', async () => {
       const { parseModelMapping } = await import('../src/handlers/model-mapping')
       
-      expect(parseModelMapping('gpt-5.1:openai')).toEqual({
+      expect(parseModelMapping('openai/gpt-5.1')).toEqual({
         model: 'gpt-5.1',
         provider: 'openai',
       })
@@ -60,8 +60,8 @@ describe('Routing Integration', () => {
       const { applyModelMappingV2 } = await import('../src/handlers/model-mapping')
       
       const mappings = [
-        { from: 'gpt-5.1', to: 'gpt-5.1:openai' },
-        { from: 'claude-opus', to: 'claude-opus-4-5:antigravity' },
+        { from: 'gpt-5.1', to: 'openai/gpt-5.1' },
+        { from: 'claude-opus', to: 'antigravity/claude-opus-4-5' },
       ]
 
       expect(applyModelMappingV2('gpt-5.1', mappings)).toEqual({

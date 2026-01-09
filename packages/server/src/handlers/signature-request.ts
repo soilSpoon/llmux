@@ -57,6 +57,17 @@ export function validateAndStripSignatures(
   const isClaudeFresh = strategy === 'claude-fresh'
   const isGeminiCache = strategy === 'gemini-cache'
 
+  logger.debug(
+    {
+      inputMessagesLength: messages?.length || 0,
+      inputContentsLength: contents?.length || 0,
+      strategy,
+      isClaudeFresh,
+      model,
+    },
+    'validateAndStripSignatures: starting'
+  )
+
   const processedContents = contents
     ? processContents(
         contents,
@@ -82,6 +93,15 @@ export function validateAndStripSignatures(
         }
       )
     : undefined
+
+  logger.debug(
+    {
+      outputMessagesLength: processedMessages?.length || 0,
+      outputContentsLength: processedContents?.length || 0,
+      strippedCount,
+    },
+    'validateAndStripSignatures: complete'
+  )
 
   if (strippedCount > 0 && isClaudeFresh) {
     logger.debug({ model, strippedCount }, 'Claude Fresh Signature: stripped thinking blocks')
@@ -177,6 +197,7 @@ function processMessages(
   isGeminiCache: boolean,
   onStrip: (count: number) => void
 ): Message[] {
+  logger.debug({ messageCount: messages.length, isClaudeFresh }, 'processMessages: starting')
   return messages.map((message) => {
     if (!message || typeof message !== 'object') return message
 

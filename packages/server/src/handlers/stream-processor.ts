@@ -1,4 +1,10 @@
-import { createLogger, getProvider, type ProviderName, type StreamChunk } from '@llmux/core'
+import {
+  createLogger,
+  formatIdToProviderName,
+  getProvider,
+  type ProviderName,
+  type StreamChunk,
+} from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import { normalizeBashArguments } from './bash-normalization'
 
@@ -36,6 +42,7 @@ export interface StreamAccumulator {
   fullResponse: string
   accumulatedText: string
   accumulatedThinking: string
+  accumulatedSignatures: string[]
 }
 
 function applyBashNormalizationToChunk(chunk: StreamChunk): StreamChunk {
@@ -77,8 +84,9 @@ export function transformStreamChunk(
   toFormat: RequestFormat
 ): string | string[] {
   const effectiveFromProvider = fromProvider === 'gemini-cli' ? 'antigravity' : fromProvider
+  const targetProviderName = formatIdToProviderName(toFormat)
 
-  if (effectiveFromProvider === toFormat && !chunk.trim().startsWith('{')) return chunk
+  if (effectiveFromProvider === targetProviderName && !chunk.trim().startsWith('{')) return chunk
 
   if (chunk.trim() === 'data: [DONE]') {
     return chunk
@@ -90,7 +98,7 @@ export function transformStreamChunk(
 
   try {
     const sourceProvider = getProvider(effectiveFromProvider)
-    const targetProvider = getProvider(toFormat as ProviderName)
+    const targetProvider = getProvider(targetProviderName)
 
     if (!sourceProvider.parseStreamChunk || !targetProvider.transformStreamChunk) {
       return chunk
@@ -138,8 +146,16 @@ export function transformStreamChunk(
   }
 }
 
-export function getParserType(provider: ProviderName): 'sse-standard' | 'sse-line-delimited' {
+export function getParserType(
+  provider: ProviderName,
+  model?: string
+): 'sse-standard' | 'sse-line-delimited' {
   try {
+    // Special case for Antigravity/Gemini-3 which seems to use formatted JSON/Standard SSE
+    if (provider === 'antigravity' && model?.includes('gemini')) {
+      return 'sse-standard'
+    }
+
     const providerConfig = getProvider(provider)
     if (providerConfig?.config?.defaultStreamParser) {
       return providerConfig.config.defaultStreamParser as 'sse-standard' | 'sse-line-delimited'
@@ -163,7 +179,8 @@ export function splitSSEEvents(
     const remainingLine = lastLineIncomplete ? (lines[lines.length - 1] ?? '') : ''
 
     for (const line of linesToProcess) {
-      if (line.startsWith('data:')) {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('data:') || trimmed.startsWith('{') || trimmed.startsWith('[')) {
         events.push(line)
       }
     }
@@ -217,13 +234,35 @@ export function extractContentFromChunk(chunk: string): { text?: string; thinkin
         const dataContent = line.slice(6)
         if (dataContent.trim() !== '[DONE]') {
           const json = JSON.parse(dataContent)
+
+          // Anthropic format (content_block_delta)
           if (json.type === 'content_block_delta' && json.delta) {
             if (typeof json.delta.text === 'string') result.text = json.delta.text
             if (typeof json.delta.thinking === 'string') result.thinking = json.delta.thinking
-          } else if (json.type === 'content_block_start' && json.content_block) {
+          }
+          // Anthropic format (content_block_start)
+          else if (json.type === 'content_block_start' && json.content_block) {
             if (typeof json.content_block.text === 'string') result.text = json.content_block.text
             if (typeof json.content_block.thinking === 'string')
               result.thinking = json.content_block.thinking
+          }
+          // OpenAI Chat Completions format (chat.completion.chunk with delta.content)
+          else if (json.object === 'chat.completion.chunk' && Array.isArray(json.choices)) {
+            for (const choice of json.choices) {
+              if (choice.delta?.content) {
+                result.text = (result.text || '') + choice.delta.content
+              }
+            }
+          }
+          // OpenAI Responses API format
+          else if (json.type === 'response.text.delta') {
+            if (typeof json.delta === 'string') {
+              result.text = json.delta
+            }
+          } else if (json.type === 'response.reasoning_summary_text.delta') {
+            if (typeof json.delta === 'string') {
+              result.thinking = json.delta
+            }
           }
         }
       }

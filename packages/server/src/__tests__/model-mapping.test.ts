@@ -5,11 +5,11 @@ import type { AmpModelMapping } from '../config'
 describe('Model Mapping V2 (Object Support)', () => {
   it('should support string mapping (original)', () => {
     const mappings: AmpModelMapping[] = [
-      { from: 'm1', to: 'target-m1:p1' }
+      { from: 'm1', to: 'openai/target-m1' }
     ]
     const result = applyModelMappingV2('m1', mappings)
     expect(result.model).toBe('target-m1')
-    expect(result.provider).toBe('p1')
+    expect(result.provider).toBe('openai')
   })
 
   it('should support object mapping with thinkingLevel', () => {

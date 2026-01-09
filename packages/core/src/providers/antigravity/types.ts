@@ -10,7 +10,6 @@ import type {
   GeminiContent,
   GeminiGenerationConfig,
   GeminiResponse,
-  GeminiSystemInstruction,
   GeminiTool,
   GeminiToolConfig,
   GeminiUsageMetadata,
@@ -26,9 +25,13 @@ import type {
 export interface AntigravityRequest {
   project: string
   model: string
-  userAgent: string
-  requestId: string
+  requestId?: string
+  userAgent?: string
+  requestType?: string
   request: AntigravityInnerRequest
+
+  // Metadata passed through (not injected into inner request)
+  metadata?: AntigravityRequestMetadata
 }
 
 /**
@@ -36,13 +39,35 @@ export interface AntigravityRequest {
  */
 export interface AntigravityInnerRequest {
   contents: GeminiContent[]
-  systemInstruction?: GeminiSystemInstruction
+  systemInstruction?: AntigravitySystemInstruction
   tools?: GeminiTool[]
   toolConfig?: GeminiToolConfig
   generationConfig?: AntigravityGenerationConfig
 
   // Antigravity-specific
   sessionId?: string
+}
+
+/**
+ * Antigravity request metadata (passed in wrapper, not inner request)
+ */
+export interface AntigravityRequestMetadata {
+  // Google Cloud / Duet AI specific
+  duetProject?: string
+  ideType?: string
+  platform?: string
+  pluginType?: string
+
+  // Caching
+  promptCacheKey?: string
+}
+
+/**
+ * Antigravity System Instruction (supports optional role for Claude)
+ */
+export interface AntigravitySystemInstruction {
+  role?: string
+  parts: Array<{ text: string }>
 }
 
 /**
@@ -54,19 +79,25 @@ export interface AntigravityGenerationConfig
 }
 
 /**
- * Thinking config for Antigravity (snake_case for Claude models)
+ * Gemini-style thinking config (camelCase)
  */
-export interface AntigravityThinkingConfig {
-  // Gemini-style (camelCase)
+export interface GeminiThinkingConfig {
   includeThoughts?: boolean
   thinkingBudget?: number
-  // thinkingLevel is NOT supported by Antigravity API spec, use thinkingBudget instead
-  // thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high'
+}
 
-  // Claude-style via Antigravity (snake_case)
+/**
+ * Claude-style thinking config via Antigravity (snake_case)
+ */
+export interface ClaudeThinkingConfig {
   include_thoughts?: boolean
   thinking_budget?: number
 }
+
+/**
+ * Combined thinking config for Antigravity API
+ */
+export type AntigravityThinkingConfig = GeminiThinkingConfig | ClaudeThinkingConfig
 
 // =============================================================================
 // Response Types
@@ -107,8 +138,6 @@ export function isAntigravityRequest(value: unknown): value is AntigravityReques
   return (
     typeof obj.project === 'string' &&
     typeof obj.model === 'string' &&
-    typeof obj.userAgent === 'string' &&
-    typeof obj.requestId === 'string' &&
     obj.request !== undefined &&
     typeof obj.request === 'object'
   )

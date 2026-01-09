@@ -154,11 +154,20 @@ function parsePart(part: GeminiPart): ContentPart {
 
   // Function response
   if (part.functionResponse) {
+    const toolResult = {
+      toolCallId: part.functionResponse.id || part.functionResponse.name,
+      content: JSON.stringify(part.functionResponse.response),
+    } as const
+
+    // Check if response indicates an error
+    const response = part.functionResponse.response
+    const isErrorResponse = response && typeof response === 'object' && 'error' in response
+
     return {
       type: 'tool_result',
       toolResult: {
-        toolCallId: part.functionResponse.id || part.functionResponse.name,
-        content: JSON.stringify(part.functionResponse.response),
+        ...toolResult,
+        ...(isErrorResponse && { isError: true }),
       },
     }
   }
@@ -367,12 +376,19 @@ function transformPart(part: ContentPart, toolNameMap?: Map<string, string>): Ge
         // Resolve original tool name from the map using toolCallId
         const toolName = toolNameMap?.get(part.toolResult.toolCallId) || part.toolResult.toolCallId
 
+        const functionResponse = {
+          name: toolName,
+          response,
+          id: part.toolResult.toolCallId,
+        } as const
+
+        // If this was an error result and the response doesn't already have error field, add it
+        if (part.toolResult.isError && !('error' in response)) {
+          response.error = true
+        }
+
         return {
-          functionResponse: {
-            name: toolName,
-            response,
-            id: part.toolResult.toolCallId,
-          },
+          functionResponse,
         }
       }
       break

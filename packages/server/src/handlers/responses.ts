@@ -2,6 +2,7 @@ import { ANTIGRAVITY_API_PATH_STREAM, AuthProviderRegistry, TokenRefresh } from 
 import {
   type ChatCompletionsResponse,
   createLogger,
+  formatIdToProviderName,
   type ProviderName,
   type ResponsesRequest,
   transformRequest,
@@ -66,10 +67,10 @@ export async function handleResponses(
     if (authProvider && !options.apiKey) {
       endpoint = authProvider.getEndpoint(options.targetModel || chatRequest.model)
 
-      if (isStreaming && resolvedTargetProvider === 'antigravity') {
-        const baseUrl = endpoint.split('/v1internal')[0]
-        endpoint = baseUrl + ANTIGRAVITY_API_PATH_STREAM
-      } else if (isStreaming && resolvedTargetProvider === 'gemini-cli') {
+      if (
+        isStreaming &&
+        (resolvedTargetProvider === 'antigravity' || resolvedTargetProvider === 'gemini-cli')
+      ) {
         const baseUrl = endpoint.split('/v1internal')[0]
         endpoint = baseUrl + ANTIGRAVITY_API_PATH_STREAM
       }
@@ -111,9 +112,6 @@ export async function handleResponses(
       upstreamRequest = { ...chatRequest, stream: isStreaming }
     } else if (resolvedTargetProvider === 'openai-web') {
       const messages = body.input || body.messages || []
-      if (!messages || (Array.isArray(messages) && messages.length === 0)) {
-        logger.warn({ model: body.model }, '[responses] No input/messages found for openai-web')
-      }
       upstreamRequest = await buildCodexBody({
         model: body.model || 'gpt-5.1',
         messages,
@@ -124,7 +122,11 @@ export async function handleResponses(
     } else {
       upstreamRequest = transformRequest(
         { ...chatRequest, stream: isStreaming },
-        { from: 'openai', to: resolvedTargetProvider as ProviderName, model: chatRequest.model }
+        {
+          from: formatIdToProviderName('openai-chat'),
+          to: resolvedTargetProvider as ProviderName,
+          model: chatRequest.model,
+        }
       )
 
       if (
@@ -155,12 +157,10 @@ export async function handleResponses(
       })
     }
 
+    const responseHeaders = new Headers()
+
     if (!upstreamResponse.ok) {
       if (isRateLimited(upstreamResponse) && fallbackProvider) {
-        logger.info(
-          { from: resolvedTargetProvider, to: fallbackProvider },
-          '[handleResponses] Rate limited, retrying with fallback'
-        )
         return handleResponses(
           new Request(request.url, {
             method: 'POST',
@@ -176,12 +176,12 @@ export async function handleResponses(
         const text = await upstreamResponse.text()
         return new Response(JSON.stringify({ error: text || 'Non-JSON response from upstream' }), {
           status: upstreamResponse.status,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...Object.fromEntries(responseHeaders), 'Content-Type': 'application/json' },
         })
       }
       return new Response(upstreamResponse.body, {
         status: upstreamResponse.status,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...Object.fromEntries(responseHeaders), 'Content-Type': 'application/json' },
       })
     }
 
@@ -189,7 +189,7 @@ export async function handleResponses(
       if (!upstreamResponse.body) {
         return new Response(JSON.stringify({ error: 'No response body' }), {
           status: 502,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { ...Object.fromEntries(responseHeaders), 'Content-Type': 'application/json' },
         })
       }
 
@@ -203,6 +203,7 @@ export async function handleResponses(
       return new Response(transformStream.readable, {
         status: 200,
         headers: {
+          ...Object.fromEntries(responseHeaders),
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
@@ -211,18 +212,71 @@ export async function handleResponses(
     }
 
     let upstreamBody: unknown
+
+    if (resolvedTargetProvider === 'openai-web') {
+      if (!upstreamResponse.body) {
+        throw new Error('No response body from OpenAI Web')
+      }
+
+      const reader = upstreamResponse.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullResponse: unknown = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value)
+
+        const parts = buffer.split('\n\n')
+        const lastPart = parts.pop()
+        buffer = lastPart ?? ''
+
+        for (const part of parts) {
+          const message = part.trim()
+          if (!message) continue
+
+          let eventType = ''
+          let data = ''
+
+          const lines = message.split('\n')
+          for (const line of lines) {
+            if (line.startsWith('event:')) {
+              eventType = line.slice(6).trim()
+            } else if (line.startsWith('data:')) {
+              data = line.slice(5).trim()
+            }
+          }
+
+          if (eventType === 'response.completed' && data) {
+            try {
+              const parsed = JSON.parse(data)
+              if (parsed.response) {
+                fullResponse = parsed.response
+              }
+            } catch (_e) {
+              logger.warn({ data }, '[responses] Failed to parse completion event')
+            }
+          }
+        }
+      }
+
+      if (!fullResponse) {
+        throw new Error('No completion event received from OpenAI Web')
+      }
+
+      return new Response(JSON.stringify(fullResponse), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }
+
     const text = await upstreamResponse.text()
     try {
       upstreamBody = JSON.parse(text)
     } catch {
       throw new Error('Failed to parse JSON response')
-    }
-
-    if (resolvedTargetProvider === 'openai-web') {
-      return new Response(JSON.stringify(upstreamBody), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      })
     }
 
     let openaiResponse: ChatCompletionsResponse
@@ -231,7 +285,7 @@ export async function handleResponses(
     } else {
       openaiResponse = transformResponse(upstreamBody, {
         from: resolvedTargetProvider as ProviderName,
-        to: 'openai',
+        to: formatIdToProviderName('openai-chat'),
       }) as ChatCompletionsResponse
     }
 

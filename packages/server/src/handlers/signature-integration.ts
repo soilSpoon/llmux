@@ -221,11 +221,27 @@ export function ensureThinkingSignatures(
 // Gemini Signature Normalization
 // ============================================================================
 
+const SKIP_THOUGHT_SIGNATURE_VALIDATOR = 'skip_thought_signature_validator'
+const MIN_SIGNATURE_LENGTH = 50
+
 function normalizeGeminiContents(contents: Content[]): Content[] {
+  // Track the latest valid signature across all messages in the conversation
+  let latestValidSignature: string | undefined
+
   return contents.map((content) => {
     if (!content || typeof content !== 'object') return content
 
     if (Array.isArray(content.parts)) {
+      // First pass: capture any signatures from thinking blocks in this content
+      for (const part of content.parts) {
+        if (part && typeof part === 'object' && part.thought === true) {
+          const sig = part.thought_signature || part.thoughtSignature || part.signature
+          if (typeof sig === 'string' && sig.length >= MIN_SIGNATURE_LENGTH) {
+            latestValidSignature = sig
+          }
+        }
+      }
+
       const filteredParts = content.parts
         .filter((part) => {
           if (!part || typeof part !== 'object') return true
@@ -238,12 +254,30 @@ function normalizeGeminiContents(contents: Content[]): Content[] {
         })
         .map((part) => {
           if (!part || typeof part !== 'object') return part
-          // Standardize signature field to thought_signature
+
+          // Standardize signature field to thought_signature for thinking blocks
           const signature = part.thought_signature || part.thoughtSignature || part.signature
           if (signature && part.thought === true) {
             const { thoughtSignature: _, signature: __, ...rest } = part
             return { ...rest, thought_signature: signature }
           }
+
+          // For functionCall parts: ensure thought_signature is present
+          // Gemini CLI API requires thought_signature on function calls after thinking
+          if (part.functionCall) {
+            const existingSig = part.thought_signature || part.thoughtSignature || part.signature
+            if (!existingSig) {
+              // Use the signature from preceding thinking block, or skip sentinel
+              const effectiveSignature = latestValidSignature || SKIP_THOUGHT_SIGNATURE_VALIDATOR
+              const { thoughtSignature: _, signature: __, ...rest } = part
+              return { ...rest, thought_signature: effectiveSignature }
+            } else {
+              // Standardize existing signature field name
+              const { thoughtSignature: _, signature: __, ...rest } = part
+              return { ...rest, thought_signature: existingSig }
+            }
+          }
+
           return part
         })
       return { ...content, parts: filteredParts }

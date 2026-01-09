@@ -48,11 +48,6 @@ export class AiSdkProvider extends BaseProvider {
     return isAiSdkCallOptions(request)
   }
 
-  isSupportedModel(_model: string): boolean {
-    // AI SDK adapter supports any model as it's just a protocol wrapper
-    return true
-  }
-
   /**
    * Parse AI SDK LanguageModelV3CallOptions into UnifiedRequest format.
    *

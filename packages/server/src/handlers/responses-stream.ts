@@ -1,17 +1,7 @@
-import {
-  type ProviderName,
-  parseSSELine,
-  type ResponsesStreamEvent,
-  ResponsesStreamTransformer,
-} from '@llmux/core'
-import { transformStreamChunk } from './stream-processor'
-
-function formatSSEEvent(event: ResponsesStreamEvent): string {
-  return `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`
-}
+import { getProvider, OpenAIResponsesStreamingBuilder, type ProviderName } from '@llmux/core'
 
 export function createResponsesStreamTransformer(model: string, initialProvider: ProviderName) {
-  const transformer = new ResponsesStreamTransformer(model)
+  const builder = new OpenAIResponsesStreamingBuilder(model)
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let buffer = ''
@@ -37,42 +27,50 @@ export function createResponsesStreamTransformer(model: string, initialProvider:
           }
         }
 
-        const openaiSSE = transformStreamChunk(trimmed, actualUpstreamProvider, 'openai')
-        const sseLines = Array.isArray(openaiSSE) ? openaiSSE : [openaiSSE]
+        const sourceProvider = getProvider(actualUpstreamProvider)
+        if (!sourceProvider.parseStreamChunk) {
+          continue
+        }
 
-        for (const sseLine of sseLines) {
-          const parsed = parseSSELine(sseLine)
-
-          if (parsed === 'DONE') {
-            const finalEvents = transformer.finish()
-            for (const event of finalEvents) {
-              controller.enqueue(encoder.encode(formatSSEEvent(event)))
+        const unified = sourceProvider.parseStreamChunk(trimmed)
+        if (unified) {
+          const chunks = Array.isArray(unified) ? unified : [unified]
+          for (const c of chunks) {
+            const sseEvents = builder.build(c)
+            for (const sse of sseEvents) {
+              controller.enqueue(encoder.encode(sse))
             }
-            continue
           }
-
-          if (parsed !== null && typeof parsed === 'object') {
-            const events = transformer.transformChunk(parsed)
-            for (const event of events) {
-              controller.enqueue(encoder.encode(formatSSEEvent(event)))
-            }
+        } else if (trimmed === 'data: [DONE]') {
+          // Manual completion if we see [DONE] (though builder handles 'done' chunk)
+          // Ensure builder is flushed
+          const sseEvents = builder.build({ type: 'done' })
+          for (const sse of sseEvents) {
+            controller.enqueue(encoder.encode(sse))
           }
         }
       }
     },
     flush(controller) {
+      // If we have remaining buffer, try to parse it
       if (buffer.trim()) {
-        const openaiSSE = transformStreamChunk(buffer.trim(), actualUpstreamProvider, 'openai')
-        const sseLines = Array.isArray(openaiSSE) ? openaiSSE : [openaiSSE]
-        for (const sseLine of sseLines) {
-          const parsed = parseSSELine(sseLine)
-          if (parsed !== null && parsed !== 'DONE' && typeof parsed === 'object') {
-            const events = transformer.transformChunk(parsed)
-            for (const event of events) {
-              controller.enqueue(encoder.encode(formatSSEEvent(event)))
+        const sourceProvider = getProvider(actualUpstreamProvider)
+        const unified = sourceProvider.parseStreamChunk?.(buffer.trim())
+        if (unified) {
+          const chunks = Array.isArray(unified) ? unified : [unified]
+          for (const c of chunks) {
+            const sseEvents = builder.build(c)
+            for (const sse of sseEvents) {
+              controller.enqueue(encoder.encode(sse))
             }
           }
         }
+      }
+
+      // Ensure completion event is sent if not already
+      const finalEvents = builder.build({ type: 'done' })
+      for (const sse of finalEvents) {
+        controller.enqueue(encoder.encode(sse))
       }
     },
   })

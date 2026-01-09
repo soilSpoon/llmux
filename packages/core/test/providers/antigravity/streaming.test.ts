@@ -8,6 +8,18 @@ import type { StreamChunk } from "../../../src/types/unified";
 describe("Antigravity Streaming Transformations", () => {
   describe("parseStreamChunk()", () => {
     describe("SSE format parsing", () => {
+      it("should parse line-delimited SSE format (Antigravity style)", () => {
+        // Antigravity sends line-delimited: each event is on its own line without \n\n separator
+        const chunk =
+          'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}}';
+
+        const result = parseStreamChunk(chunk);
+
+        expect(result).not.toBeNull();
+        expect((result as StreamChunk | null)?.type).toBe("content");
+        expect((result as StreamChunk | null)?.delta?.text).toBe("Hello");
+      });
+
       it("should parse SSE data line with text content", () => {
         const chunk =
           'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"Hello"}]}}]}}';

@@ -6,12 +6,10 @@
  */
 
 import type { FormatId } from '../../formats/base'
+import { getFormat } from '../../formats/registry'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { isChatCompletionsRequest } from './format-detector'
-import { parse, transform } from './request'
-import { parseResponse, transformResponse } from './response'
-import { parseStreamChunk, transformStreamChunk } from './streaming'
 import { isOpenAIRequest, isOpenAIResponse, type OpenAIRequest, type OpenAIResponse } from './types'
 
 /**
@@ -39,19 +37,6 @@ export class OpenAIProvider extends BaseProvider {
     return isChatCompletionsRequest(request)
   }
 
-  isSupportedModel(model: string): boolean {
-    // Explicitly exclude models handled by openai-web
-    if (model.startsWith('gpt-5') || model.includes('codex')) {
-      return false
-    }
-    return (
-      model.startsWith('gpt-') ||
-      model.startsWith('o1') ||
-      model.startsWith('o3') ||
-      model.startsWith('o4')
-    )
-  }
-
   /**
    * Parse an OpenAI request into UnifiedRequest format.
    *
@@ -60,10 +45,11 @@ export class OpenAIProvider extends BaseProvider {
    * @throws Error if the request is invalid
    */
   parse(request: unknown): UnifiedRequest {
+    const format = getFormat('openai-chat')
     if (!isOpenAIRequest(request)) {
       throw new Error('Invalid OpenAI request: must have model and messages')
     }
-    return parse(request)
+    return format.parseRequest(request)
   }
 
   /**
@@ -74,7 +60,11 @@ export class OpenAIProvider extends BaseProvider {
    * @returns The OpenAI request
    */
   transform(request: UnifiedRequest, model: string): OpenAIRequest {
-    return transform(request, model)
+    const format = getFormat('openai-chat')
+    return format.buildWireRequest(request, {
+      model,
+      provider: this.name,
+    }) as OpenAIRequest
   }
 
   /**
@@ -85,10 +75,11 @@ export class OpenAIProvider extends BaseProvider {
    * @throws Error if the response is invalid
    */
   parseResponse(response: unknown): UnifiedResponse {
+    const format = getFormat('openai-chat')
     if (!isOpenAIResponse(response)) {
       throw new Error('Invalid OpenAI response: must have id, object, and choices')
     }
-    return parseResponse(response)
+    return format.parseResponse(response)
   }
 
   /**
@@ -98,7 +89,11 @@ export class OpenAIProvider extends BaseProvider {
    * @returns The OpenAI response
    */
   transformResponse(response: UnifiedResponse): OpenAIResponse {
-    return transformResponse(response)
+    const format = getFormat('openai-chat')
+    return format.buildWireResponse(response, {
+      model: '', // Context not needed for response transformation
+      provider: this.name,
+    }) as OpenAIResponse
   }
 
   /**
@@ -108,7 +103,18 @@ export class OpenAIProvider extends BaseProvider {
    * @returns The parsed StreamChunk, or null if should be ignored
    */
   parseStreamChunk(chunk: string): StreamChunk | null {
-    return parseStreamChunk(chunk)
+    const format = getFormat('openai-chat')
+    if (!format.parseStreamChunk) {
+      throw new Error('Format openai-chat does not support parsing stream chunks')
+    }
+    const result = format.parseStreamChunk(chunk)
+    // format.parseStreamChunk can return array, single, or null.
+    // OpenAI provider currently expects single or null.
+    // For now, if array, take first item (unlikely to happen with simple chunks)
+    if (Array.isArray(result)) {
+      return result[0] || null
+    }
+    return result
   }
 
   /**
@@ -118,7 +124,19 @@ export class OpenAIProvider extends BaseProvider {
    * @returns The SSE-formatted string
    */
   transformStreamChunk(chunk: StreamChunk): string {
-    return transformStreamChunk(chunk)
+    const format = getFormat('openai-chat')
+    if (!format.buildStreamChunk) {
+      throw new Error('Format openai-chat does not support building stream chunks')
+    }
+    const result = format.buildStreamChunk(chunk, {
+      model: '', // Context not needed for stream chunk transformation
+      provider: this.name,
+    })
+    // format.buildStreamChunk can return array or string
+    if (Array.isArray(result)) {
+      return result.join('')
+    }
+    return result
   }
 
   /**
@@ -194,8 +212,4 @@ export class OpenAIProvider extends BaseProvider {
   }
 }
 
-export { parse, transform } from './request'
-export { parseResponse, transformResponse } from './response'
-export { parseStreamChunk, transformStreamChunk } from './streaming'
-// Re-export types and functions for convenience
 export * from './types'

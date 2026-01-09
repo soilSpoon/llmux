@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto'
 import { generatePKCE } from '@openauthjs/openauth/pkce'
 import type { OAuthCredential } from '../types'
 import {
@@ -33,35 +32,99 @@ interface AntigravityUserInfo {
   email?: string
 }
 
+// Caching for project ID resolution
+const projectContextResultCache = new Map<string, ProjectIDAndTierResult>()
+
+export function invalidateProjectContextCache(key?: string): void {
+  if (key) {
+    projectContextResultCache.delete(key)
+  } else {
+    projectContextResultCache.clear()
+  }
+}
+
 function encodeState(payload: AntigravityAuthState): string {
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
 }
 
-// Unused locally but kept for completeness if needed for debugging
-/*
-function decodeState(state: string): AntigravityAuthState {
-  const normalized = state.replace(/-/g, "+").replace(/_/g, "/")
-  const padded = normalized.padEnd(
-    normalized.length + ((4 - (normalized.length % 4)) % 4),
-    "=",
-  )
-  const json = Buffer.from(padded, "base64").toString("utf8")
-  const parsed = JSON.parse(json)
-  return {
-    verifier: parsed.verifier,
-    projectId: parsed.projectId || "",
-  }
-}
-*/
-
 interface LoadCodeAssistResponse {
   cloudaicompanionProject?: string | { id: string }
+  allowedTiers?: Array<{ id: string; name?: string }>
+}
+
+interface OnboardUserPayload {
+  done?: boolean
+  response?: {
+    cloudaicompanionProject?: {
+      id?: string
+    }
+  }
+}
+
+export type AccountTier = 'free' | 'paid'
+
+export interface ProjectIDAndTierResult {
+  projectId: string
+  tier?: AccountTier
+}
+
+const CODE_ASSIST_METADATA = {
+  ideType: 'IDE_UNSPECIFIED',
+  platform: 'PLATFORM_UNSPECIFIED',
+  pluginType: 'GEMINI',
+} as const
+
+function buildMetadata(projectId?: string): Record<string, string> {
+  const metadata: Record<string, string> = {
+    ideType: CODE_ASSIST_METADATA.ideType,
+    platform: CODE_ASSIST_METADATA.platform,
+    pluginType: CODE_ASSIST_METADATA.pluginType,
+  }
+  if (projectId) {
+    metadata.duetProject = projectId
+  }
+  return metadata
+}
+
+/**
+ * Determine account tier from allowedTiers API response
+ */
+function determineTierFromAllowedTiers(
+  allowedTiers: Array<{ id: string; name?: string }> | undefined
+): AccountTier | undefined {
+  if (!allowedTiers || allowedTiers.length === 0) {
+    return undefined
+  }
+
+  const firstTier = allowedTiers[0]
+  if (!firstTier) {
+    return undefined
+  }
+
+  const tierId = firstTier.id.toLowerCase()
+
+  if (tierId === 'legacy-tier' || tierId.endsWith('-free')) {
+    return 'free'
+  }
+
+  return 'paid'
 }
 
 export async function fetchAntigravityProjectID(accessToken: string): Promise<string> {
+  const result = await fetchAntigravityProjectIDAndTier(accessToken)
+  return result.projectId
+}
+
+export async function loadManagedProject(
+  accessToken: string,
+  projectId?: string
+): Promise<LoadCodeAssistResponse | null> {
+  const metadata = buildMetadata(projectId)
+  const requestBody = { metadata }
+
   const loadHeaders: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
+    Authorization: `Bearer ${accessToken}`,
     'User-Agent': 'google-api-nodejs-client/9.15.1',
     'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
     'Client-Metadata': ANTIGRAVITY_HEADERS['Client-Metadata'],
@@ -73,42 +136,104 @@ export async function fetchAntigravityProjectID(accessToken: string): Promise<st
 
   for (const baseEndpoint of loadEndpoints) {
     try {
-      const url = `${baseEndpoint}/v1internal:loadCodeAssist`
-      const response = await fetch(url, {
+      const response = await fetch(`${baseEndpoint}/v1internal:loadCodeAssist`, {
         method: 'POST',
         headers: loadHeaders,
-        body: JSON.stringify({
-          metadata: {
-            ideType: 'IDE_UNSPECIFIED',
-            platform: 'PLATFORM_UNSPECIFIED',
-            pluginType: 'GEMINI',
-          },
-        }),
+        body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {
         continue
       }
 
-      const data = (await response.json()) as LoadCodeAssistResponse
-      if (typeof data.cloudaicompanionProject === 'string' && data.cloudaicompanionProject) {
-        return data.cloudaicompanionProject
+      return (await response.json()) as LoadCodeAssistResponse
+    } catch {
+      // ignore
+    }
+  }
+
+  return null
+}
+
+export async function onboardManagedProject(
+  accessToken: string,
+  tierId: string,
+  projectId?: string
+): Promise<string | undefined> {
+  const metadata = buildMetadata(projectId)
+  const requestBody: Record<string, unknown> = {
+    tierId,
+    metadata,
+  }
+
+  if (tierId !== 'FREE' && projectId) {
+    requestBody.cloudaicompanionProject = projectId
+  }
+
+  // Use a subset of endpoints or just one for onboarding? opencode uses FALLBACKS
+  for (const baseEndpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
+    try {
+      const response = await fetch(`${baseEndpoint}/v1internal:onboardUser`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+          ...ANTIGRAVITY_HEADERS,
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      if (!response.ok) {
+        continue
       }
-      if (
-        data.cloudaicompanionProject &&
-        typeof data.cloudaicompanionProject === 'object' &&
-        typeof data.cloudaicompanionProject.id === 'string' &&
-        data.cloudaicompanionProject.id
-      ) {
-        return data.cloudaicompanionProject.id
+
+      const payload = (await response.json()) as OnboardUserPayload
+      const managedProjectId = payload.response?.cloudaicompanionProject?.id
+      if (payload.done && managedProjectId) {
+        return managedProjectId
+      }
+      if (payload.done && projectId) {
+        return projectId
       }
     } catch {
       // ignore
     }
   }
-  // Return empty string to trigger fallback to default project (rising-fact-p41fc)
-  // without x-goog-user-project header in streaming.ts
-  return ''
+  return undefined
+}
+
+export async function fetchAntigravityProjectIDAndTier(
+  accessToken: string
+): Promise<ProjectIDAndTierResult> {
+  if (projectContextResultCache.has(accessToken)) {
+    // biome-ignore lint/style/noNonNullAssertion: guaranteed by .has() check
+    return projectContextResultCache.get(accessToken)!
+  }
+
+  const data = await loadManagedProject(accessToken)
+
+  if (!data) {
+    return { projectId: '', tier: undefined }
+  }
+
+  let projectId = ''
+  if (typeof data.cloudaicompanionProject === 'string' && data.cloudaicompanionProject) {
+    projectId = data.cloudaicompanionProject
+  } else if (
+    data.cloudaicompanionProject &&
+    typeof data.cloudaicompanionProject === 'object' &&
+    typeof data.cloudaicompanionProject.id === 'string' &&
+    data.cloudaicompanionProject.id
+  ) {
+    projectId = data.cloudaicompanionProject.id
+  }
+
+  const tier = determineTierFromAllowedTiers(data.allowedTiers)
+
+  const result = { projectId, tier }
+  projectContextResultCache.set(accessToken, result)
+
+  return result
 }
 
 export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
@@ -143,7 +268,6 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
           return { type: 'failed', error: 'No code received in callback' }
         }
 
-        // We close the listener after getting the code
         await listener.close()
 
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -190,16 +314,19 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
         }
 
         let effectiveProjectId = projectId
+        let accountTier: AccountTier | undefined
         if (!effectiveProjectId) {
           try {
-            effectiveProjectId = await fetchAntigravityProjectID(tokenPayload.access_token)
+            const result = await fetchAntigravityProjectIDAndTier(tokenPayload.access_token)
+            effectiveProjectId = result.projectId
+            accountTier = result.tier
           } catch {
             // ignore
           }
         }
 
         if (!effectiveProjectId) {
-          effectiveProjectId = generateSyntheticProjectId()
+          effectiveProjectId = ''
         }
 
         const credential: OAuthCredential = {
@@ -209,6 +336,7 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
           expiresAt: Date.now() + tokenPayload.expires_in * 1000,
           email: userInfo.email,
           projectId: effectiveProjectId,
+          ...(accountTier && { metadata: { tier: accountTier } }),
         }
 
         return {
@@ -216,7 +344,6 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
           credential,
         }
       } catch (error) {
-        // Ensure listener is closed on error
         await listener.close().catch(() => {})
         return {
           type: 'failed',
@@ -230,7 +357,11 @@ export async function authorizeAntigravity(projectId = ''): Promise<AuthStep> {
 export async function refreshAntigravityToken(
   currentCredential: OAuthCredential
 ): Promise<OAuthCredential> {
-  const [refreshToken, projectId] = (currentCredential.refreshToken || '').split('|')
+  // Support 3 parts: refresh | projectId | managedProjectId
+  const parts = (currentCredential.refreshToken || '').split('|')
+  const refreshToken = parts[0]
+  const projectId = parts[1] || ''
+  const managedProjectId = parts[2] || ''
 
   if (!refreshToken) {
     throw new Error('Missing refresh token')
@@ -255,25 +386,44 @@ export async function refreshAntigravityToken(
   }
 
   const tokenPayload = (await tokenResponse.json()) as AntigravityTokenResponse
-
-  // The refresh token might be rotated, but usually it stays the same.
-  // If a new one is returned, we should use it.
   const newRefreshToken = tokenPayload.refresh_token || refreshToken
 
+  // Re-resolve or preserve project ID
   let effectiveProjectId = currentCredential.projectId || projectId
+  const effectiveManagedId = managedProjectId
+
+  let accountTier: AccountTier | undefined
+  if (
+    currentCredential.metadata &&
+    typeof currentCredential.metadata === 'object' &&
+    'tier' in currentCredential.metadata
+  ) {
+    accountTier = currentCredential.metadata.tier as AccountTier
+  }
+
+  // If we have no effective project id or if we want to re-verify occasionally...
+  // For now, let's allow it to be resolved if missing.
   if (!effectiveProjectId) {
     try {
-      effectiveProjectId = await fetchAntigravityProjectID(tokenPayload.access_token)
+      const result = await fetchAntigravityProjectIDAndTier(tokenPayload.access_token)
+      effectiveProjectId = result.projectId
+      accountTier = result.tier
     } catch {
       // ignore
     }
   }
 
   if (!effectiveProjectId) {
-    effectiveProjectId = generateSyntheticProjectId()
+    effectiveProjectId = ''
   }
 
-  const storedRefresh = `${newRefreshToken}|${effectiveProjectId || ''}`
+  // Construct stored refresh token with up to 3 parts
+  // refreshToken|projectId|managedProjectId
+  // Only include managedProjectId if it exists
+  let storedRefresh = `${newRefreshToken}|${effectiveProjectId}`
+  if (effectiveManagedId) {
+    storedRefresh += `|${effectiveManagedId}`
+  }
 
   return {
     ...currentCredential,
@@ -281,18 +431,6 @@ export async function refreshAntigravityToken(
     refreshToken: storedRefresh,
     expiresAt: Date.now() + tokenPayload.expires_in * 1000,
     projectId: effectiveProjectId,
+    ...(accountTier && { metadata: { tier: accountTier } }),
   }
-}
-
-/**
- * Generate a synthetic project ID when Antigravity does not return one.
- * Mirroring behavior from opencode-antigravity-auth.
- */
-function generateSyntheticProjectId(): string {
-  const adjectives = ['useful', 'bright', 'swift', 'calm', 'bold']
-  const nouns = ['fuze', 'wave', 'spark', 'flow', 'core']
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)]
-  const noun = nouns[Math.floor(Math.random() * nouns.length)]
-  const randomPart = randomUUID().slice(0, 5).toLowerCase()
-  return `${adj}-${noun}-${randomPart}`
 }

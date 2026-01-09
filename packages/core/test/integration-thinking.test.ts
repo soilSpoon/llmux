@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'bun:test'
-import { parse as parseOpenAI, transform as transformOpenAI } from '../src/providers/openai/request'
+import * as OpenAIRequest from '../src/formats/openai-chat/request'
 import type { UnifiedRequest } from '../src/types/unified'
+
+// Rename imports to match test usage
+const parseOpenAI = OpenAIRequest.parseRequest
+const transformOpenAI = (req: UnifiedRequest, model?: string) => OpenAIRequest.transformRequest(req, model || 'gpt-4')
 
 describe('Integration Tests - Thinking Config Transformations', () => {
   describe('OpenAI → Unified → GLM thinking flow', () => {

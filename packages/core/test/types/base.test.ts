@@ -22,16 +22,7 @@ describe('ProviderConfig', () => {
     expect(config.supportsStreaming).toBe(true)
   })
 
-  it('should accept optional defaultMaxTokens', () => {
-    const config: ProviderConfig = {
-      name: 'anthropic',
-      supportsStreaming: true,
-      supportsThinking: true,
-      supportsTools: true,
-      defaultMaxTokens: 8192,
-    }
-    expect(config.defaultMaxTokens).toBe(8192)
-  })
+
 })
 
 describe('Provider interface', () => {
@@ -45,7 +36,6 @@ describe('Provider interface', () => {
         supportsTools: true,
       },
       isSupportedRequest: () => true,
-      isSupportedModel: () => true,
       parse: (_request: unknown) => ({
         messages: [],
       }),
@@ -81,7 +71,6 @@ describe('Provider interface', () => {
         supportsTools: true,
       },
       isSupportedRequest: () => true,
-      isSupportedModel: () => true,
       parse: () => ({ messages: [] }),
       transform: () => ({}),
       parseResponse: () => ({ id: 'test', content: [], stopReason: 'end_turn' }),
@@ -113,10 +102,6 @@ describe('BaseProvider', () => {
       }
 
       isSupportedRequest(_request: unknown): boolean {
-        return true
-      }
-
-      isSupportedModel(_model: string): boolean {
         return true
       }
 
@@ -153,10 +138,6 @@ describe('BaseProvider', () => {
       }
 
       isSupportedRequest(_request: unknown): boolean {
-        return true
-      }
-
-      isSupportedModel(_model: string): boolean {
         return true
       }
 

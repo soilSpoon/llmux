@@ -7,10 +7,10 @@ import {
   TokenRefresh,
 } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core'
-import { createLogger, getProvider } from '@llmux/core'
-import type { RequestFormat } from '../middleware/format'
+import { createLogger, formatIdToProviderName, getProvider } from '@llmux/core'
 import {
   buildCodexBody,
+  type CodexBodyOptions,
   fixOpencodeZenBody,
   getOpencodeZenEndpoint,
   prepareAntigravityRequest,
@@ -68,10 +68,6 @@ export interface RequestBuilderResult {
   retryState: RetryState
 }
 
-function formatToProvider(format: RequestFormat): ProviderName {
-  return format as ProviderName
-}
-
 export async function buildUpstreamRequest(
   input: RequestBuilderInput
 ): Promise<RequestBuilderResult> {
@@ -89,6 +85,7 @@ export async function buildUpstreamRequest(
       sourceFormat: options.sourceFormat,
       targetProvider: options.targetProvider,
       targetModel: options.targetModel,
+      originalModel: options.originalModel,
       thinking: options.thinking,
       router: options.router,
       modelMappings: options.modelMappings,
@@ -111,6 +108,10 @@ export async function buildUpstreamRequest(
 
   // Antigravity
   if (effectiveProvider && effectiveProvider === 'antigravity') {
+    logger.debugTemp(
+      { reqId, model: currentModel, accountIndex: retryState.accountIndex },
+      'Preparing Antigravity request'
+    )
     const antigravityContext = await prepareAntigravityRequest({
       model: currentModel || '',
       accountIndex: retryState.accountIndex,
@@ -125,27 +126,35 @@ export async function buildUpstreamRequest(
       endpoint = antigravityContext.endpoint
       headers = antigravityContext.headers
 
+      logger.debugTemp(
+        {
+          reqId,
+          projectId: antigravityContext.projectId,
+          account: antigravityContext.account,
+          endpoint: antigravityContext.endpoint,
+        },
+        'Antigravity context prepared'
+      )
+
       providerInfo.antigravity = {
         endpoint: antigravityContext.endpoint,
         account: antigravityContext.account,
       }
 
-      // Handle Endpoint Rotation
-      const baseUrl =
-        ANTIGRAVITY_ENDPOINT_FALLBACKS[retryState.antigravityEndpointIndex] ||
-        ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
-      // Override endpoint if rotation is active (although prepareAntigravityRequest might handle it,
-      // but rotation index is in retryState which prepare accepts,
-      // yet proxy.ts manually constructs it. Let's align with proxy.ts behavior)
-      // prepareAntigravityRequest returns a default endpoint.
-      // We should apply the rotation here if needed.
-      // Actually prepareAntigravityRequest returns endpoint based on constant.
-      // Let's rely on retryState index.
-      if (mode === 'streaming') {
-        endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
-      } else {
-        endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_GENERATE}`
+      // Endpoint already selected by prepareAntigravityRequest based on account rotation
+      // But handle retry-triggered endpoint rotation (retryState tracks failed attempts)
+      if (retryState.antigravityEndpointIndex > 0) {
+        // Retry: use the next endpoint from the fallback list
+        const baseUrl =
+          ANTIGRAVITY_ENDPOINT_FALLBACKS[retryState.antigravityEndpointIndex] ||
+          ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
+        if (mode === 'streaming') {
+          endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
+        } else {
+          endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_GENERATE}`
+        }
       }
+      // Otherwise use endpoint from prepareAntigravityRequest (already set above)
     }
   }
   // OpenAI Web
@@ -206,18 +215,48 @@ export async function buildUpstreamRequest(
   }
 
   // 4. Signature Sanitization
+  const messagesBeforeSanitize = Array.isArray(body.messages) ? body.messages : []
+  logger.debug(
+    {
+      reqId,
+      messageCountBefore: messagesBeforeSanitize.length,
+      model: currentModel,
+    },
+    'Before sanitizeRequestSignatures'
+  )
+
   const sanitizeResult = sanitizeRequestSignatures({
-    messages: (body.messages || []) as Record<string, unknown>[],
+    messages: messagesBeforeSanitize as Record<string, unknown>[],
     model: currentModel,
     projectId: currentProjectId,
     signatureStore,
     reqId,
   })
 
+  logger.debug(
+    {
+      reqId,
+      messageCountAfter: sanitizeResult.messages?.length || 0,
+      strippedCount: sanitizeResult.strippedCount,
+      strategy: sanitizeResult.strategy,
+      messagesNullOrUndefined:
+        sanitizeResult.messages === null || sanitizeResult.messages === undefined,
+    },
+    'After sanitizeRequestSignatures'
+  )
+
   if (sanitizeResult.messages) {
     body.messages = sanitizeResult.messages
   }
   isClaudeFresh = sanitizeResult.strategy === 'claude-fresh'
+
+  logger.debug(
+    {
+      reqId,
+      messageCountInBody: Array.isArray(body.messages) ? body.messages.length : 0,
+    },
+    'After assigning sanitized messages to body'
+  )
 
   // 5. Request Body Transformation
   // gemini-cli uses the same v1internal API as antigravity, so needs the same wrapped request format
@@ -247,7 +286,7 @@ export async function buildUpstreamRequest(
 
   // For now, let's use the provider registry to get the provider, parse, modify, then transform.
 
-  const sourceProvider = getProvider(formatToProvider(options.sourceFormat))
+  const sourceProvider = getProvider(formatIdToProviderName(options.sourceFormat))
   const targetProvider = getProvider(transformTarget)
 
   const unifiedRequest = sourceProvider.parse(body)
@@ -260,63 +299,42 @@ export async function buildUpstreamRequest(
   // Apply Prompt Caching
   applyPromptCaching(unifiedRequest, transformTarget)
 
-  // Merge metadata
+  // Merge metadata (including reqId from x-amp-client-request-id header)
   if (effectiveProvider === 'antigravity' || effectiveProvider === 'gemini-cli') {
+    logger.debugTemp(
+      { reqId, projectId: currentProjectId, model: currentModel, provider: effectiveProvider },
+      'Merging metadata for Antigravity/Gemini-CLI request'
+    )
     unifiedRequest.metadata = {
       ...unifiedRequest.metadata,
       project: currentProjectId,
       model: currentModel,
+      requestId: reqId, // From x-amp-client-request-id header or generated UUID
     }
   }
 
-  // Transform
-  let transformedRequest = targetProvider.transform(unifiedRequest, currentModel || '') as Record<
-    string,
-    unknown
-  >
-
-  /*
-  // ORIGINAL CODE REPLACED BY ABOVE
-  let transformedRequest = transformRequest(body as any, {
-    from: formatToProvider(options.sourceFormat),
-    to: transformTarget,
-    model: currentModel,
-    // Claude fresh strategy: disable thinking block injection to avoid Invalid signature errors
-    // (sanitizeRequestSignatures already removed thinking blocks, don't re-inject them)
-    thinkingOverride: isThinkingEnabled !== true || isClaudeFresh ? { enabled: false } : undefined,
-    metadata:
-      effectiveProvider === 'antigravity' || effectiveProvider === 'gemini-cli'
-        ? { project: currentProjectId, model: currentModel }
-        : undefined,
-  }) as Record<string, unknown>
-  */
-
-  // Debug transformed request structure
-  // biome-ignore lint/suspicious/noExplicitAny: Accessing potential messages array for debug logging
-  const debugMessages = (transformedRequest as any).messages
-  if (Array.isArray(debugMessages)) {
-    // biome-ignore lint/suspicious/noExplicitAny: Mapping message structure for debug logging
-    const summary = debugMessages.map((m: any) => ({
-      role: m.role,
-      // biome-ignore lint/suspicious/noExplicitAny: Accessing parts safely for logging
-      parts: m.parts?.map((p: any) => p.type || Object.keys(p)[0]),
-    }))
-    logger.debug({ reqId, messageStructure: summary }, 'Transformed request structure')
+  // Transform UnifiedRequest to Provider Request format
+  const rawTransformed = targetProvider.transform(unifiedRequest, currentModel || '')
+  if (!rawTransformed || typeof rawTransformed !== 'object') {
+    throw new Error(`Provider ${effectiveProvider} transformation failed to return an object`)
   }
+  let transformedRequest = rawTransformed as Record<string, unknown>
 
   // 6. Provider-Specific Body Adjustments (Post-Transform)
   if (effectiveProvider && effectiveProvider === 'openai-web') {
-    const typedBody = body as {
+    interface OpenAIWebBody {
       messages?: unknown[]
       input?: unknown[]
       tools?: unknown[]
       reasoning?: unknown
       thinking?: unknown
     }
+    const typedBody = body as OpenAIWebBody
+
     // Messages might be in original body or transformed, depends on transformRequest behavior for openai-web
     // transformRequest typically returns { model, messages, ... }
     // Use original body's messages/input if transformedRequest.messages is empty
-    let messages = transformedRequest.messages
+    let messages: unknown = (transformedRequest as Record<string, unknown>).messages
     if (!messages || (Array.isArray(messages) && messages.length === 0)) {
       // Check messages first, then input - but both need to be non-empty arrays
       const originalMessages = typedBody.messages
@@ -328,35 +346,40 @@ export async function buildUpstreamRequest(
       }
     }
 
-    logger.info(
-      {
-        reqId,
-        sourceFormat: options.sourceFormat,
-        transformedMessagesLen: Array.isArray(transformedRequest.messages)
-          ? transformedRequest.messages.length
-          : undefined,
-        originalMessagesLen: typedBody.messages?.length,
-        originalInputLen: typedBody.input?.length,
-        resolvedMessagesLen: Array.isArray(messages) ? messages.length : undefined,
-        messagesSample: Array.isArray(messages) ? messages.slice(0, 1) : undefined,
-      },
-      '[openai-web] Debugging missing input error'
-    )
+    const debugInfo = {
+      reqId,
+      sourceFormat: options.sourceFormat,
+      transformedMessagesLen: Array.isArray(
+        (transformedRequest as Record<string, unknown>).messages
+      )
+        ? ((transformedRequest as Record<string, unknown>).messages as unknown[]).length
+        : undefined,
+      originalMessagesLen: typedBody.messages?.length,
+      originalInputLen: typedBody.input?.length,
+      resolvedMessagesLen: Array.isArray(messages) ? messages.length : undefined,
+      messagesSample: Array.isArray(messages) ? messages.slice(0, 1) : undefined,
+    }
+
+    if (!messages || (Array.isArray(messages) && messages.length === 0)) {
+      logger.warn(debugInfo, '[openai-web] No messages found')
+    } else {
+      logger.debug(debugInfo, '[openai-web] Request body debug info')
+    }
 
     if (!messages) {
       logger.warn({ reqId }, '[openai-web] No messages found, defaulting to empty array')
       messages = []
     }
 
-    transformedRequest = await buildCodexBody({
+    const codexOptions: CodexBodyOptions = {
       model: currentModel || '',
-      // biome-ignore lint/suspicious/noExplicitAny: cast to any
-      messages: messages as any[],
-      // biome-ignore lint/suspicious/noExplicitAny: cast to any
-      tools: typedBody.tools as any,
+      messages,
+      tools: typedBody.tools as CodexBodyOptions['tools'],
       reasoning: typedBody.reasoning || typedBody.thinking,
-      // System instructions are handled inside buildCodexBody via getCodexInstructions
-    })
+      // Provide system instructions for logging purposes (provider will decide to ignore them)
+      systemInstructions: (transformedRequest as { instructions?: string })?.instructions,
+    }
+    transformedRequest = await buildCodexBody(codexOptions)
   } else if (effectiveProvider && effectiveProvider === 'opencode-zen') {
     fixOpencodeZenBody(transformedRequest, { thinkingEnabled: isThinkingEnabled })
   }
@@ -366,7 +389,10 @@ export async function buildUpstreamRequest(
     if (effectiveProvider && effectiveProvider === 'opencode-zen') {
       const protocol = resolveOpencodeZenProtocol(currentModel || '')
       if (protocol) {
-        endpoint = getOpencodeZenEndpoint(protocol)
+        endpoint =
+          protocol === 'gemini'
+            ? getOpencodeZenEndpoint(protocol, currentModel || '')
+            : getOpencodeZenEndpoint(protocol)
       }
     }
   }

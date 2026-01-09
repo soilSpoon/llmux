@@ -51,7 +51,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       targetModel: "claude-3-sonnet-20240229",
       apiKey: "test-api-key",
@@ -102,7 +102,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       apiKey: "my-secret-key",
     };
@@ -140,7 +140,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       apiKey: "test-key",
     };
@@ -187,7 +187,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       apiKey: "test-key",
     };
@@ -233,7 +233,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       apiKey: "test-key",
     };
@@ -281,7 +281,7 @@ describe("handleProxy", () => {
       });
 
       const options: ProxyOptions = {
-        sourceFormat: "openai",
+        sourceFormat: "openai-chat",
         targetProvider: "anthropic",
         apiKey: "test-key",
       };
@@ -322,7 +322,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       apiKey: "test-key",
     };
@@ -376,7 +376,7 @@ describe("handleProxy", () => {
     });
 
     const options: ProxyOptions = {
-      sourceFormat: "openai",
+      sourceFormat: "openai-chat",
       targetProvider: "anthropic",
       apiKey: "test-key",
     };

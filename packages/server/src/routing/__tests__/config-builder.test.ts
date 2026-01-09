@@ -24,7 +24,7 @@ describe('buildRoutingConfig', () => {
   })
 
   it('parses explicit provider from mapping', async () => {
-    const mappings = [{ from: 'my-model', to: 'gpt-4:openai' }]
+    const mappings = [{ from: 'my-model', to: 'openai/gpt-4' }]
 
     const result = await buildRoutingConfig(mappings)
 
@@ -71,7 +71,7 @@ describe('buildRoutingConfig', () => {
     const mappings = [
       {
         from: 'my-model',
-        to: ['gpt-4:openai', 'glm-4.7-free'],
+        to: ['openai/gpt-4', 'glm-4.7-free'],
       },
     ]
     const mockLookup = createMockModelLookup({
@@ -95,7 +95,7 @@ describe('buildRoutingConfig', () => {
     const mappings = [
       {
         from: 'my-model',
-        to: ['gpt-4:openai', 'unknown-fallback'],
+        to: ['openai/gpt-4', 'unknown-fallback'],
       },
     ]
     const mockLookup = createMockModelLookup({})
@@ -106,7 +106,7 @@ describe('buildRoutingConfig', () => {
   })
 
   it('prefers explicit provider over modelLookup', async () => {
-    const mappings = [{ from: 'my-model', to: 'gpt-4:anthropic' }]
+    const mappings = [{ from: 'my-model', to: 'anthropic/gpt-4' }]
     const mockLookup = createMockModelLookup({
       'gpt-4': 'openai',
     })
@@ -114,5 +114,72 @@ describe('buildRoutingConfig', () => {
     const result = await buildRoutingConfig(mappings, mockLookup)
 
     expect(result.modelMapping?.['my-model']?.provider).toBe('anthropic')
+  })
+
+  it('infers provider from slash format when lookup fails', async () => {
+    const mappings = [{ from: 'my-model', to: 'unknown-provider/some-model' }]
+    // Mock lookup returns nothing
+    const mockLookup = createMockModelLookup({})
+
+    const result = await buildRoutingConfig(mappings, mockLookup)
+
+    expect(result.modelMapping?.['my-model']).toEqual({
+      provider: 'unknown-provider' as any,
+      model: 'some-model',
+      fallbacks: [],
+    })
+  })
+
+  it('resolves fallback provider from other mappings in config', async () => {
+    const mappings = [
+      { from: 'alias1', to: ['provider1/model1', 'alias2'] },
+      { from: 'alias2', to: 'provider2/model2' },
+    ]
+
+    const result = await buildRoutingConfig(mappings)
+
+    expect(result.modelMapping?.['alias1']).toEqual({
+      provider: 'provider1' as any,
+      model: 'model1',
+      fallbacks: ['alias2'],
+    })
+
+    expect(result.modelMapping?.['alias2']).toEqual({
+      provider: 'provider2' as any,
+      model: 'model2',
+      fallbacks: [],
+    })
+  })
+
+  it('resolves deeply nested aliased providers', async () => {
+    const mappings = [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'c' },
+      { from: 'c', to: 'provider/model' },
+    ]
+
+    const result = await buildRoutingConfig(mappings)
+
+    expect(result.modelMapping?.['a']).toEqual({
+      provider: 'provider' as any,
+      model: 'model',
+      fallbacks: [],
+    })
+    expect(result.modelMapping?.['b']).toEqual({
+      provider: 'provider' as any,
+      model: 'model',
+      fallbacks: [],
+    })
+  })
+
+  it('handles circular aliases gracefully by failing if provider not found', async () => {
+    const mappings = [
+      { from: 'a', to: 'b' },
+      { from: 'b', to: 'a' },
+    ]
+
+    await expect(buildRoutingConfig(mappings)).rejects.toThrow(
+      'Provider must be specified for model mapping: b'
+    )
   })
 })

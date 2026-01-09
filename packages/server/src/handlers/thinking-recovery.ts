@@ -300,3 +300,107 @@ export function closeToolLoopForThinking(
 export function needsThinkingRecovery(state: ConversationState): boolean {
   return state.inToolLoop && !state.turnHasThinking
 }
+
+// ============================================================================
+// COMPACTED THINKING TURN DETECTION (Ported from LLM-API-Key-Proxy)
+// ============================================================================
+
+/**
+ * Detects if a message looks like it was compacted from a thinking-enabled turn.
+ *
+ * This is a heuristic to distinguish between:
+ * - "Never had thinking" (model didn't use thinking mode)
+ * - "Thinking was stripped" (context compaction removed thinking blocks)
+ *
+ * Heuristics:
+ * 1. Has functionCall parts (typical thinking flow produces tool calls)
+ * 2. No thinking parts (thought: true)
+ * 3. No text content before functionCall (thinking responses usually have text)
+ *
+ * @param msg - A single message from the conversation
+ * @returns true if the message looks like thinking was stripped
+ */
+export function looksLikeCompactedThinkingTurn(msg: ConversationMessage): boolean {
+  if (!msg || typeof msg !== 'object') return false
+
+  // Gemini parts
+  if (Array.isArray(msg.parts)) {
+    const parts = msg.parts
+    if (parts.length === 0) return false
+
+    // Check if message has function calls
+    const hasFunctionCall = parts.some(isFunctionCallPart)
+    if (!hasFunctionCall) return false
+
+    // Check for thinking blocks
+    const hasThinking = parts.some(isThinkingPart)
+    if (hasThinking) return false
+
+    // Check for text content (not thinking) before function call
+    // Note: TypeScript might struggle with mixed part types, using 'any' for heuristic check
+    // biome-ignore lint/suspicious/noExplicitAny: complex union types in parts
+    const hasTextBeforeFunctionCall = parts.some((p: any, idx: number) => {
+      // Only check parts before the first functionCall
+      const firstFuncIdx = parts.findIndex(isFunctionCallPart)
+      if (idx >= firstFuncIdx) return false
+
+      // Check for non-thinking text
+      return 'text' in p && typeof p.text === 'string' && p.text.trim().length > 0 && !p.thought
+    })
+
+    // If we have functionCall but no text before it, likely compacted
+    return !hasTextBeforeFunctionCall
+  }
+
+  // Anthropic content
+  if (Array.isArray(msg.content)) {
+    const content = msg.content
+    if (content.length === 0) return false
+
+    const hasToolUse = content.some(isFunctionCallPart)
+    if (!hasToolUse) return false
+
+    const hasThinking = content.some(isThinkingPart)
+    if (hasThinking) return false
+
+    // Check for text before tool use
+    const firstToolIdx = content.findIndex(isFunctionCallPart)
+
+    // Check if there is any text block before the first tool use
+    const hasTextBeforeTool = content.some((block, idx) => {
+      if (!block) return false
+      if (idx >= firstToolIdx) return false
+      return block.type === 'text' && (block.text || '').trim().length > 0
+    })
+
+    return !hasTextBeforeTool
+  }
+
+  return false
+}
+
+/**
+ * Checks if any message in the current turn looks like it was compacted.
+ *
+ * @param contents - Full conversation contents
+ * @param turnStartIdx - Index of the first model message in current turn
+ * @returns true if any model message in the turn looks compacted
+ */
+export function hasPossibleCompactedThinking(
+  contents: ConversationMessage[],
+  turnStartIdx: number
+): boolean {
+  if (!Array.isArray(contents) || turnStartIdx < 0) return false
+
+  for (let i = turnStartIdx; i < contents.length; i++) {
+    const msg = contents[i]
+    if (
+      (msg?.role === 'model' || msg?.role === 'assistant') &&
+      looksLikeCompactedThinkingTurn(msg)
+    ) {
+      return true
+    }
+  }
+
+  return false
+}

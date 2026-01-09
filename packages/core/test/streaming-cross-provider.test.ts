@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'bun:test'
-import { parseStreamChunk as parseOpenAI, transformStreamChunk as transformOpenAI } from '../src/providers/openai/streaming'
+import { getFormat } from '../src/formats/registry'
+const openAIFormat = getFormat('openai-chat')
+
+const parseOpenAI = (chunk: string) => {
+  if (!openAIFormat.parseStreamChunk) return null
+  const result = openAIFormat.parseStreamChunk(chunk)
+  return Array.isArray(result) ? result[0] || null : result
+}
+
+const transformOpenAI = (chunk: any) => {
+  if (!openAIFormat.buildStreamChunk) return ''
+  const result = openAIFormat.buildStreamChunk(chunk, { model: '', provider: 'openai' })
+  return Array.isArray(result) ? result.join('') : result
+}
+
 import { parseStreamChunk as parseAnthropic, transformStreamChunk as transformAnthropic } from '../src/providers/anthropic/streaming'
 import { parseStreamChunk as parseGemini } from '../src/providers/gemini/streaming'
 import type { StreamChunk } from '../src/types/unified'
@@ -289,11 +303,12 @@ data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use"
       // Step 2: Parse Gemini to unified
       const unified = parseGemini(`data: ${JSON.stringify(geminiChunk)}`)
       expect(unified).not.toBeNull()
-      expect(unified?.type).toBe('tool_call')
-      expect(unified?.delta?.partialJson).toBe('{"query": "weather in NYC')
+      const unifiedChunk = Array.isArray(unified) ? unified[unified.length - 1] : unified
+      expect(unifiedChunk?.type).toBe('tool_call')
+      expect(unifiedChunk?.delta?.partialJson).toBe('{"query": "weather in NYC')
 
       // Step 3: Transform unified to Anthropic
-      const anthropicOutput = transformAnthropic(unified!)
+      const anthropicOutput = transformAnthropic(unifiedChunk!)
       const anthropicStr = Array.isArray(anthropicOutput) ? anthropicOutput.join('') : anthropicOutput
 
       // Step 4: Verify Anthropic format
@@ -360,8 +375,9 @@ data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use"
       let accumulatedJson = ''
       for (const chunkData of geminiChunks) {
         const unified = parseGemini(`data: ${JSON.stringify(chunkData)}`)
-        if (unified?.delta?.partialJson) {
-          accumulatedJson += unified.delta.partialJson
+        const unifiedChunk = Array.isArray(unified) ? unified[unified.length - 1] : unified
+        if (unifiedChunk?.delta?.partialJson) {
+          accumulatedJson += unifiedChunk.delta.partialJson
         }
       }
 
@@ -391,9 +407,10 @@ data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use"
       }
 
       const unified = parseGemini(`data: ${JSON.stringify(geminiChunk)}`)
-      expect(unified?.delta?.partialJson).toBe('{"key": "val')
+      const unifiedChunk = Array.isArray(unified) ? unified[unified.length - 1] : unified
+      expect(unifiedChunk?.delta?.partialJson).toBe('{"key": "val')
 
-      const openaiOutput = transformOpenAI(unified!)
+      const openaiOutput = transformOpenAI(unifiedChunk!)
       expect(openaiOutput).toContain('tool_calls')
       expect(openaiOutput).toContain('get_info')
       expect(openaiOutput).toContain('function')

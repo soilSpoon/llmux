@@ -37,7 +37,10 @@ export class OpencodeZenStrategy implements ProviderRequestStrategy {
       return null
     }
 
-    const endpoint = getOpencodeZenEndpoint(protocol)
+    const endpoint =
+      protocol === 'gemini'
+        ? getOpencodeZenEndpoint(protocol, model)
+        : getOpencodeZenEndpoint(protocol)
 
     return {
       provider: 'opencode-zen',

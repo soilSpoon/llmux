@@ -9,7 +9,8 @@ export const ANTIGRAVITY_SCOPES: readonly string[] = [
   'https://www.googleapis.com/auth/experimentsandconfigs',
 ]
 export const ANTIGRAVITY_REDIRECT_URI: string = 'http://localhost:51121/oauth-callback'
-export const ANTIGRAVITY_ENDPOINT_DAILY: string =
+export const ANTIGRAVITY_ENDPOINT_DAILY: string = 'https://daily-cloudcode-pa.googleapis.com'
+export const ANTIGRAVITY_ENDPOINT_SANDBOX: string =
   'https://daily-cloudcode-pa.sandbox.googleapis.com'
 export const ANTIGRAVITY_ENDPOINT_AUTOPUSH: string =
   'https://autopush-cloudcode-pa.sandbox.googleapis.com'
@@ -17,16 +18,18 @@ export const ANTIGRAVITY_ENDPOINT_PROD: string = 'https://cloudcode-pa.googleapi
 export const ANTIGRAVITY_DEFAULT_PROJECT_ID: string = 'rising-fact-p41fc'
 export const ANTIGRAVITY_API_PATH_GENERATE: string = '/v1internal:generateContent'
 export const ANTIGRAVITY_API_PATH_STREAM: string = '/v1internal:streamGenerateContent?alt=sse'
-export const ANTIGRAVITY_ENDPOINT_FALLBACKS: readonly [string, string] = [
+export const ANTIGRAVITY_ENDPOINT_FALLBACKS: readonly [string, string, string] = [
+  ANTIGRAVITY_ENDPOINT_SANDBOX,
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_PROD,
 ] as const
-export const ANTIGRAVITY_LOAD_ENDPOINTS: readonly [string, string] = [
+export const ANTIGRAVITY_LOAD_ENDPOINTS: readonly [string, string, string] = [
   ANTIGRAVITY_ENDPOINT_PROD,
+  ANTIGRAVITY_ENDPOINT_SANDBOX,
   ANTIGRAVITY_ENDPOINT_DAILY,
 ] as const
 export const ANTIGRAVITY_HEADERS = {
-  'User-Agent': 'antigravity/1.11.5 windows/amd64',
+  'User-Agent': 'antigravity/1.104.0 darwin/arm64',
   'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
   'Client-Metadata':
     '{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}',
@@ -37,6 +40,6 @@ export const GEMINI_CLI_API_PATH_STREAM = '/v1internal:streamGenerateContent?alt
 export const GEMINI_CLI_API_PATH = '/v1internal:generateContent'
 export const GEMINI_CLI_HEADERS = {
   'User-Agent': 'google-api-nodejs-client/9.15.1',
-  'X-Goog-Api-Client': 'gl-node/22.17.0',
+  'X-Goog-Api-Client': 'google-cloud-sdk vscode_cloudshelleditor/0.1',
   'Client-Metadata': 'ideType=IDE_UNSPECIFIED,platform=PLATFORM_UNSPECIFIED,pluginType=GEMINI',
 } as const

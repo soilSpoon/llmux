@@ -66,9 +66,9 @@ import { applyThinkingConfig } from '../../transform/thinking'
 /**
  * Transform UnifiedRequest into AnthropicRequest
  */
-export function transform(request: UnifiedRequest): AnthropicRequest {
+export function transform(request: UnifiedRequest, model?: string): AnthropicRequest {
   const result: AnthropicRequest = {
-    model: (request.metadata?.model as string) || '', // Restore model from metadata
+    model: model || (request.metadata?.model as string) || '', // Use provided model or restore from metadata
     messages: transformMessages(request.messages),
     max_tokens: request.config?.maxTokens ?? DEFAULT_MAX_TOKENS,
   }
@@ -362,12 +362,12 @@ function transformPart(part: ContentPart): AnthropicContentBlock | null {
       return {
         type: 'text',
         text: part.text || '',
-        cache_control: part.cacheControl
-          ? {
-              type: part.cacheControl.type as 'ephemeral',
-              ...(part.cacheControl.ttl && { ttl: part.cacheControl.ttl }),
-            }
-          : undefined,
+        ...(part.cacheControl && {
+          cache_control: {
+            type: part.cacheControl.type as 'ephemeral',
+            ...(part.cacheControl.ttl && { ttl: part.cacheControl.ttl }),
+          },
+        }),
       } as AnthropicTextBlock
 
     case 'image':

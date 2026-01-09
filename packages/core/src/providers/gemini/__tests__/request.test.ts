@@ -1,7 +1,7 @@
-
 import { describe, expect, it } from 'bun:test'
 import { parse as parseGemini, transform as transformGemini } from '../request'
 import type { GeminiRequest } from '../types'
+import type { UnifiedRequest } from '../../../types/unified'
 
 describe('Gemini Request Transformation', () => {
   describe('Round Trip Consistency', () => {
@@ -205,6 +205,149 @@ describe('Gemini Request Transformation', () => {
       // Check config preservation
       expect(transformed.generationConfig?.thinkingConfig?.includeThoughts).toBe(true)
       expect(transformed.generationConfig?.thinkingConfig?.thinkingBudget).toBe(1024)
+    })
+  })
+
+  describe('Tool Result Error Handling', () => {
+    it('should preserve isError flag in tool results during round-trip transformation', () => {
+      const originalRequest: GeminiRequest = {
+        contents: [
+          { role: 'user', parts: [{ text: 'Execute tool' }] },
+          { 
+            role: 'model', 
+            parts: [
+              { 
+                functionCall: { 
+                  name: 'execute_command',
+                  args: { cmd: 'ls' },
+                  id: 'call_cmd_1'
+                } 
+              }
+            ] 
+          },
+          { 
+            role: 'user', 
+            parts: [
+              { 
+                functionResponse: { 
+                  name: 'execute_command',
+                  response: { error: 'Permission denied' },
+                  id: 'call_cmd_1'
+                },
+                // Note: Gemini uses an error field to indicate failure
+                // We need to capture this semantically as isError
+              }
+            ] 
+          }
+        ],
+        tools: [{
+          functionDeclarations: [{
+            name: 'execute_command',
+            description: 'Execute a command',
+            parameters: { type: 'OBJECT', properties: { cmd: { type: 'STRING' } } }
+          }]
+        }]
+      }
+
+      const unified = parseGemini(originalRequest)
+      const transformed = transformGemini(unified)
+
+      // Verify tool result exists
+      expect(transformed.contents[2]?.parts[0]?.functionResponse).toBeDefined()
+      expect(transformed.contents[2]?.parts[0]?.functionResponse?.id).toBe('call_cmd_1')
+    })
+
+    it('should preserve isError flag when explicitly provided in tool result', () => {
+      const originalRequest: GeminiRequest = {
+        contents: [
+          { 
+            role: 'model', 
+            parts: [
+              { 
+                functionCall: { 
+                  name: 'fetch_data',
+                  args: { url: 'http://example.com' },
+                  id: 'call_fetch_1'
+                } 
+              }
+            ] 
+          },
+          { 
+            role: 'user', 
+            parts: [
+              { 
+                functionResponse: { 
+                  name: 'fetch_data',
+                  response: { error: 'Network timeout' },
+                  id: 'call_fetch_1'
+                }
+              }
+            ] 
+          }
+        ],
+        tools: [{
+          functionDeclarations: [{
+            name: 'fetch_data',
+            description: 'Fetch data from URL',
+            parameters: { type: 'OBJECT', properties: { url: { type: 'STRING' } } }
+          }]
+        }]
+      }
+
+      const unified = parseGemini(originalRequest)
+
+      // isError should be captured during parse if available
+      const toolResultPart = unified.messages[1]?.parts.find(p => p.type === 'tool_result')
+      expect(toolResultPart).toBeDefined()
+
+      // Transform back and verify
+      const transformed = transformGemini(unified)
+      const transformedToolResult = transformed.contents[1]?.parts[0]?.functionResponse
+
+      expect(transformedToolResult).toBeDefined()
+      expect(transformedToolResult?.id).toBe('call_fetch_1')
+      expect(transformedToolResult?.response).toEqual({ error: 'Network timeout' })
+    })
+
+    it('should preserve isError flag from unified format back to gemini', () => {
+      // Create a Unified request with isError set
+      const unifiedRequest: UnifiedRequest = {
+        messages: [
+          {
+            role: 'assistant',
+            parts: [
+              {
+                type: 'tool_call' as const,
+                toolCall: {
+                  id: 'call_api_1',
+                  name: 'call_api',
+                  arguments: { endpoint: '/users' },
+                },
+              },
+            ],
+          },
+          {
+            role: 'tool',
+            parts: [
+              {
+                type: 'tool_result' as const,
+                toolResult: {
+                  toolCallId: 'call_api_1',
+                  content: JSON.stringify({ error: 'API rate limited' }),
+                  isError: true, // This should be preserved
+                },
+              },
+            ],
+          },
+        ],
+      }
+
+      const transformed = transformGemini(unifiedRequest)
+
+      // Verify the error state is preserved in the response
+      const toolResponse = transformed.contents[1]?.parts[0]?.functionResponse
+      expect(toolResponse).toBeDefined()
+      expect(toolResponse?.response).toEqual({ error: 'API rate limited' })
     })
   })
 })

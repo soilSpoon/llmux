@@ -5,21 +5,11 @@
  */
 
 import type { FormatId } from '../../formats/base'
-import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
+import { getFormat } from '../../formats/registry'
+import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types'
 import type { ProviderConfig, ProviderName } from '../base'
 import { BaseProvider } from '../base'
-import { parse, transform } from './request'
-import { parseResponse, transformResponse } from './response'
-import {
-  parseStreamChunk as parseStream,
-  transformStreamChunk as transformStream,
-} from './streaming'
-import {
-  type AnthropicRequest,
-  type AnthropicResponse,
-  isAnthropicRequest,
-  isAnthropicResponse,
-} from './types'
+import type { AnthropicRequest, AnthropicResponse } from './types'
 
 /**
  * Anthropic Provider implementation
@@ -37,64 +27,66 @@ export class AnthropicProvider extends BaseProvider {
       supportsThinking: true,
       supportsTools: true,
       authType: 'apiKey',
-      defaultMaxTokens: 4096,
     }
   }
 
   isSupportedRequest(request: unknown): boolean {
-    if (!isAnthropicRequest(request)) return false
-    // Anthropic requests usually have top-level system property
-    return typeof request === 'object' && request !== null && 'system' in request
-  }
-
-  isSupportedModel(model: string): boolean {
-    return model.includes('claude')
+    return getFormat('anthropic-messages').isSupportedWireRequest(request)
   }
 
   /**
    * Parse Anthropic request format into UnifiedRequest
    */
   parse(request: unknown): UnifiedRequest {
-    // Validation is handled inside parse() to allow for normalization first
-    return parse(request)
+    return getFormat('anthropic-messages').parseRequest(request)
   }
 
   /**
    * Transform UnifiedRequest into Anthropic request format
    */
-  transform(request: UnifiedRequest): AnthropicRequest {
-    return transform(request)
+  transform(request: UnifiedRequest, model: string): AnthropicRequest {
+    return getFormat('anthropic-messages').buildWireRequest(request, {
+      provider: this.name,
+      model,
+    }) as AnthropicRequest
   }
 
   /**
    * Parse Anthropic response format into UnifiedResponse
    */
   parseResponse(response: unknown): UnifiedResponse {
-    if (!isAnthropicResponse(response)) {
-      throw new Error('Invalid Anthropic response: missing required fields')
-    }
-    return parseResponse(response)
+    return getFormat('anthropic-messages').parseResponse(response)
   }
 
   /**
    * Transform UnifiedResponse into Anthropic response format
    */
   transformResponse(response: UnifiedResponse): AnthropicResponse {
-    return transformResponse(response)
+    return getFormat('anthropic-messages').buildWireResponse(response, {
+      provider: this.name,
+      model: response.model || 'unknown',
+    }) as AnthropicResponse
   }
 
   /**
    * Parse an Anthropic SSE stream chunk into unified StreamChunk
    */
   parseStreamChunk(chunk: string): StreamChunk | null {
-    return parseStream(chunk)
+    const parsed = getFormat('anthropic-messages').parseStreamChunk?.(chunk)
+    // Handle array or single return, though anthropic format currently returns StreamChunk | null
+    if (Array.isArray(parsed)) return parsed[0] || null
+    return parsed || null
   }
 
   /**
    * Transform a unified StreamChunk into Anthropic SSE format
    */
   transformStreamChunk(chunk: StreamChunk): string | string[] {
-    return transformStream(chunk)
+    const transformed = getFormat('anthropic-messages').buildStreamChunk?.(chunk, {
+      provider: this.name,
+      model: 'unknown', // Model not always available in stream chunk context
+    })
+    return transformed || []
   }
 
   /**
@@ -171,8 +163,4 @@ export class AnthropicProvider extends BaseProvider {
   }
 }
 
-export { parse, transform } from './request'
-export { parseResponse, transformResponse } from './response'
-export { parseStreamChunk, transformStreamChunk } from './streaming'
-// Re-export types and functions for convenience
 export * from './types'

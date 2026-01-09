@@ -7,19 +7,14 @@
  */
 
 import type { FormatId } from '../../formats/base'
+import { getFormat } from '../../formats/registry'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
-import { AnthropicProvider } from '../anthropic'
 import type { ProviderConfig, ProviderName } from '../base'
 import { BaseProvider } from '../base'
-import { OpenAIProvider } from '../openai'
 
 export class OpencodeZenProvider extends BaseProvider {
   readonly name: ProviderName
   readonly config: ProviderConfig
-
-  private anthropic: AnthropicProvider
-  private openai: OpenAIProvider
-  private lastRequestedModel?: string
 
   constructor(name: ProviderName = 'opencode-zen') {
     super()
@@ -32,8 +27,6 @@ export class OpencodeZenProvider extends BaseProvider {
       authType: 'apiKey',
       defaultStreamParser: 'sse-line-delimited',
     }
-    this.anthropic = new AnthropicProvider()
-    this.openai = new OpenAIProvider()
   }
 
   isSupportedRequest(_request: unknown): boolean {
@@ -41,24 +34,6 @@ export class OpencodeZenProvider extends BaseProvider {
     // but for detection purposes we defer to canonical providers
     // to avoid ambiguity in detectFormat.
     return false
-  }
-
-  isSupportedModel(model: string): boolean {
-    return (
-      model === 'glm-4.7-free' ||
-      model.startsWith('glm-') ||
-      model === 'big-pickle' ||
-      model.startsWith('qwen-') ||
-      model.startsWith('kimi-') ||
-      model.startsWith('grok-')
-    )
-  }
-
-  private getDelegate(model?: string) {
-    if (model?.includes('claude')) {
-      return this.anthropic
-    }
-    return this.openai
   }
 
   parse(request: unknown): UnifiedRequest {
@@ -69,86 +44,116 @@ export class OpencodeZenProvider extends BaseProvider {
     // But if we are explicitly parsing, we might check properties.
     if ((request as { messages?: unknown }).messages && (request as { system?: unknown }).system) {
       // Anthropic style has top-level system usually
-      return this.anthropic.parse(request)
+      return getFormat('anthropic-messages').parseRequest(request)
     }
-    return this.openai.parse(request)
+    return getFormat('openai-chat').parseRequest(request)
   }
 
   transform(request: UnifiedRequest, model: string): unknown {
-    this.lastRequestedModel = model
-    return this.getDelegate(model).transform(request, model)
+    const formatId = this.getFormatForModel(model)
+    const wireRequest = getFormat(formatId).buildWireRequest(request, {
+      provider: this.name,
+      model,
+    }) as Record<string, unknown>
+
+    // Refinement: Apply model-specific options based on Opencode Zen logic
+    // Reference: opencode/packages/opencode/src/provider/transform.ts
+
+    // 1. Thinking / Reasoning Support
+    if (model.includes('kimi-k2-thinking') || model.includes('glm-4.6')) {
+      wireRequest.chat_template_args = {
+        ...(wireRequest.chat_template_args as Record<string, unknown>),
+        enable_thinking: true,
+      }
+    }
+
+    // 2. GPT-5 Specific Zen Options
+    if (model.includes('gpt-5') && !model.includes('gpt-5-chat')) {
+      // reasoning.encrypted_content is requested via 'include' array in Zen
+      if (!model.includes('codex') && !model.includes('gpt-5-pro')) {
+        wireRequest.reasoningEffort = wireRequest.reasoningEffort || 'medium'
+      }
+
+      // Zen specifically adds encrypted_content for its own provider
+      wireRequest.include = Array.isArray(wireRequest.include)
+        ? [...wireRequest.include, 'reasoning.encrypted_content']
+        : ['reasoning.encrypted_content']
+
+      wireRequest.reasoningSummary = 'auto'
+
+      // Prompt caching session control
+      if (request.metadata?.sessionId) {
+        wireRequest.promptCacheKey = request.metadata.sessionId
+      }
+    }
+
+    // 3. Gemini Thinking Config
+    if (model.includes('gemini-3')) {
+      wireRequest.thinkingConfig = {
+        ...(wireRequest.thinkingConfig as Record<string, unknown>),
+        includeThoughts: true,
+        thinkingLevel: 'high',
+      }
+    }
+
+    return wireRequest
   }
 
-  parseResponse(response: unknown): UnifiedResponse {
-    // Auto-detect response format
-    const resp = response as Record<string, unknown>
+  // Extended transform to support model passing if caller supports it
+  transformWithModel(request: UnifiedRequest, model: string): unknown {
+    return this.transform(request, model)
+  }
+
+  parseResponse(response: Record<string, unknown>, model?: string): UnifiedResponse {
+    // If model is provided, use its format
+    if (model) {
+      const formatId = this.getFormatForModel(model)
+      return getFormat(formatId).parseResponse(response)
+    }
 
     // Anthropic responses have type: "message"
-    if (resp.type === 'message' && Array.isArray(resp.content)) {
-      return this.anthropic.parseResponse(response)
+    if (response.type === 'message' && Array.isArray(response.content)) {
+      return getFormat('anthropic-messages').parseResponse(response)
     }
 
     // OpenAI responses have choices array
-    if (Array.isArray(resp.choices)) {
-      return this.openai.parseResponse(response)
+    if (Array.isArray(response.choices)) {
+      return getFormat('openai-chat').parseResponse(response)
     }
 
-    // Fall back to lastRequestedModel or OpenAI
-    const delegate = this.getDelegate(this.lastRequestedModel)
-    return delegate.parseResponse(response)
+    // Fall back to OpenAI format as default
+    return getFormat('openai-chat').parseResponse(response)
   }
 
   transformResponse(response: UnifiedResponse): unknown {
-    // This is for sending response BACK.
-    // Usually we use the format requested by client.
-    // But this method converts Unified -> Provider Format.
-    // We should probably rely on what the client expects?
-    // Actually this method is rarely used directly in streaming proxy flow
-    // (streaming flow transforms chunks).
-    // Let's default to OpenAI as it's more generic, or Anthropic?
-    // Let's assume generic structure.
-    return this.openai.transformResponse(response)
+    // Default to OpenAI format as it's the most common
+    return getFormat('openai-chat').buildWireResponse(response, {
+      provider: this.name,
+      model: response.model || 'unknown',
+    })
   }
 
   parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
     if (chunk.startsWith('event:') || chunk.includes('"type":"content_block')) {
-      return this.anthropic.parseStreamChunk(chunk)
+      return getFormat('anthropic-messages').parseStreamChunk?.(chunk) || null
     }
-    return this.openai.parseStreamChunk(chunk)
+
+    // Gemini chunks often have candidates array
+    if (chunk.includes('"candidates":[')) {
+      return getFormat('google-gemini').parseStreamChunk?.(chunk) || null
+    }
+
+    // Default to OpenAI
+    return getFormat('openai-chat').parseStreamChunk?.(chunk) || null
   }
 
   transformStreamChunk(chunk: StreamChunk): string | string[] {
-    // This transforms Unified Chunk -> Provider Format.
-    // This is used when llmux acts as a server sending to a client.
-    // The format depends on what the CLIENT connected as (Anthropic vs OpenAI).
-    // However, StreamingHandler usually uses the Target Provider's transform logic
-    // to match the *Target* format? NO.
-    // StreamingHandler uses `transformStreamChunk` of the *Source* format context?
-    // Actually `streaming.ts` uses `transformStreamChunk` of the TARGET provider?
-    // Wait. `streaming.ts` logic:
-    // It calls `targetProvider.transform(unifiedRequest)` to send to Upstream.
-    // Then it receives Upstream Stream.
-    // It calls `targetProvider.parseStreamChunk(chunk)` to get Unified Chunk.
-    // Then it calls `chunk.replace...` or whatever to convert to Client format?
-    // NO. `streaming.ts` uses `transformStreamChunk` from `anthropic/streaming`
-    // ONLY if the CLIENT expects Anthropic?
-
-    // Correction: `streaming.ts` line 140 or so.
-    // It determines `sourceFormat`.
-    // It initializes `streamTransform` based on `sourceFormat`.
-    // The `streamTransform` uses `anthropic.transformStreamChunk` if source is anthropic.
-
-    // So THIS class's `transformStreamChunk` is only used if
-    // `OpencodeZenProvider` is used as the *Source* (Client Side) protocol?
-    // i.e. Client <--OpencodeZenProvider-- Server.
-    // Since `opencode-zen` is usually an Upstream, this might be less critical.
-    // But if we map `opencode-zen` to `anthropic` or `openai` protocols,
-    // we should just implement it.
-
-    // Since we don't know the preferred output format here (it depends on client),
-    // and this Provider is mostly for Upstream, we can implement both or throw?
-    // Let's default to OpenAI format as it's the default "delegate".
-    return this.openai.transformStreamChunk(chunk)
+    // Default to OpenAI format
+    const result = getFormat('openai-chat').buildStreamChunk?.(chunk, {
+      provider: this.name,
+      model: chunk.model || 'unknown',
+    })
+    return result || ''
   }
 
   /**
@@ -156,9 +161,25 @@ export class OpencodeZenProvider extends BaseProvider {
    * Routes Claude models to Anthropic format, all others to OpenAI format.
    */
   getFormatForModel(model: string): FormatId {
-    if (model.includes('claude')) {
+    // Reference: opencode models manifest (via models.dev)
+
+    // Anthropic-compatible models (npm: "@ai-sdk/anthropic")
+    if (model.includes('claude') || model.includes('minimax') || model.includes('alpha-gd4')) {
       return 'anthropic-messages'
     }
+
+    // Google-compatible models (npm: "@ai-sdk/google")
+    if (model.includes('gemini')) {
+      return 'google-gemini'
+    }
+
+    // OpenAI Responses API models (typically GPT-5 family, Codex)
+    if (model.includes('codex') || model.startsWith('gpt-5')) {
+      return 'openai-responses'
+    }
+
+    // Default to OpenAI Chat for other models (npm: "@ai-sdk/openai" or "openai-compatible")
+    // Includes: qwen, glm, grok, etc.
     return 'openai-chat'
   }
 

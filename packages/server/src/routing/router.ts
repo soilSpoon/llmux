@@ -1,9 +1,11 @@
-import type { ProviderName } from '@llmux/core'
+import { createLogger, type ProviderName } from '@llmux/core'
 import type { RoutingConfig } from '../config'
 import { type CooldownManager, globalCooldownManager } from '../cooldown'
 import type { ModelLookup } from '../models/lookup'
 import { ModelRouter } from './model-router'
 import type { UpstreamProvider } from './types'
+
+const logger = createLogger({ service: 'router' })
 
 export interface RouteResult {
   provider: UpstreamProvider
@@ -51,27 +53,48 @@ export class Router {
     // 1. Resolve using ModelRouter (includes explicit, mappings, lookup, inference)
     const resolution = await this.modelRouter.resolve(requestedModel)
 
+    logger.debugTemp(
+      {
+        requestedModel,
+        primaryProvider: resolution.providerId,
+        primaryModel: resolution.targetModel,
+        fallbackCount: resolution.fallbacks.length,
+        fallbacks: resolution.fallbacks.map((f) => `${f.provider}/${f.model}`),
+        source: resolution.source,
+      },
+      '[DEBUG] ModelRouter resolution result'
+    )
+
     // 2. Check cooldown for primary choice
     const key = `${resolution.providerId}:${resolution.targetModel}`
     if (this.cooldownManager.isAvailable(key)) {
+      logger.debugTemp({ key }, '[DEBUG] Primary choice available')
       return {
         provider: resolution.providerId as ProviderName,
         model: resolution.targetModel,
       }
     }
 
+    logger.debugTemp({ key }, '[DEBUG] Primary choice in cooldown, trying fallbacks')
+
     // 3. Try fallbacks from resolution
     for (const fallback of resolution.fallbacks) {
-      // Use the model from fallback if specified, otherwise targetModel (though fallback usually has specific model)
       const fallbackModel = fallback.model || resolution.targetModel
       const fallbackKey = `${fallback.provider}:${fallbackModel}`
 
+      logger.debugTemp(
+        { fallbackProvider: fallback.provider, fallbackModel, fallbackKey },
+        '[DEBUG] Checking fallback availability'
+      )
+
       if (this.cooldownManager.isAvailable(fallbackKey)) {
+        logger.debugTemp({ fallbackKey }, '[DEBUG] Fallback available, using it')
         return {
           provider: fallback.provider,
           model: fallbackModel,
         }
       }
+      logger.debugTemp({ fallbackKey }, '[DEBUG] Fallback in cooldown')
     }
 
     // 4. Default fallback rotation (legacy behavior if everything fails)
@@ -80,14 +103,18 @@ export class Router {
         this.currentIndex % this.config.fallbackOrder.length
       ] as UpstreamProvider
       if (provider) {
+        logger.debugTemp({ provider, requestedModel }, '[DEBUG] Using legacy fallbackOrder')
         return {
           provider,
           model: requestedModel,
         }
       }
     }
-
     // Return primary if everything else fails
+    logger.debugTemp(
+      { provider: resolution.providerId, model: resolution.targetModel },
+      '[DEBUG] No available fallback, returning primary'
+    )
     return {
       provider: resolution.providerId,
       model: resolution.targetModel,
