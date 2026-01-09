@@ -323,6 +323,23 @@ function processResponsesEventCore(
             },
           }
         }
+        if (event.item.type === 'reasoning') {
+          return {
+            type: 'thinking-start',
+            id: event.item.id,
+            blockIndex: event.output_index ?? 0,
+            blockType: 'thinking',
+          }
+        }
+        if (event.item.type === 'message') {
+          return {
+            type: 'content',
+            id: event.item.id,
+            blockIndex: event.output_index ?? 0,
+            blockType: 'text',
+            delta: {},
+          }
+        }
       }
       return null
 
@@ -355,6 +372,14 @@ function processResponsesEventCore(
                 text: textContent.text,
               },
             }
+          }
+        }
+        if (event.item.type === 'reasoning') {
+          return {
+            type: 'thinking-end',
+            id: event.item.id,
+            blockIndex: event.output_index ?? 0,
+            blockType: 'thinking',
           }
         }
       }

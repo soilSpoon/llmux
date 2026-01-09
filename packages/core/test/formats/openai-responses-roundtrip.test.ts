@@ -4,29 +4,17 @@ import type { ResponsesResponse } from '../../src/formats/openai-responses/types
 
 // Real capture from upstream.txt
 // Note: instructions field is truncated for brevity but functionality remains the same
-const UPSTREAM_CAPTURE_RESPONSE = {
-  "id": "resp_01b277e0e5361695016960c55dae3481918151218f2bc8f83e",
-  "object": "response",
-  "created_at": 1767949661,
-  "status": "in_progress",
-  "background": false,
-  "completed_at": null,
-  "error": null,
-  "incomplete_details": null,
-  "instructions": "You are GPT-5.1 running in the Codex CLI..."
-} as ResponsesResponse
-
-// Real capture from translated.txt (what we currently produce, approximately)
-// This represents the state we are trying to fix/align with upstream
-const TRANSLATED_CAPTURE_RESPONSE = {
-  "id": "resp_0df65176f2b0a8b4016960c63706508191b5f40b9b4b3e1e0c",
-  "object": "response",
-  "status": "in_progress",
-  "created_at": 1767949879,
-  "model": "gpt-5.1-2025-11-13", // Extra field not in upstream?
-  "instructions": "You are GPT-5.1 running in the Codex CLI..."
-  // Missing: background, completed_at, error, incomplete_details
-} as any
+const UPSTREAM_CAPTURE_RESPONSE: ResponsesResponse = {
+  id: 'resp_01b277e0e5361695016960c55dae3481918151218f2bc8f83e',
+  object: 'response',
+  created_at: 1767949661,
+  status: 'in_progress',
+  background: false,
+  completed_at: null,
+  error: null,
+  incomplete_details: null,
+  instructions: 'You are GPT-5.1 running in the Codex CLI...',
+}
 
 describe('OpenAI Responses Roundtrip (Real Capture)', () => {
   
@@ -60,7 +48,7 @@ describe('OpenAI Responses Roundtrip (Real Capture)', () => {
   test('should handle background field specifically', () => {
     // This seems to be one of the missing fields
     const parsed = parseResponse(UPSTREAM_CAPTURE_RESPONSE)
-    expect(parsed.background).toBe(false)
+    expect(parsed.metadata?.background).toBe(false)
     
     const reconstructed = transformResponse(parsed)
     expect(reconstructed.background).toBe(false)

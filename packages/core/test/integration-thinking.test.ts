@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'bun:test'
 import * as OpenAIRequest from '../src/formats/openai-chat/request'
 import type { UnifiedRequest } from '../src/types/unified'
+import type { OpenAIChatRequest } from '../src/formats/openai-chat/types'
 
 // Rename imports to match test usage
 const parseOpenAI = OpenAIRequest.parseRequest
@@ -10,11 +11,11 @@ describe('Integration Tests - Thinking Config Transformations', () => {
   describe('OpenAI → Unified → GLM thinking flow', () => {
     it('parses OpenAI reasoning_effort and transforms to GLM thinking', () => {
       // 1. OpenAI request with reasoning_effort
-      const openaiRequest = {
+      const openaiRequest: OpenAIChatRequest = {
         model: 'o1',
         messages: [{ role: 'user', content: 'Solve this problem' }],
         reasoning_effort: 'high',
-      } as any
+      }
 
       // 2. Parse to unified
       const unified = parseOpenAI(openaiRequest)
@@ -30,13 +31,13 @@ describe('Integration Tests - Thinking Config Transformations', () => {
 
     it('parses GLM thinking.type and transforms to OpenAI reasoning_effort', () => {
       // 1. GLM request with thinking
-      const glmRequest = {
+      const glmRequest: OpenAIChatRequest = {
         model: 'glm-4.6',
         messages: [{ role: 'user', content: 'Complex problem' }],
         thinking: {
           type: 'enabled',
         },
-      } as any
+      }
 
       // 2. Parse to unified
       const unified = parseOpenAI(glmRequest)
@@ -50,14 +51,14 @@ describe('Integration Tests - Thinking Config Transformations', () => {
 
     it('preserves preserveContext through GLM round-trip', () => {
       // 1. GLM request with clear_thinking: false
-      const glmRequest = {
+      const glmRequest: OpenAIChatRequest = {
         model: 'glm-4.6',
         messages: [{ role: 'user', content: 'Problem' }],
         thinking: {
           type: 'enabled',
           clear_thinking: false,
         },
-      } as any
+      }
 
       // 2. Parse to unified
       const unified = parseOpenAI(glmRequest)
@@ -173,11 +174,11 @@ describe('Integration Tests - Thinking Config Transformations', () => {
 
   describe('Round-trip consistency', () => {
     it('preserves thinking config through OpenAI → Unified → OpenAI', () => {
-      const openaiRequest = {
+      const openaiRequest: OpenAIChatRequest = {
         model: 'gpt-4',
         messages: [{ role: 'user', content: 'Test' }],
         reasoning_effort: 'high',
-      } as any
+      }
 
       // Parse
       const unified = parseOpenAI(openaiRequest)
@@ -189,14 +190,14 @@ describe('Integration Tests - Thinking Config Transformations', () => {
     })
 
     it('preserves thinking config through GLM → Unified → GLM', () => {
-      const glmRequest = {
+      const glmRequest: OpenAIChatRequest = {
         model: 'glm-4.6',
         messages: [{ role: 'user', content: 'Test' }],
         thinking: {
           type: 'enabled',
           clear_thinking: false,
         },
-      } as any
+      }
 
       // Parse
       const unified = parseOpenAI(glmRequest)

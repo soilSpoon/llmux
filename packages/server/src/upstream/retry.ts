@@ -15,10 +15,13 @@ export function parseRetryAfterMs(response?: Response | null, body?: string): nu
     if (!Number.isNaN(parsed) && parsed > 0) return parsed * 1000
   }
 
-  // 3. Check body for retryDelay
+  // 3. Check body for retryDelay or Gemini quota reset message
   if (body) {
-    const match = body.match(/"retryDelay":\s*"([0-9.]+)s"/)
-    if (match?.[1]) return parseFloat(match[1]) * 1000
+    const retryDelayMatch = body.match(/"retryDelay":\s*"([0-9.]+)s"/)
+    if (retryDelayMatch?.[1]) return parseFloat(retryDelayMatch[1]) * 1000
+
+    const quotaResetMatch = body.match(/reset after (\d+)s/)
+    if (quotaResetMatch?.[1]) return parseInt(quotaResetMatch[1], 10) * 1000
   }
 
   // 4. Default fallback (30 seconds)

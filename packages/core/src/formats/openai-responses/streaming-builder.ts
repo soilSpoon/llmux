@@ -372,12 +372,21 @@ export class OpenAIResponsesStreamingBuilder {
     let item: Record<string, unknown> | null = null
 
     if (type === 'text') {
-      item = { type: 'message' }
+      item = {
+        type: 'message',
+        status: 'in_progress',
+        content: [],
+        role: 'assistant',
+      }
     } else if (type === 'thinking') {
-      item = { type: 'reasoning' }
+      item = {
+        type: 'reasoning',
+        summary: [],
+      }
     } else if (type === 'tool_call') {
       item = {
         type: 'function_call',
+        status: 'in_progress',
         name: this.state.currentItemName,
         call_id: this.state.currentItemId,
         arguments: '', // Streaming args
@@ -407,6 +416,8 @@ export class OpenAIResponsesStreamingBuilder {
         content_index: 0,
         part: {
           type: 'output_text',
+          annotations: [],
+          logprobs: [],
           text: '',
         },
       })
