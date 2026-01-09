@@ -29,9 +29,8 @@ coverage/
 .env
 .env.local
 .env.*.local
+
+# Agent
 .agent
 .agents
-examples
-*.har
-.ralph*
-docs
+.specify
