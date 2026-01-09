@@ -71,7 +71,7 @@ When modifying `@llmux/server`, respect the following layers:
 
 - **Strict Validation**: Ensure zero warnings or failures in linting, formatting, testing, and type checking (`bun run check`, `bun run test`) after any modification.
 - **Avoid Suppressions**: Strictly avoid using `any`, `@ts-expect-error`, or `biome-ignore`. Instead of using these suppressions to bypass warnings, always identify and resolve the underlying issues.
-- **Type Safety**: Avoid type assertions (`as`) or casting. Prioritize proper type inference, standard TypeScript types, and utilities (e.g., `type-fest`) to ensure robust type safety at the source and usage sites.
+- **Type Safety**: Avoid type assertions (`as`), casting, or loose types (e.g., `any`, `unknown`, or index signatures like `[key: string]: unknown`). Prioritize proper type inference, well-defined interfaces/types, and utilities (e.g., `type-fest`) to ensure robust type safety at the source and usage sites.
 
 ## 🧪 Testing
 
