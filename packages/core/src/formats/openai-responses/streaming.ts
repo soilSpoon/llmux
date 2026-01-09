@@ -30,7 +30,7 @@ const logger = createLogger({ service: 'openai-responses-streaming' })
  */
 function extractResponseMetadata(
   response: ResponsesResponse,
-  obfuscation?: boolean
+  obfuscation?: boolean | { type: string; reason?: string }
 ): ResponseMetadata {
   return {
     responseId: response.id,
@@ -38,7 +38,7 @@ function extractResponseMetadata(
     model: response.model,
     status: response.status,
     createdAt: response.created_at,
-    completedAt: response.completed_at,
+    completedAt: response.completed_at ?? null,
     background: response.background,
     instructions: response.instructions,
     tools: response.tools,
@@ -145,7 +145,35 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
   return processResponsesEvent(type, responsesEvent)
 }
 
+function withMetadata(chunk: StreamChunk, event: ResponsesStreamEvent): StreamChunk {
+  if (event.sequence_number !== undefined) {
+    chunk.sequenceNumber = event.sequence_number
+  }
+  if (event.obfuscation !== undefined) {
+    chunk.obfuscation = event.obfuscation
+  }
+  if (event.logprobs !== undefined) {
+    chunk.logprobs = event.logprobs as unknown[]
+  }
+  return chunk
+}
+
 function processResponsesEvent(
+  type: string,
+  event: ResponsesStreamEvent
+): StreamChunk | StreamChunk[] | null {
+  const result = processResponsesEventCore(type, event)
+
+  if (!result) return null
+
+  if (Array.isArray(result)) {
+    return result.map((c) => withMetadata(c, event))
+  }
+
+  return withMetadata(result, event)
+}
+
+function processResponsesEventCore(
   type: string,
   event: ResponsesStreamEvent
 ): StreamChunk | StreamChunk[] | null {

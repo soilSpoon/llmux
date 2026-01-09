@@ -164,6 +164,36 @@ describe('OpenAI Responses Format', () => {
         }
       })
     })
+
+    test('should parse metadata (sequence_number, obfuscation) from response.output_text.delta', () => {
+      const chunk = `event: response.output_text.delta\ndata: ${JSON.stringify({
+        type: 'response.output_text.delta',
+        output_index: 0,
+        delta: 'Hello',
+        sequence_number: 42,
+        obfuscation: {
+          type: 'masked',
+          reason: 'pii'
+        }
+      })}\n\n`
+      const result = parseStreamChunk(chunk)
+      // Expecting metadata to be passed through in the delta or chunk
+      // Adjust expectation based on implementation goal. Assuming it goes into delta for now.
+      expect(result).toMatchObject({
+        type: 'content',
+        blockIndex: 0,
+        blockType: 'text',
+        sequenceNumber: 42,
+        obfuscation: {
+          type: 'masked',
+          reason: 'pii'
+        },
+        delta: {
+          type: 'text',
+          text: 'Hello'
+        }
+      })
+    })
   })
 
   describe('Round-trip Conversion', () => {

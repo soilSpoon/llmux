@@ -29,6 +29,66 @@ function parseSSEEvents(output: string[]): Array<{ event: string; data: unknown 
 }
 
 describe('OpenAIResponsesStreamingBuilder', () => {
+  describe('Metadata Event Output', () => {
+    it('should include sequence_number and obfuscation in event body if present in chunk', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+
+      const chunk: StreamChunk = {
+        type: 'content',
+        blockIndex: 0,
+        blockType: 'text',
+        delta: { type: 'text', text: 'Sensitive Data' },
+        // Simulate extended metadata fields on the chunk itself (or passed through some mechanism)
+        // Currently StreamChunk doesn't have sequenceNumber/obfuscation on the root, 
+        // but we might be expecting them to be passed through responseMetadata or similar?
+        // Let's check how the requirement is phrased: 
+        // "StreamChunk에 sequenceNumber, obfuscation 등이 포함되었을 때 StreamingBuilder가 생성하는 SSE 이벤트에 해당 필드들이 포함되는지 검증"
+        // 
+        // Based on types, obfuscation is in responseMetadata. sequence_number is in ResponsesStreamEvent.
+        // If the task implies that *every* event should have these if they are relevant, 
+        // or if specific events need them. 
+        // Let's assume responseMetadata carries obfuscation, and we want to see it in the response object
+        // AND potentially sequence_number if we implement it.
+        //
+        // However, looking at the ResponsesStreamEvent definition in types.ts:
+        // interface ResponsesStreamEvent { ... sequence_number?: number; obfuscation?: boolean; ... }
+        //
+        // So these can be top-level fields in the SSE event JSON, not just inside 'response'.
+        
+        responseMetadata: {
+          obfuscation: true,
+          // sequenceNumber is not in ResponseMetadata, it might need to be tracked by the builder or passed in chunk
+        }
+      } as StreamChunk & { sequenceNumber?: number, obfuscation?: boolean }
+      
+      // Let's manually inject properties if they are not standard StreamChunk yet, 
+      // or assume the test is driving the implementation of these fields in StreamChunk.
+      // For this test, I'll add them to the chunk object cast as any or extended type 
+      // to simulate the input that drives the requirement.
+      ;(chunk as any).sequenceNumber = 42
+      ;(chunk as any).obfuscation = true
+
+      const output = builder.build(chunk)
+      const events = parseSSEEvents(output)
+      
+      // We expect at least one event (e.g., output_text.delta) to carry these top-level fields
+      // or specifically the response.created/in_progress events?
+      // Usually sequence_number increments per event. 
+      // If the input chunk has a sequence number, maybe we should use it?
+      // Or maybe the builder generates it?
+      // The task says: "StreamChunk에 sequenceNumber ... 포함되었을 때 ... 생성하는 SSE 이벤트에 해당 필드들이 포함되는지"
+      // So if input has it, output event should have it.
+      
+      const deltaEvent = events.find(e => e.event === 'response.output_text.delta')
+      expect(deltaEvent).toBeDefined()
+      
+      // Check for top-level fields in the data object
+      const data = deltaEvent?.data as any
+      expect(data.sequence_number).toBe(42)
+      expect(data.obfuscation).toBe(true)
+    })
+  })
+
   describe('Protocol Event Sequence (Extended)', () => {
     it('should emit response.content_part.added before deltas', () => {
       const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
@@ -531,6 +591,41 @@ describe('OpenAIResponsesStreamingBuilder', () => {
     })
   })
 
+  describe('Response Object Structure', () => {
+    it('should include all required null fields in response.created', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+
+      const chunk: StreamChunk = {
+        type: 'content',
+        blockIndex: 0,
+        blockType: 'text',
+        delta: {
+          type: 'text',
+          text: 'Hello',
+        },
+      }
+
+      const output = builder.build(chunk)
+      const events = parseSSEEvents(output)
+
+      const createdEvent = events.find((e) => e.event === 'response.created')
+      const response = (createdEvent?.data as any).response
+
+      expect(response).toBeDefined()
+      
+      // Verify null fields presence
+      expect(response.completed_at).toBeNull()
+      expect(response.error).toBeNull()
+      expect(response.incomplete_details).toBeNull()
+      // expect(response.max_tool_calls).toBeNull() // Not checking this one as it might be optional or provider specific? 
+      // Re-reading task description: "max_tool_calls: null" IS required.
+      expect(response.max_tool_calls).toBeNull()
+      expect(response.output).toEqual([])
+      expect(response.previous_response_id).toBeNull()
+      expect(response.prompt_cache_retention).toBeNull()
+    })
+  })
+
   describe('Special Chunk Types', () => {
     it('should handle thinking-start chunk', () => {
       const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
@@ -591,6 +686,21 @@ describe('OpenAIResponsesStreamingBuilder', () => {
       expect(partDoneEvent).toBeDefined()
       expect(partDoneEvent?.data).toMatchObject({
         type: 'response.content_part.done'
+      })
+    })
+
+    it('should emit response.completed on done', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      const output = builder.build({ type: 'done' })
+      const events = parseSSEEvents(output)
+      
+      const completedEvent = events.find(e => e.event === 'response.completed')
+      expect(completedEvent).toBeDefined()
+      expect(completedEvent?.data).toMatchObject({
+        type: 'response.completed',
+        response: {
+          status: 'completed'
+        }
       })
     })
   })

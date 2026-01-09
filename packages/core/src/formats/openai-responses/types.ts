@@ -126,7 +126,7 @@ export interface ResponsesResponse {
   model?: string
   status?: 'in_progress' | 'completed' | 'failed' | 'cancelled' | 'incomplete'
   created_at?: number
-  completed_at?: number
+  completed_at?: number | null
   output?: ResponsesOutputItem[]
   usage?: {
     input_tokens?: number
@@ -142,7 +142,7 @@ export interface ResponsesResponse {
 
   background?: boolean
   instructions?: string
-  obfuscation?: boolean
+  obfuscation?: boolean | { type: string; reason?: string }
   tools?: Array<{
     type: string
     name?: string
@@ -208,7 +208,8 @@ export interface ResponsesStreamEvent {
   text?: string
   content_index?: number
   summary_index?: number
-  obfuscation?: boolean
+  obfuscation?: boolean | { type: string; reason?: string }
+  logprobs?: unknown[]
   part?: unknown
   name?: string
   call_id?: string

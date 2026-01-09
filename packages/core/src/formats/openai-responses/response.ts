@@ -85,6 +85,7 @@ export function parseResponse(response: unknown): UnifiedResponse {
     // Ensure we have camelCase versions for internal use if needed,
     // but keeping everything from responsesResponse allows lossless roundtrip
     createdAt: responsesResponse.created_at,
+    completedAt: responsesResponse.completed_at ?? null,
     responseId: responsesResponse.id,
   }
 

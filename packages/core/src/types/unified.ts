@@ -168,6 +168,10 @@ export interface RequestMetadata {
   user?: string // OpenAI user identifier
   promptCacheKey?: string // For centralized caching
 
+  // Timestamps
+  createdAt?: number
+  completedAt?: number | null
+
   // Previously required, but making optional for compatibility with tests/partial updates
   project?: string
   userAgent?: string
@@ -296,12 +300,12 @@ export interface ResponseMetadata {
   model?: string
   createdAt?: number
   created_at?: number // Alias for createdAt (snake_case)
-  completedAt?: number
-  completed_at?: number // Alias for completedAt (snake_case)
+  completedAt?: number | null
+  completed_at?: number | null // Alias for completedAt (snake_case)
 
   background?: boolean
   instructions?: string
-  obfuscation?: boolean
+  obfuscation?: boolean | { type: string; reason?: string }
 
   temperature?: number
   top_p?: number // For round-trip
@@ -341,6 +345,15 @@ export interface ResponseMetadata {
     | 'required'
     | string
     | { type: string; name?: string; function?: { name: string } }
+
+  usage?: {
+    input_tokens?: number
+    output_tokens?: number
+    total_tokens?: number
+    input_tokens_details?: Record<string, number>
+    output_tokens_details?: Record<string, number>
+    [key: string]: unknown
+  }
 
   reasoning?: {
     enabled?: boolean
@@ -482,6 +495,24 @@ export interface StreamChunk {
    * Used when the stop reason was already emitted in a previous chunk.
    */
   skipStopDelta?: boolean
+
+  /**
+   * Sequence number from OpenAI Responses API events.
+   * Used to maintain strict event ordering and detect dropped chunks.
+   */
+  sequenceNumber?: number
+
+  /**
+   * Obfuscation flag from OpenAI Responses API events.
+   * Indicates if the content is obfuscated (e.g. for PII).
+   */
+  obfuscation?: boolean | { type: string; reason?: string }
+
+  /**
+   * Log probabilities from OpenAI Responses API events.
+   * Token-level log probability information.
+   */
+  logprobs?: unknown[]
 
   /**
    * Tool call metadata for 'tool-call-start' and 'tool-call-end' events.
