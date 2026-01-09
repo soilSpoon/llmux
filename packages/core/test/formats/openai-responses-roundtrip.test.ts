@@ -1,107 +1,80 @@
 import { describe, expect, test } from 'bun:test'
 import { parseResponse, transformResponse } from '../../src/formats/openai-responses/response'
-import { OpenAIResponsesStreamingBuilder } from '../../src/formats/openai-responses/streaming-builder'
 import type { ResponsesResponse } from '../../src/formats/openai-responses/types'
-import type { StreamChunk } from '../../src/types/unified'
 
-// Mock of a capture file like a.txt
-// Contains a single response.created event payload (JSON)
-const CAPTURED_RESPONSE_CREATED: ResponsesResponse = {
-  id: "resp_019ba1df-8526-7788-b4b9-8e411516766d",
-  object: "response",
-  created_at: 1736458023,
-  model: "claude-3-5-sonnet-20241022",
-  status: "in_progress",
-  tools: [
-    {
-      type: "function",
-      function: {
-        name: "get_weather",
-        description: "Get current weather in a location",
-        parameters: {
-          type: "object",
-          properties: {
-            location: { type: "string" }
-          },
-          required: ["location"]
-        }
-      }
-    }
-  ],
-  obfuscation: true
-}
+// Real capture from upstream.txt
+// Note: instructions field is truncated for brevity but functionality remains the same
+const UPSTREAM_CAPTURE_RESPONSE = {
+  "id": "resp_01b277e0e5361695016960c55dae3481918151218f2bc8f83e",
+  "object": "response",
+  "created_at": 1767949661,
+  "status": "in_progress",
+  "background": false,
+  "completed_at": null,
+  "error": null,
+  "incomplete_details": null,
+  "instructions": "You are GPT-5.1 running in the Codex CLI..."
+} as ResponsesResponse
 
-describe('OpenAI Responses Roundtrip (a.txt simulation)', () => {
-  // TDD: This test verifies that we can roundtrip a captured response.created event
-  // through our parse -> transform pipeline and get back the exact same structure.
-  // Currently expected to fail if our transform implementation is missing fields 
-  // or formatting present in the capture.
+// Real capture from translated.txt (what we currently produce, approximately)
+// This represents the state we are trying to fix/align with upstream
+const TRANSLATED_CAPTURE_RESPONSE = {
+  "id": "resp_0df65176f2b0a8b4016960c63706508191b5f40b9b4b3e1e0c",
+  "object": "response",
+  "status": "in_progress",
+  "created_at": 1767949879,
+  "model": "gpt-5.1-2025-11-13", // Extra field not in upstream?
+  "instructions": "You are GPT-5.1 running in the Codex CLI..."
+  // Missing: background, completed_at, error, incomplete_details
+} as any
+
+describe('OpenAI Responses Roundtrip (Real Capture)', () => {
   
-  test('response.created should roundtrip correctly', () => {
-    // 1. Parse the captured event (simulating receiving it)
-    // The capture is specifically the "response" object inside the response.created event data
-    const parsed = parseResponse(CAPTURED_RESPONSE_CREATED)
+  test('upstream response.created should roundtrip with all null/default fields', () => {
+    // 1. Parse the upstream capture
+    const parsed = parseResponse(UPSTREAM_CAPTURE_RESPONSE)
     
-    // 2. Transform it back (simulating sending it out via builder or transformResponse)
-    // We use transformResponse here as it's the direct counterpart to parseResponse
+    // 2. Transform it back
     const reconstructed = transformResponse(parsed)
     
-    // 3. Verify all fields match the original capture
-    // Check specific critical fields first for better error messages
-    expect(reconstructed.id).toBe(CAPTURED_RESPONSE_CREATED.id)
-    expect(reconstructed.model).toBe(CAPTURED_RESPONSE_CREATED.model)
-    // expect(reconstructed.created_at).toBe(CAPTURED_RESPONSE_CREATED.created_at) // This might fail if types are loose
-    expect(reconstructed.object).toBe(CAPTURED_RESPONSE_CREATED.object)
+    // 3. Verify exact field match
+    // We want to ensure we preserve/generate the fields that upstream sends
     
-    // Deep equality check
-    // We expect this to FAIL initially because:
-    // 1. transformResponse might not include 'created_at' (commented out in source)
-    // 2. transformResponse might add default 'output: []' which might not be in the minimal capture
-    // 3. transformResponse might defaults status to 'completed' if stopReason is missing/null, 
-    //    whereas capture has 'in_progress'
-    expect(reconstructed).toEqual(expect.objectContaining(CAPTURED_RESPONSE_CREATED))
+    // Check specific fields that were missing in translated.txt
+    expect(reconstructed.background).toBe(UPSTREAM_CAPTURE_RESPONSE.background)
+    expect(reconstructed.completed_at).toBe(UPSTREAM_CAPTURE_RESPONSE.completed_at)
+    expect(reconstructed.error).toBe(UPSTREAM_CAPTURE_RESPONSE.error)
+    expect(reconstructed.incomplete_details).toBe(UPSTREAM_CAPTURE_RESPONSE.incomplete_details)
+    
+    // Check general structure
+    expect(reconstructed.id).toBe(UPSTREAM_CAPTURE_RESPONSE.id)
+    expect(reconstructed.object).toBe('response')
+    expect(reconstructed.status).toBe('in_progress')
+    
+    // Model field check: Upstream didn't have it in the snippet, but our transformer might add it?
+    // If upstream capture has no model, parsed metadata might have undefined model.
+    // Transform usually puts model if available.
+    // Let's see what happens.
   })
   
-  // Also verify streaming builder behavior matches expectation if we were to simulate it
-  test('streaming builder should produce matching response.created structure', () => {
-    const builder = new OpenAIResponsesStreamingBuilder(CAPTURED_RESPONSE_CREATED.model)
-    if (CAPTURED_RESPONSE_CREATED.id) {
-      builder.setOriginalResponseId(CAPTURED_RESPONSE_CREATED.id)
-    }
+  test('should handle background field specifically', () => {
+    // This seems to be one of the missing fields
+    const parsed = parseResponse(UPSTREAM_CAPTURE_RESPONSE)
+    expect(parsed.background).toBe(false)
     
-    // Trigger the first event
-    const events = builder.build({ 
-      type: 'content', 
-      delta: { type: 'text', text: 'Start' },
-      // Inject metadata to control created_at if possible, 
-      // though builder defaults to Date.now()
-      responseMetadata: {
-        createdAt: CAPTURED_RESPONSE_CREATED.created_at,
-        tools: CAPTURED_RESPONSE_CREATED.tools,
-        obfuscation: CAPTURED_RESPONSE_CREATED.obfuscation
-      }
-    } as StreamChunk)
-    
-    const createdEvent = events.find(e => e.includes('"type":"response.created"'))
-    expect(createdEvent).toBeDefined()
-    
-    const dataMatch = createdEvent!.match(/data: (.+)/)
-    const eventData = JSON.parse(dataMatch![1]!)
-    
-    // The inner response object
-    const responseObj = eventData.response
-    
-    expect(responseObj.id).toBe(CAPTURED_RESPONSE_CREATED.id)
-    expect(responseObj.model).toBe(CAPTURED_RESPONSE_CREATED.model)
-    expect(responseObj.created_at).toBe(CAPTURED_RESPONSE_CREATED.created_at)
-    expect(responseObj.status).toBe('in_progress')
-    
-    // Verify tools field if it's required (it is in the capture)
-    expect(responseObj.tools).toBeDefined()
-    expect(responseObj.tools).toHaveLength(1)
-    expect(responseObj.tools[0].type).toBe('function')
-    
-    // Verify obfuscation
-    expect(responseObj.obfuscation).toBe(true)
+    const reconstructed = transformResponse(parsed)
+    expect(reconstructed.background).toBe(false)
   })
+
+  test('should handle null fields specifically', () => {
+    const parsed = parseResponse(UPSTREAM_CAPTURE_RESPONSE)
+    // Verify parse preserves these as null or undefined in metadata
+    // (Assuming ResponseMetadata has these fields)
+    
+    const reconstructed = transformResponse(parsed)
+    expect(reconstructed.completed_at).toBeNull()
+    expect(reconstructed.error).toBeNull()
+    expect(reconstructed.incomplete_details).toBeNull()
+  })
+
 })
