@@ -157,7 +157,35 @@ export async function handleResponses(
       })
     }
 
+    // Capture upstream headers
     const responseHeaders = new Headers()
+
+    // Forward critical headers from upstream (allowlist)
+    const ALLOWED_HEADERS = [
+      'x-request-id',
+      'x-trace-id',
+      'x-amp-request-id',
+      // OpenAI Web specific headers
+      'x-codex-plan-type',
+      'x-codex-primary-used-percent',
+      'x-codex-secondary-used-percent',
+      'x-models-etag',
+      'x-oai-request-id',
+      // Wildcard prefix matching logic needed for some?
+    ]
+
+    // Explicitly add wildcard patterns manually
+    const ALLOWED_PREFIXES = ['x-codex-', 'x-oai-']
+
+    upstreamResponse.headers.forEach((value, key) => {
+      const lowerKey = key.toLowerCase()
+      if (
+        ALLOWED_HEADERS.includes(lowerKey) ||
+        ALLOWED_PREFIXES.some((prefix) => lowerKey.startsWith(prefix))
+      ) {
+        responseHeaders.set(key, value)
+      }
+    })
 
     if (!upstreamResponse.ok) {
       if (isRateLimited(upstreamResponse) && fallbackProvider) {
@@ -268,7 +296,7 @@ export async function handleResponses(
 
       return new Response(JSON.stringify(fullResponse), {
         status: 200,
-        headers: { 'Content-Type': 'application/json' },
+        headers: { ...Object.fromEntries(responseHeaders), 'Content-Type': 'application/json' },
       })
     }
 
@@ -293,7 +321,7 @@ export async function handleResponses(
 
     return new Response(JSON.stringify(responsesResponse), {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { ...Object.fromEntries(responseHeaders), 'Content-Type': 'application/json' },
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'

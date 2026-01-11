@@ -3,8 +3,46 @@
  * Tracks rate limits per model family (e.g., gemini-flash, gemini-pro, claude)
  * rather than globally, allowing parallel families to continue when one is rate-limited
  */
+import type { ProviderName } from '@llmux/core'
 
 export type ModelFamily = 'gemini-flash' | 'gemini-pro' | 'claude' | 'unknown'
+
+/**
+ * Determine model family from model name and provider
+ * Used for family-specific rate limiting
+ */
+export function getModelFamily(model: string, provider: ProviderName | string): ModelFamily {
+  const lowerModel = model.toLowerCase()
+
+  if (provider === 'anthropic' || lowerModel.includes('claude')) {
+    return 'claude'
+  }
+
+  if (lowerModel.includes('flash')) {
+    return 'gemini-flash'
+  }
+
+  if (lowerModel.includes('pro') || lowerModel.includes('thinking')) {
+    return 'gemini-pro'
+  }
+
+  // Default to gemini-flash for Gemini models
+  if (provider === 'antigravity' || lowerModel.includes('gemini')) {
+    return 'gemini-flash'
+  }
+
+  return 'unknown'
+}
+
+/**
+ * Check if a Claude model rate limit is likely a weekly hard limit
+ * Weekly limits occur when usage exceeds quota and cannot be recovered until reset
+ */
+export function isClaudeWeeklyLimit(model: string): boolean {
+  // Heuristic: Claude models usually have weekly hard limits
+  // This is a conservative check; actual detection would require API headers
+  return model.toLowerCase().includes('claude')
+}
 
 interface RateLimitEntry {
   family: ModelFamily
@@ -78,10 +116,17 @@ export class FamilyRateLimitManager {
   }
 
   /**
-   * Check if should fail without rotation (Claude weekly limits)
+   * Check if should fail without rotation (e.g. Claude weekly limits)
+   * If the specific family has a hard limit, we should not rotate to other accounts/families blindly
+   * unless the rotation manager handles it. But here we define "fail without rotation" as "stop trying".
    */
-  shouldFailWithoutRotation(accountIndex: number): boolean {
-    return this.isClaudeWeeklyHardLimit(accountIndex)
+  shouldFailWithoutRotation(accountIndex: number, family: ModelFamily): boolean {
+    // Only Claude has weekly hard limits that define "account is dead for this family"
+    // Gemini 429s are usually temporary (minute/day quota) and can be rotated.
+    if (family === 'claude') {
+      return this.isClaudeWeeklyHardLimit(accountIndex)
+    }
+    return false
   }
 
   /**
@@ -123,6 +168,12 @@ export class FamilyRateLimitManager {
   getRateLimitedFamilies(accountIndex: number): ModelFamily[] {
     const families: ModelFamily[] = ['gemini-flash', 'gemini-pro', 'claude']
     return families.filter((family) => this.isRateLimitedForFamily(accountIndex, family))
+  }
+  /**
+   * Reset all rate limits (for testing)
+   */
+  clear(): void {
+    this.limits.clear()
   }
 }
 

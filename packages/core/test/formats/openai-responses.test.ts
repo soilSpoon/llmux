@@ -194,6 +194,42 @@ describe('OpenAI Responses Format', () => {
         }
       })
     })
+
+    test('should parse extended usage (reasoning_tokens, cached_tokens) from response.completed', () => {
+      const chunk = `event: response.completed
+data: ${JSON.stringify({
+        type: 'response.completed',
+        response: {
+          status: 'completed',
+          usage: {
+            input_tokens: 100,
+            output_tokens: 50,
+            total_tokens: 150,
+            output_tokens_details: {
+              reasoning_tokens: 10
+            },
+            input_tokens_details: {
+              cached_tokens: 20
+            }
+          }
+        }
+      })}\n\n`
+      const result = parseStreamChunk(chunk)
+      // Expecting array of chunks
+      const chunks = Array.isArray(result) ? result : [result]
+      const usageChunk = chunks.find(c => c.type === 'usage')
+      
+      expect(usageChunk).toMatchObject({
+        type: 'usage',
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          totalTokens: 150,
+          thinkingTokens: 10,
+          cachedTokens: 20
+        }
+      })
+    })
   })
 
   describe('Round-trip Conversion', () => {
@@ -219,6 +255,33 @@ describe('OpenAI Responses Format', () => {
       }
       const sse = transformStreamChunk(chunk)
       expect(sse).toContain('event: response.reasoning_summary_part.added')
+    })
+
+    test('should round-trip extended usage (thinkingTokens, cachedTokens)', () => {
+      const chunk: StreamChunk = {
+        type: 'usage',
+        usage: {
+          inputTokens: 100,
+          outputTokens: 50,
+          totalTokens: 150,
+          thinkingTokens: 10,
+          cachedTokens: 20
+        }
+      }
+      const sse = transformStreamChunk(chunk)
+      expect(sse).toContain('event: response.completed')
+      const parsed = JSON.parse(sse.split('data: ')[1].trim())
+      expect(parsed.response.usage).toMatchObject({
+        input_tokens: 100,
+        output_tokens: 50,
+        total_tokens: 150,
+        output_tokens_details: {
+          reasoning_tokens: 10
+        },
+        input_tokens_details: {
+          cached_tokens: 20
+        }
+      })
     })
   })
 })

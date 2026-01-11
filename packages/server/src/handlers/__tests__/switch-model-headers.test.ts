@@ -1,11 +1,23 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it, mock, spyOn } from 'bun:test'
+import { TokenRefresh } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core'
 import { dispatchWithRetry, type DispatchInput } from '../upstream-dispatcher'
 import type { RequestBuilderInput, RequestBuilderResult } from '../upstream-request-builder'
 import type { ProxyOptions } from '../types'
+import { familyRateLimitManager } from '../family-rate-limiting'
 
 describe('switch-model functionality - antigravity to gemini-cli', () => {
   it('should switch from antigravity to gemini-cli with correct headers', async () => {
+    // Reset singleton state
+    familyRateLimitManager.clear()
+
+    // Mock TokenRefresh to ensure rate limit check passes
+    const tokenRefreshSpy = spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([{
+       accessToken: 'mock',
+       refreshToken: 'mock', 
+       expiresAt: Date.now() + 3600000 
+    } as any])
+
     // Track requests with their headers
     const attemptedRequests: Array<{
       provider: string
@@ -147,6 +159,9 @@ describe('switch-model functionality - antigravity to gemini-cli', () => {
       }
 
       const result = await dispatchWithRetry(input)
+
+      // Clean up spy
+      tokenRefreshSpy.mockRestore()
 
       // Verify that we attempted both providers
       expect(attemptedRequests.length).toBeGreaterThanOrEqual(2)

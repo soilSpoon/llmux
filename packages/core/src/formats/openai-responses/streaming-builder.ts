@@ -27,6 +27,8 @@ export class OpenAIResponsesStreamingBuilder {
       inputTokens: 0,
       outputTokens: 0,
       totalTokens: 0,
+      thinkingTokens: undefined as number | undefined,
+      cachedTokens: undefined as number | undefined,
     },
     // Full metadata state
     metadata: undefined as ResponseMetadata | undefined,
@@ -123,6 +125,8 @@ export class OpenAIResponsesStreamingBuilder {
           inputTokens: chunk.usage.inputTokens ?? 0,
           outputTokens: chunk.usage.outputTokens ?? 0,
           totalTokens: chunk.usage.totalTokens ?? 0,
+          thinkingTokens: chunk.usage.thinkingTokens,
+          cachedTokens: chunk.usage.cachedTokens,
         }
       }
       return this.handleDone(results)
@@ -137,6 +141,8 @@ export class OpenAIResponsesStreamingBuilder {
           inputTokens: chunk.usage.inputTokens ?? 0,
           outputTokens: chunk.usage.outputTokens ?? 0,
           totalTokens: chunk.usage.totalTokens ?? 0,
+          thinkingTokens: chunk.usage.thinkingTokens,
+          cachedTokens: chunk.usage.cachedTokens,
         }
       }
       return results // Usage is emitted at the end in response.completed
@@ -495,7 +501,7 @@ export class OpenAIResponsesStreamingBuilder {
         response_id: this.state.responseId,
         output_index: this.state.currentItemIndex,
         item_id: this.state.currentItemId,
-        summary_index: 0,
+        summary_index: chunk.summaryIndex ?? 0,
         delta: thinkingContent,
         ...(logprobs ? { logprobs } : {}),
         ...commonFields,
@@ -552,26 +558,21 @@ export class OpenAIResponsesStreamingBuilder {
       this.finishItem(results)
     }
 
-    const usage = {
+    const usage: Record<string, unknown> = {
       input_tokens: this.state.usage.inputTokens,
       output_tokens: this.state.usage.outputTokens,
       total_tokens: this.state.usage.totalTokens,
-      // Map extended usage if available
-      ...(this.state.metadata?.usage?.input_tokens_details && {
-        input_tokens_details: this.state.metadata.usage.input_tokens_details,
-      }),
-      ...(this.state.metadata?.usage?.output_tokens_details && {
-        output_tokens_details: this.state.metadata.usage.output_tokens_details,
-      }),
-    }
-
-    // Add reasoning tokens if we tracked them via Unified usage but they weren't in metadata
-    // (Unified usage thinkingTokens maps to reasoning_tokens)
-    if (this.state.metadata?.usage?.output_tokens_details?.reasoning_tokens === undefined) {
-      // If unified usage has thinkingTokens, use it
-      // Note: We need to access the unified usage object if possible, but state.usage is simplified.
-      // Assuming state.usage might be extended or we just rely on metadata pass-through.
-      // For now, let's just use what we have in metadata or basic tokens.
+      // Map extended usage if available in state or metadata
+      input_tokens_details:
+        this.state.metadata?.usage?.input_tokens_details ||
+        (this.state.usage.cachedTokens !== undefined
+          ? { cached_tokens: this.state.usage.cachedTokens }
+          : undefined),
+      output_tokens_details:
+        this.state.metadata?.usage?.output_tokens_details ||
+        (this.state.usage.thinkingTokens !== undefined
+          ? { reasoning_tokens: this.state.usage.thinkingTokens }
+          : undefined),
     }
 
     results.push(
@@ -610,7 +611,7 @@ export class OpenAIResponsesStreamingBuilder {
           response_id: this.state.responseId,
           output_index: this.state.currentItemIndex,
           item_id: this.state.currentItemId,
-          content_index: 0,
+          content_index: 0, // Can we get this from somewhere? Not stored in state. Assuming 0 for single text block.
           text: '', // Already streamed via deltas
         })
       )

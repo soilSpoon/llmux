@@ -524,6 +524,18 @@ export interface StreamChunk {
     id: string
     name?: string
   }
+
+  /**
+   * Summary index for reasoning summary parts (OpenAI Responses API).
+   * Used to maintain canonical equivalence for reasoning blocks.
+   */
+  summaryIndex?: number
+
+  /**
+   * Content index for text parts (OpenAI Responses API).
+   * Used to maintain canonical equivalence for text blocks.
+   */
+  contentIndex?: number
 }
 
 /**

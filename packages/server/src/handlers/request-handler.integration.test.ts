@@ -75,7 +75,7 @@ describe('request-handler + FamilyRateLimitManager integration', () => {
     expect(rateLimitManager.isClaudeWeeklyHardLimit(0)).toBe(true)
 
     // shouldFailWithoutRotation should return true for Claude weekly limits
-    expect(rateLimitManager.shouldFailWithoutRotation(0)).toBe(true)
+    expect(rateLimitManager.shouldFailWithoutRotation(0, 'claude')).toBe(true)
   })
 
   it('should expire rate limit when reset time passes', () => {

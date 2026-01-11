@@ -121,8 +121,8 @@ describe('RequestLogStore', () => {
 
     const recent = store.getRecent(3)
     expect(recent).toHaveLength(3)
-    expect(recent[0].requestId).toBe('req-4')
-    expect(recent[2].requestId).toBe('req-2')
+    expect(recent[0]?.requestId).toBe('req-4')
+    expect(recent[2]?.requestId).toBe('req-2')
   })
 
   test('should return null for non-existent request', () => {

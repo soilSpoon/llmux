@@ -98,7 +98,7 @@ export function getSignatureFromBlock(block: Block): string | undefined {
  * Used for Gemini project-based validation (strip invalid signatures only).
  */
 export function stripSignatureFromPart(part: Part): Part {
-  const { thoughtSignature, thought_signature, signature, ...rest } = part
+  const { thoughtSignature, thought_signature, signature, thinkingMetadata, ...rest } = part
   return rest
 }
 
@@ -107,7 +107,7 @@ export function stripSignatureFromPart(part: Part): Part {
  * Used for Gemini project-based validation.
  */
 export function stripSignatureFromBlock(block: Block): Block {
-  const { signature, thoughtSignature, thought_signature, ...rest } = block
+  const { signature, thoughtSignature, thought_signature, thinkingMetadata, ...rest } = block
   return rest
 }
 

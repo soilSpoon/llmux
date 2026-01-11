@@ -1,4 +1,6 @@
 import { type Credential, isOAuthCredential, type OAuthCredential, TokenRefresh } from '@llmux/auth'
+import { AccountRotationWithTierManager } from './account-rotation-with-tier'
+import { getModelFamily } from './family-rate-limiting'
 
 interface AccountState {
   index: number
@@ -24,39 +26,72 @@ export class AccountRotationManager {
 
   /**
    * Get the next available account index for the provider/model.
-   * If all accounts are rate-limited, returns the one with the earliest reset time
-   * (or currently available one if any).
+   * Uses AccountRotationWithTierManager to prioritize paid accounts.
    */
   getNextAvailable(provider: string, model: string, credentials: Credential[]): number {
     if (!credentials || credentials.length === 0) return 0
     if (credentials.length === 1) return 0
 
+    // Initialize Tier Manager with credentials
+    const tierManager = new AccountRotationWithTierManager(credentials)
+
+    // Determine Model Family
+    const family = getModelFamily(model, provider)
+    if (family === 'unknown') {
+      // Fallback to simple round-robin or first available if family unknown
+      return this.getSimpleNextAvailable(provider, model, credentials)
+    }
+
+    // Sync rate limits from local states to Tier Manager
     const states = this.getStates(provider, model)
     const now = Date.now()
 
-    // 1. Find first available account (not rate limited)
-    // We prefer accounts that are not in the states list (meaning they haven't been rate limited yet)
-    // or accounts whose rateLimitedUntil is in the past.
+    states.forEach((state) => {
+      if (state.rateLimitedUntil > now) {
+        tierManager.markRateLimited(state.index, family)
+      }
+    })
 
-    // Check for any account that is NOT in our rate-limit tracking or has expired rate limit
+    // Get next account via Tier Manager (prioritizes paid)
+    const nextAccount = tierManager.getNextAccount(family)
+
+    if (nextAccount) {
+      return nextAccount.index
+    }
+
+    // If no account returned by Tier Manager (all limited for this family),
+    // fallback to finding the one with earliest expiry
+    return this.getEarliestExpiryIndex(provider, model, credentials)
+  }
+
+  private getSimpleNextAvailable(
+    provider: string,
+    model: string,
+    credentials: Credential[]
+  ): number {
+    const states = this.getStates(provider, model)
+    const now = Date.now()
+
     for (let i = 0; i < credentials.length; i++) {
       const state = states.find((s) => s.index === i)
       if (!state || state.rateLimitedUntil <= now) {
         return i
       }
     }
+    return this.getEarliestExpiryIndex(provider, model, credentials)
+  }
 
-    // 2. If all are rate limited, find the one that expires soonest
-    // We want to return an index even if all are limited, so the caller can wait.
-    // However, the caller might want to know if all are limited.
-    // Here we just return the "best" candidate.
-
+  private getEarliestExpiryIndex(
+    provider: string,
+    model: string,
+    credentials: Credential[]
+  ): number {
+    const states = this.getStates(provider, model)
     let bestIndex = 0
     let minRateLimitedUntil = Infinity
 
     for (let i = 0; i < credentials.length; i++) {
       const state = states.find((s) => s.index === i)
-      // If state is missing, it means available (already handled above, but just in case)
       if (!state) return i
 
       if (state.rateLimitedUntil < minRateLimitedUntil) {
@@ -64,7 +99,6 @@ export class AccountRotationManager {
         bestIndex = i
       }
     }
-
     return bestIndex
   }
 
@@ -91,10 +125,6 @@ export class AccountRotationManager {
 
     const states = this.getStates(provider, model)
     const now = Date.now()
-
-    // If we have fewer states than credentials, it means some credentials haven't been rate limited
-    // However, we only track rate-limited accounts.
-    // Simply checking count is safer: track how many are valid.
 
     let rateLimitedCount = 0
     for (let i = 0; i < credentials.length; i++) {
@@ -145,33 +175,66 @@ export class AccountRotationManager {
     const states = this.getStates(provider, model)
     const now = Date.now()
 
-    // If we have a currentIndex, try to find the next available account starting after currentIndex
-    if (currentIndex >= 0 && currentIndex < freshCredentials.length) {
-      accountIndex = -1
-      // Search for next available account after currentIndex
-      for (let i = currentIndex + 1; i < freshCredentials.length; i++) {
-        const state = states.find((s) => s.index === i)
-        if (!state || state.rateLimitedUntil <= now) {
-          accountIndex = i
-          break
+    // Determine Model Family for Tier-based logic
+    const family = getModelFamily(model, provider)
+
+    // Use Tier Manager if possible
+    if (family !== 'unknown') {
+      const tierManager = new AccountRotationWithTierManager(freshCredentials)
+
+      // Sync limits
+      states.forEach((state) => {
+        if (state.rateLimitedUntil > now) {
+          tierManager.markRateLimited(state.index, family)
         }
+      })
+
+      // If we have a current index, we want to find the next *preferred* account.
+      // The original logic tried simply incrementing index.
+      // Tier logic is smarter: it prioritizes paid.
+      // So asking for "next account" given "current index" from TierManager is ideal.
+
+      const nextAccount = tierManager.getNextAccount(
+        family,
+        currentIndex >= 0 ? currentIndex : undefined
+      )
+
+      if (nextAccount) {
+        accountIndex = nextAccount.index
+      } else {
+        // Fallback if Tier Manager finds nothing available (all limited)
+        // We might want to just rotate or pick earliest expiry
+        accountIndex = this.getEarliestExpiryIndex(provider, model, freshCredentials)
       }
-      // If no available after currentIndex, wrap around
-      if (accountIndex === -1) {
-        for (let i = 0; i <= currentIndex; i++) {
+    } else {
+      // Legacy simple rotation logic for unknown families
+      if (currentIndex >= 0 && currentIndex < freshCredentials.length) {
+        accountIndex = -1
+        // Search for next available account after currentIndex
+        for (let i = currentIndex + 1; i < freshCredentials.length; i++) {
           const state = states.find((s) => s.index === i)
           if (!state || state.rateLimitedUntil <= now) {
             accountIndex = i
             break
           }
         }
+        // If no available after currentIndex, wrap around
+        if (accountIndex === -1) {
+          for (let i = 0; i <= currentIndex; i++) {
+            const state = states.find((s) => s.index === i)
+            if (!state || state.rateLimitedUntil <= now) {
+              accountIndex = i
+              break
+            }
+          }
+        }
+        // If still not found, fallback to getNextAvailable
+        if (accountIndex === -1) {
+          accountIndex = this.getSimpleNextAvailable(provider, model, freshCredentials)
+        }
+      } else {
+        accountIndex = this.getSimpleNextAvailable(provider, model, freshCredentials)
       }
-      // If still not found, fallback to getNextAvailable
-      if (accountIndex === -1) {
-        accountIndex = this.getNextAvailable(provider, model, freshCredentials)
-      }
-    } else {
-      accountIndex = this.getNextAvailable(provider, model, freshCredentials)
     }
 
     const credential = freshCredentials[accountIndex] as Credential

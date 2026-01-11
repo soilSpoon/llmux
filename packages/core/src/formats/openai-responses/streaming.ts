@@ -155,6 +155,12 @@ function withMetadata(chunk: StreamChunk, event: ResponsesStreamEvent): StreamCh
   if (event.logprobs !== undefined) {
     chunk.logprobs = event.logprobs as unknown[]
   }
+  if (event.summary_index !== undefined) {
+    chunk.summaryIndex = event.summary_index
+  }
+  if (event.content_index !== undefined) {
+    chunk.contentIndex = event.content_index
+  }
   return chunk
 }
 
@@ -410,6 +416,8 @@ function extractFromCompletedResponse(
         inputTokens: response.usage.input_tokens || 0,
         outputTokens: response.usage.output_tokens || 0,
         totalTokens: response.usage.total_tokens || 0,
+        thinkingTokens: response.usage.output_tokens_details?.reasoning_tokens,
+        cachedTokens: response.usage.input_tokens_details?.cached_tokens,
       },
     })
   }

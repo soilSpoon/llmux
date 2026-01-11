@@ -133,6 +133,13 @@ function processContents(
       .map((part) => {
         if (!part || typeof part !== 'object') return part
 
+        // Gemini Cache: We MUST strip signatures (thoughtSignature, thinkingMetadata) from the body
+        // because Gemini API rejects them as invalid arguments (400 Invalid Argument).
+        if (isGeminiCache) {
+          onStrip(1)
+          return stripSignatureFromPart(part)
+        }
+
         // PROTECTION: Never strip tool_use or tool_result parts
         if (isToolUsePart(part) || isToolResultPart(part)) {
           return part
@@ -151,13 +158,6 @@ function processContents(
             onStrip(1)
             return stripSignatureFromPart(part)
           }
-          return part
-        }
-
-        // Gemini Cache: Always preserve signature (projectId validation skipped)
-        // This is crucial because llmux rotates accounts (and thus projectIds)
-        // but the signature must be preserved to maintain the thinking trace.
-        if (isGeminiCache) {
           return part
         }
 
@@ -209,6 +209,13 @@ function processMessages(
       .map((block) => {
         if (!block || typeof block !== 'object') return block
 
+        // Gemini Cache: We MUST strip signatures (thoughtSignature, thinkingMetadata) from the body
+        // because Gemini API rejects them as invalid arguments (400 Invalid Argument).
+        if (isGeminiCache) {
+          onStrip(1)
+          return stripSignatureFromBlock(block)
+        }
+
         // PROTECTION: Never strip tool_use or tool_result blocks
         if (isToolUseBlock(block) || isToolResultBlock(block)) {
           return block
@@ -227,13 +234,6 @@ function processMessages(
             onStrip(1)
             return stripSignatureFromBlock(block)
           }
-          return block
-        }
-
-        // Gemini Cache: Always preserve signature (projectId validation skipped)
-        // This is crucial because llmux rotates accounts (and thus projectIds)
-        // but the signature must be preserved to maintain the thinking trace.
-        if (isGeminiCache) {
           return block
         }
 

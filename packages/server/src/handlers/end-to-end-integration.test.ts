@@ -95,7 +95,7 @@ describe('End-to-End: Tier Detection & Rate Limiting Pipeline', () => {
     expect(familyRateLimitManager.isWeeklyHardLimit(1, 'claude')).toBe(true)
 
     // Should fail without rotation
-    expect(familyRateLimitManager.shouldFailWithoutRotation(1)).toBe(true)
+    expect(familyRateLimitManager.shouldFailWithoutRotation(1, 'claude')).toBe(true)
   })
 
   it('should handle mixed tier accounts with family-specific limits', () => {

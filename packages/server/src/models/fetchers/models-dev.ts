@@ -57,10 +57,13 @@ export function createModelsDevFetcher(
           headers: {
             'User-Agent': 'llmux/1.0',
           },
-          signal: AbortSignal.timeout(10000),
+          signal: AbortSignal.timeout(30000),
         })
 
         if (!response.ok) {
+          console.warn(
+            `[ModelsDev] Failed to fetch models: ${response.status} ${response.statusText}`
+          )
           return []
         }
 
@@ -86,7 +89,8 @@ export function createModelsDevFetcher(
         }
 
         return models
-      } catch {
+      } catch (error) {
+        console.warn('[ModelsDev] Error fetching models:', error)
         return []
       }
     },

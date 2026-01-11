@@ -233,4 +233,91 @@ describe('handleResponses', () => {
       expect(capturedBody).toMatchObject({ stream: true })
     })
   })
+
+  describe('HTTP Header Forwarding', () => {
+    it('should forward x-codex-plan-type header from upstream response', async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response(JSON.stringify({}), {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-codex-plan-type': 'enterprise',
+            },
+          })
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch
+
+      const request = createRequest({ model: 'gpt-4o', input: 'Hi' })
+      const response = await handleResponses(request, baseOptions)
+
+      expect(response.headers.get('x-codex-plan-type')).toBe('enterprise')
+    })
+
+    it('should forward x-oai-request-id header from upstream response', async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response(JSON.stringify({}), {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-oai-request-id': 'req-123456',
+            },
+          })
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch
+
+      const request = createRequest({ model: 'gpt-4o', input: 'Hi' })
+      const response = await handleResponses(request, baseOptions)
+
+      expect(response.headers.get('x-oai-request-id')).toBe('req-123456')
+    })
+
+    it('should forward both headers simultaneously', async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response(JSON.stringify({}), {
+            headers: {
+              'Content-Type': 'application/json',
+              'x-codex-plan-type': 'enterprise',
+              'x-oai-request-id': 'req-123456',
+            },
+          })
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch
+
+      const request = createRequest({ model: 'gpt-4o', input: 'Hi' })
+      const response = await handleResponses(request, baseOptions)
+
+      expect(response.headers.get('x-codex-plan-type')).toBe('enterprise')
+      expect(response.headers.get('x-oai-request-id')).toBe('req-123456')
+    })
+
+    it('should forward headers with streaming response body', async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          const chunks = ['data: [DONE]\n\n']
+          return new Response(new Blob(chunks).stream(), {
+            headers: {
+              'Content-Type': 'text/event-stream',
+              'x-codex-plan-type': 'enterprise',
+            },
+          })
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch
+
+      const request = createRequest({
+        model: 'gpt-4o',
+        input: 'Hi',
+        stream: true,
+      })
+      const response = await handleResponses(request, baseOptions)
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('x-codex-plan-type')).toBe('enterprise')
+      expect(response.headers.get('Content-Type')).toBe('text/event-stream')
+    })
+  })
 })

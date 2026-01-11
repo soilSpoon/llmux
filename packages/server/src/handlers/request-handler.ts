@@ -1,5 +1,5 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS, TokenRefresh } from '@llmux/auth'
-import type { ProviderName } from '@llmux/core'
+import type { ProviderName, UnifiedRequest } from '@llmux/core'
 import { createLogger, isValidProviderName } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
@@ -10,7 +10,12 @@ import {
 } from '../providers'
 import type { Router } from '../routing'
 import { accountRotationManager } from './account-rotation'
-import { familyRateLimitManager, type ModelFamily } from './family-rate-limiting'
+import {
+  familyRateLimitManager,
+  getModelFamily,
+  isClaudeWeeklyLimit,
+  type ModelFamily,
+} from './family-rate-limiting'
 import { applyModelMappingV2 } from './model-mapping'
 
 const logger = createLogger({ service: 'request-handler' })
@@ -21,6 +26,60 @@ export interface RequestContext {
   effectiveProvider: ProviderName
   isThinkingEnabled: boolean | undefined
   sourceFormat: RequestFormat
+}
+
+/**
+ * Inject system instructions for specific models/providers
+ * - Gemini: Response quality rules (conciseness, etc)
+ * - Claude: Tool usage hardening instructions
+ */
+export function injectSystemInstructions(
+  request: UnifiedRequest,
+  provider: ProviderName,
+  model: string
+): void {
+  const lowerModel = model.toLowerCase()
+
+  // 1. Gemini System Instructions
+  // Apply to all Gemini models to improve response quality
+  if (provider === 'antigravity' && lowerModel.includes('gemini')) {
+    const geminiRules = [
+      'Response Rules:',
+      '1. Be concise and direct. Avoid filler phrases.',
+      '2. Use markdown for formatting.',
+      '3. When using tools, output ONLY the tool call JSON.',
+      '4. If you need to search or read files, do so before answering.',
+    ].join('\n')
+
+    // Append to existing system prompt or create new one
+    if (request.system) {
+      request.system += `\n\n${geminiRules}`
+    } else {
+      request.system = geminiRules
+    }
+  }
+
+  // 2. Claude Tool Hardening
+  // Inject CRITICAL TOOL USAGE INSTRUCTIONS when tools are present
+  if (
+    (provider === 'anthropic' || lowerModel.includes('claude')) &&
+    request.tools &&
+    request.tools.length > 0
+  ) {
+    const toolHardening = [
+      'CRITICAL TOOL USAGE INSTRUCTIONS:',
+      '- You MUST use the provided tools to verify your assumptions.',
+      '- When you use a tool, you must wait for the result before continuing.',
+      '- Do not hallucinate tool outputs.',
+      '- Use tools frequently and proactively.',
+    ].join('\n')
+
+    if (request.system) {
+      request.system += `\n\n${toolHardening}`
+    } else {
+      request.system = toolHardening
+    }
+  }
 }
 
 export interface PrepareContextOptions {
@@ -347,6 +406,29 @@ export async function handleUpstreamError(
       logger.debug({ err }, 'Failed to check credentials for rate limit')
     }
 
+    // Check if we should fail immediately without rotation (e.g. Claude weekly limits)
+    // This check must happen AFTER markRateLimited to catch the limit we just set
+    // AND AFTER Router Fallback check to allow switching to other providers/models if configured
+    // Check if we should fail immediately without rotation (e.g. Claude weekly limits)
+    // This check must happen AFTER markRateLimited to catch the limit we just set
+    // AND AFTER Router Fallback check to allow switching to other providers/models if configured
+    //
+    // MODIFICATION: We removed the hard abort here to allow falling back to other accounts
+    // or eventually to other providers via the Router Fallback mechanism above (once all accounts are limited).
+    /*
+    if (
+      family &&
+      family !== 'unknown' &&
+      familyRateLimitManager.shouldFailWithoutRotation(retryState.accountIndex, family)
+    ) {
+      logger.warn(
+        { ...logData, reason: 'Weekly hard limit detected' },
+        'Aborting rotation due to family hard limit'
+      )
+      return { action: 'throw' }
+    }
+    */
+
     if (accountRotationManager.hasNext(provider, model, retryState.accountIndex)) {
       rotateAccount(retryState)
       return { action: 'retry' }
@@ -411,39 +493,4 @@ export function removeThinkingFromBody(body: unknown): void {
   }
 }
 
-/**
- * Determine model family from model name and provider
- * Used for family-specific rate limiting
- */
-function getModelFamily(model: string, provider: ProviderName): ModelFamily {
-  const lowerModel = model.toLowerCase()
-
-  if (provider === 'anthropic' || lowerModel.includes('claude')) {
-    return 'claude'
-  }
-
-  if (lowerModel.includes('flash')) {
-    return 'gemini-flash'
-  }
-
-  if (lowerModel.includes('pro') || lowerModel.includes('thinking')) {
-    return 'gemini-pro'
-  }
-
-  // Default to gemini-flash for Gemini models
-  if (provider === 'antigravity' || lowerModel.includes('gemini')) {
-    return 'gemini-flash'
-  }
-
-  return 'unknown'
-}
-
-/**
- * Check if a Claude model rate limit is likely a weekly hard limit
- * Weekly limits occur when usage exceeds quota and cannot be recovered until reset
- */
-function isClaudeWeeklyLimit(model: string): boolean {
-  // Heuristic: Claude models usually have weekly hard limits
-  // This is a conservative check; actual detection would require API headers
-  return model.toLowerCase().includes('claude')
-}
+// Removed duplicate implementation of getModelFamily and isClaudeWeeklyLimit since they are now imported from family-rate-limiting.ts
