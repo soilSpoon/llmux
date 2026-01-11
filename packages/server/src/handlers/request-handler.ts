@@ -34,6 +34,7 @@ export interface PrepareContextOptions {
   modelMappings?: AmpModelMapping[]
   headerTargetProvider?: string | null
   apiKey?: string
+  defaultProvider?: string
 }
 
 export async function prepareRequestContext(
@@ -49,6 +50,7 @@ export async function prepareRequestContext(
     router,
     modelMappings,
     headerTargetProvider,
+    defaultProvider: optionsDefaultProvider,
   } = options
 
   const originalModel = optionsOriginalModel || body.model || 'unknown'
@@ -99,21 +101,37 @@ export async function prepareRequestContext(
     effectiveProvider = initialTargetProvider as ProviderName
   }
 
+  logger.debug(
+    {
+      currentModel,
+      initialTargetProvider,
+      effectiveProviderBeforeRouter: effectiveProvider,
+      hasRouter: !!router,
+    },
+    '[DEBUG] Before Router Resolution'
+  )
+
   // If targetProvider is NOT set, use router.
   if (router && currentModel) {
-    // Use router to resolve model aliases and provider
-    const routeResult = await router.resolveModel(currentModel)
+    try {
+      // Use router to resolve model aliases and provider
+      const routeResult = await router.resolveModel(currentModel)
+      logger.debug({ routeResult }, '[DEBUG] Router Resolved')
 
-    // If initialTargetProvider was NOT set, we accept the router's provider.
-    // If initialTargetProvider WAS set, we might still update model but keep provider?
-    // Actually, if explicit provider is requested, we usually honor it unless it's just 'openai' default.
+      if (!effectiveProvider) {
+        effectiveProvider = routeResult.provider as ProviderName
+      }
 
-    if (!effectiveProvider) {
-      effectiveProvider = routeResult.provider as ProviderName
+      // We ALWAYS accept the router's resolved model (it handles aliases)
+      currentModel = routeResult.model
+    } catch (error) {
+      logger.warn({ error, model: currentModel }, '[DEBUG] Router Resolution Failed')
     }
+  }
 
-    // We ALWAYS accept the router's resolved model (it handles aliases)
-    currentModel = routeResult.model
+  // Default provider fallback (if not set by header or router)
+  if (!effectiveProvider && optionsDefaultProvider && isValidProviderName(optionsDefaultProvider)) {
+    effectiveProvider = optionsDefaultProvider as ProviderName
   }
 
   // Remove default provider 'openai' to align with tests and explicit behavior
@@ -228,17 +246,31 @@ export async function handleUpstreamError(
     const isClaudeWeekly =
       provider === 'antigravity' && family === 'claude' && isClaudeWeeklyLimit(model)
 
-    logger.warn(
-      {
-        reqId,
-        status,
-        retryAfter,
-        originalRetryAfter: context.retryAfterMs,
-        family,
-        isClaudeWeekly,
-      },
-      'Rate limited'
-    )
+    // Construct detailed log data
+    const logData: Record<string, unknown> = {
+      reqId,
+      status,
+      retryAfter,
+      originalRetryAfter: context.retryAfterMs,
+      family,
+      isClaudeWeekly,
+      provider,
+      model,
+      accountIndex: retryState.accountIndex,
+    }
+
+    // Add Antigravity specific details
+    if (provider === 'antigravity') {
+      logData.endpointIndex = retryState.antigravityEndpointIndex
+      if (
+        ANTIGRAVITY_ENDPOINT_FALLBACKS &&
+        retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length
+      ) {
+        logData.endpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[retryState.antigravityEndpointIndex]
+      }
+    }
+
+    logger.warn(logData, 'Rate limited')
 
     // Antigravity: Try rotating endpoints before marking account as limited
     // Different endpoints (Daily vs Prod) might have separate quotas/limits
@@ -403,7 +435,7 @@ function getModelFamily(model: string, provider: ProviderName): ModelFamily {
     return 'gemini-flash'
   }
 
-  return 'gemini-flash'
+  return 'unknown'
 }
 
 /**

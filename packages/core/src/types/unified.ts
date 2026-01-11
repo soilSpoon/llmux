@@ -169,6 +169,7 @@ export interface RequestMetadata {
   promptCacheKey?: string // For centralized caching
 
   // Timestamps
+  createTime?: string // Gemini createTime
   createdAt?: number
   completedAt?: number | null
 
@@ -251,6 +252,7 @@ export interface UnifiedTool {
   name: string
   description?: string
   parameters: JSONSchema
+  custom?: Record<string, unknown> // For tools with custom input_schema (e.g., OpenCode format)
 }
 
 /**

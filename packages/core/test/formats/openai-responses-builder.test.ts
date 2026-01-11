@@ -108,12 +108,13 @@ describe('OpenAIResponsesStreamingBuilder', () => {
     expect(dataMatch?.[1]).toBeDefined()
     const parsed = JSON.parse(dataMatch![1]!)
     
-    // Message item should only have type and id (as per @ai-sdk/openai schema)
+    // Message item should have required fields as per OpenAI protocol
     expect(parsed.item.type).toBe('message')
     expect(parsed.item.id).toBeDefined()
-    // These extra fields cause issues with strict schema validation
-    expect(parsed.item.role).toBeUndefined()
-    expect(parsed.item.content).toBeUndefined()
+    // Standard OpenAI Realtime API includes status, role and content even if empty
+    expect(parsed.item.role).toBe('assistant')
+    expect(parsed.item.content).toBeArray()
+    expect(parsed.item.status).toBe('in_progress')
   })
 
   test('should not re-emit response.created on second chunk', () => {

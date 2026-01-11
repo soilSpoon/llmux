@@ -19,6 +19,7 @@ import {
   extractMetadata,
   injectSystemInstruction,
   normalizeGenerationConfig,
+  preprocessTools,
 } from './transform-utils'
 import { type AntigravityRequest, type AntigravityResponse, isAntigravityRequest } from './types'
 
@@ -109,10 +110,14 @@ export class AntigravityProvider extends BaseProvider {
    * Wraps the Gemini-style request with Antigravity envelope.
    */
   transform(request: UnifiedRequest, model: string): AntigravityRequest {
-    const geminiRequest = buildGeminiRequest(request, {
-      provider: this.name,
-      model,
-    })
+    const tools = preprocessTools(request.tools)
+    const geminiRequest = buildGeminiRequest(
+      { ...request, tools },
+      {
+        provider: this.name,
+        model,
+      }
+    )
 
     const sessionId = request.metadata?.sessionId || `session-${crypto.randomUUID()}`
 

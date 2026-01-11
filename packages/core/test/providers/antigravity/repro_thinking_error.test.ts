@@ -63,7 +63,7 @@ describe("Antigravity Thinking Block Injection", () => {
     // It should now have a thinking block injected at the start
     const firstPart = assistantMsg!.parts[0]!;
     expect(firstPart.thought).toBe(true);
-    expect(firstPart.text).toContain("restored");
+    expect(firstPart.text).toBe("Thinking Process...");
     expect(firstPart.thoughtSignature).toBe("skip_thought_signature_validator");
     
     // The second part should be the tool call
@@ -100,9 +100,10 @@ describe("Antigravity Thinking Block Injection", () => {
     const result = transform(unifiedRequest, 'gemini-2.5-pro') as AntigravityRequest;
     
     const assistantMsg = result.request.contents[0];
-    // Should stay as is
+    // Thinking block is preserved, but signature is replaced if too short (<30 chars)
+    // "sig" is 3 chars, so it gets replaced with skip_thought_signature_validator
     expect(assistantMsg!.parts[0]!.text).toBe("I am thinking");
-    expect(assistantMsg!.parts[0]!.thoughtSignature).toBe("sig");
+    expect(assistantMsg!.parts[0]!.thoughtSignature).toBe("skip_thought_signature_validator");
     expect(assistantMsg!.parts).toHaveLength(2);
   });
 });

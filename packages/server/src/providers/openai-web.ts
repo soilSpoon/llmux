@@ -185,9 +185,58 @@ export interface CodexBodyOptions {
   systemInstructions?: string
 }
 
+export function transformContentPartType(
+  part: Record<string, unknown>,
+  role: string
+): Record<string, unknown> {
+  const { cache_control: _, ...rest } = part
+  if (part.type === 'text' || part.type === 'input_text') {
+    return {
+      ...rest,
+      type: role === 'assistant' ? 'output_text' : 'input_text',
+    }
+  }
+  return rest
+}
+
+export function transformMessagesForCodex(messages: unknown): unknown {
+  if (!Array.isArray(messages)) return messages
+
+  return messages.map((msg) => {
+    if (!msg || typeof msg !== 'object') return msg
+    const msgObj = msg as Record<string, unknown>
+    const role = (msgObj.role as string) || 'user'
+    const content = msgObj.content
+
+    if (Array.isArray(content)) {
+      return {
+        ...msgObj,
+        content: content.map((part) => {
+          if (part && typeof part === 'object') {
+            return transformContentPartType(part as Record<string, unknown>, role)
+          }
+          return part
+        }),
+      }
+    }
+
+    if (typeof content === 'string') {
+      return {
+        ...msgObj,
+        content: [
+          {
+            type: role === 'assistant' ? 'output_text' : 'input_text',
+            text: content,
+          },
+        ],
+      }
+    }
+
+    return msgObj
+  })
+}
+
 export async function buildCodexBody(options: CodexBodyOptions): Promise<Record<string, unknown>> {
-  // Always fetch instructions from GitHub - strict Opencode parity.
-  // We ignore user-provided instructions to avoid "Instructions are not valid" and ensure correct Codex behavior.
   if (options.systemInstructions) {
     logger.debug(
       { model: options.model, length: options.systemInstructions.length },
@@ -198,6 +247,7 @@ export async function buildCodexBody(options: CodexBodyOptions): Promise<Record<
   const instructions = await getCodexInstructions(options.model)
 
   const transformedTools = options.tools ? transformToolsForCodex(options.tools) : undefined
+  const transformedMessages = transformMessagesForCodex(options.messages)
 
   logger.info(
     {
@@ -212,7 +262,7 @@ export async function buildCodexBody(options: CodexBodyOptions): Promise<Record<
   const codexBody: Record<string, unknown> = {
     model: options.model,
     instructions,
-    input: options.messages,
+    input: transformedMessages,
     store: false,
     stream: true,
   }

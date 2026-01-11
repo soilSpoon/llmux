@@ -34,3 +34,7 @@ coverage/
 .agent
 .agents
 .specify
+
+*.db
+*.db-shm
+*.db-wal

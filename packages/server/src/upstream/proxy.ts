@@ -54,36 +54,7 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
         // Body might be empty or not readable
       }
 
-      let requestBodyPreview = 'empty'
       const inputBodyLength = bodyBuffer?.byteLength || 0
-      let apiMethod = 'unknown'
-
-      if (bodyText) {
-        requestBodyPreview = bodyText.slice(0, 500) + (bodyText.length > 500 ? '...' : '')
-        // Extract API method from request body for logging
-        try {
-          const parsed = JSON.parse(bodyText)
-          apiMethod = parsed.method || 'unknown'
-        } catch {
-          apiMethod = 'parse-error'
-        }
-        // Detailed debug log (only when LOG_LEVEL=debug)
-        // If path starts with /api/internal, use trace level to reduce noise
-        const isInternal = url.pathname.startsWith('/api/internal')
-        const logFn = isInternal ? logger.trace.bind(logger) : logger.debug.bind(logger)
-
-        logFn(
-          {
-            reqId,
-            method: request.method,
-            path: url.pathname,
-            proxyUrl,
-            bodyLength: bodyText.length,
-            apiMethod,
-          },
-          '[DEBUG] Request details'
-        )
-      }
 
       try {
         // Build filtered headers
@@ -107,16 +78,6 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
           filteredHeaders.forEach((v, k) => {
             headersObj[k] = k.toLowerCase().includes('auth') ? '[REDACTED]' : v
           })
-          logger.debug(
-            {
-              reqId,
-              proxyUrl,
-              method: request.method,
-              headers: headersObj,
-              bodyPreview: requestBodyPreview.slice(0, 1000),
-            },
-            '[Proxy] Request to upstream (pre-fetch)'
-          )
         }
 
         const fetchOptions: RequestInit & { duplex?: 'half' } = {
@@ -192,68 +153,6 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
         // Note: Bun's fetch() automatically decompresses gzip responses
         const responseBuffer = await upstreamResponse.arrayBuffer()
         const responseData = new Uint8Array(responseBuffer)
-
-        // Response logging
-        let responsePreview = 'empty'
-        let errorDetails = null
-        const outputBodyLength = responseData.length
-        try {
-          const responseText = new TextDecoder().decode(responseData)
-          if (responseText) {
-            responsePreview = responseText.slice(0, 500) + (responseText.length > 500 ? '...' : '')
-            // Extract error details if response contains error
-            try {
-              const parsed = JSON.parse(responseText)
-              if (parsed.error) {
-                errorDetails = parsed.error
-              }
-            } catch {
-              // Not JSON or no error field
-            }
-
-            const isInternal = url.pathname.startsWith('/api/internal')
-            const logFn = isInternal ? logger.trace.bind(logger) : logger.debug.bind(logger)
-
-            logFn(
-              {
-                reqId,
-                status: upstreamResponse.status,
-                responseLength: responseText.length,
-                apiMethod,
-                errorDetails,
-              },
-              '[DEBUG] Response details'
-            )
-          }
-        } catch (_e) {
-          responsePreview = '<error reading response>'
-        }
-
-        const duration = Date.now() - startTime
-
-        // Helper: sanitize to single line (remove newlines/carriage returns)
-        const sanitize = (s: string) =>
-          s
-            .replace(/[\r\n]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-
-        // SINGLE CONSOLIDATED LOG LINE (Request + Response combined)
-        const logLine = `[Proxy] ${reqId} | ${request.method} ${
-          url.pathname
-        } | ReqLen:${inputBodyLength} | Status:${
-          upstreamResponse.status
-        } | ${duration}ms | ResLen:${outputBodyLength} | Req: ${sanitize(requestBodyPreview).slice(
-          0,
-          200
-        )} | Res: ${sanitize(responsePreview).slice(0, 200)}`
-
-        // Log sensitive internal endpoints at trace level to avoid spamming info logs
-        if (url.pathname.startsWith('/api/internal')) {
-          logger.trace(logLine)
-        } else {
-          logger.info(logLine)
-        }
 
         // Build response headers
         // IMPORTANT: Always remove Content-Encoding because Bun's fetch()

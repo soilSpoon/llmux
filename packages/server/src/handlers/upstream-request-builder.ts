@@ -90,6 +90,7 @@ export async function buildUpstreamRequest(
       router: options.router,
       modelMappings: options.modelMappings,
       apiKey: options.apiKey,
+      defaultProvider: options.defaultProvider,
     }))
 
   const { isThinkingEnabled, currentModel, effectiveProvider, originalModel } = ctx
@@ -216,14 +217,6 @@ export async function buildUpstreamRequest(
 
   // 4. Signature Sanitization
   const messagesBeforeSanitize = Array.isArray(body.messages) ? body.messages : []
-  logger.debug(
-    {
-      reqId,
-      messageCountBefore: messagesBeforeSanitize.length,
-      model: currentModel,
-    },
-    'Before sanitizeRequestSignatures'
-  )
 
   const sanitizeResult = sanitizeRequestSignatures({
     messages: messagesBeforeSanitize as Record<string, unknown>[],
@@ -233,30 +226,10 @@ export async function buildUpstreamRequest(
     reqId,
   })
 
-  logger.debug(
-    {
-      reqId,
-      messageCountAfter: sanitizeResult.messages?.length || 0,
-      strippedCount: sanitizeResult.strippedCount,
-      strategy: sanitizeResult.strategy,
-      messagesNullOrUndefined:
-        sanitizeResult.messages === null || sanitizeResult.messages === undefined,
-    },
-    'After sanitizeRequestSignatures'
-  )
-
   if (sanitizeResult.messages) {
     body.messages = sanitizeResult.messages
   }
   isClaudeFresh = sanitizeResult.strategy === 'claude-fresh'
-
-  logger.debug(
-    {
-      reqId,
-      messageCountInBody: Array.isArray(body.messages) ? body.messages.length : 0,
-    },
-    'After assigning sanitized messages to body'
-  )
 
   // 5. Request Body Transformation
   // gemini-cli uses the same v1internal API as antigravity, so needs the same wrapped request format
@@ -344,26 +317,6 @@ export async function buildUpstreamRequest(
       } else if (Array.isArray(originalInput) && originalInput.length > 0) {
         messages = originalInput
       }
-    }
-
-    const debugInfo = {
-      reqId,
-      sourceFormat: options.sourceFormat,
-      transformedMessagesLen: Array.isArray(
-        (transformedRequest as Record<string, unknown>).messages
-      )
-        ? ((transformedRequest as Record<string, unknown>).messages as unknown[]).length
-        : undefined,
-      originalMessagesLen: typedBody.messages?.length,
-      originalInputLen: typedBody.input?.length,
-      resolvedMessagesLen: Array.isArray(messages) ? messages.length : undefined,
-      messagesSample: Array.isArray(messages) ? messages.slice(0, 1) : undefined,
-    }
-
-    if (!messages || (Array.isArray(messages) && messages.length === 0)) {
-      logger.warn(debugInfo, '[openai-web] No messages found')
-    } else {
-      logger.debug(debugInfo, '[openai-web] Request body debug info')
     }
 
     if (!messages) {

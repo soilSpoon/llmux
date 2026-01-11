@@ -1,4 +1,4 @@
-import { createLogger, isValidProviderName, type ProviderName } from '@llmux/core'
+import { createLogger, type ProviderName } from '@llmux/core'
 import { createJsonResponseTransformer } from './response-factory'
 import { buildResponseHeaders, createErrorResponse } from './response-headers'
 import type { ProxyOptions } from './types'
@@ -11,10 +11,10 @@ export type { ProxyOptions } from './types'
 export async function handleProxy(request: Request, options: ProxyOptions): Promise<Response> {
   const reqId = Math.random().toString(36).slice(2, 8)
   const targetProviderInput = options.targetProvider
-  if (targetProviderInput && !isValidProviderName(targetProviderInput)) {
-    return new Response(JSON.stringify({ error: `Invalid provider: ${targetProviderInput}` }), {
-      status: 400,
-    })
+  if (!targetProviderInput) {
+    if (options.defaultProvider) {
+      options.targetProvider = options.defaultProvider
+    }
   }
 
   const reqIdHeader = request.headers.get('x-amp-client-request-id') || reqId

@@ -236,10 +236,7 @@ function processResponsesEventCore(
         type: 'thinking-end',
         id: event.item_id,
         blockIndex: event.output_index ?? 0,
-        delta: {
-          type: 'thinking',
-          thinking: { text: event.text ?? '' },
-        },
+        blockType: 'thinking',
       }
 
     case 'response.output_text.done':
@@ -247,10 +244,7 @@ function processResponsesEventCore(
         type: 'block_stop',
         id: event.item_id,
         blockIndex: event.output_index ?? 0,
-        delta: {
-          type: 'text',
-          text: event.text ?? '',
-        },
+        blockType: 'text',
       }
 
     case 'response.output_text.delta':
@@ -360,18 +354,12 @@ function processResponsesEventCore(
             },
           }
         }
-        if (event.item.type === 'message' && event.item.content) {
-          const textContent = event.item.content.find((c) => c.type === 'output_text')
-          if (textContent?.text) {
-            return {
-              type: 'content',
-              blockIndex: event.output_index ?? 0,
-              blockType: 'text',
-              delta: {
-                type: 'text',
-                text: textContent.text,
-              },
-            }
+        if (event.item.type === 'message') {
+          return {
+            type: 'block_stop',
+            id: event.item.id,
+            blockIndex: event.output_index ?? 0,
+            blockType: 'text',
           }
         }
         if (event.item.type === 'reasoning') {
@@ -411,60 +399,9 @@ function extractFromCompletedResponse(
 
   const chunks: StreamChunk[] = []
 
-  if (response.output) {
-    for (let i = 0; i < response.output.length; i++) {
-      const item = response.output[i]
-      if (!item) continue
-
-      if (item.type === 'message' && item.content) {
-        for (const content of item.content) {
-          if (content.type === 'output_text' && content.text) {
-            chunks.push({
-              type: 'content',
-              blockIndex: i,
-              blockType: 'text',
-              delta: {
-                type: 'text',
-                text: content.text,
-              },
-            })
-          }
-        }
-      }
-
-      if (item.type === 'reasoning' && item.summary) {
-        for (const summary of item.summary) {
-          if (summary.type === 'summary_text' && summary.text) {
-            chunks.push({
-              type: 'thinking',
-              blockIndex: i,
-              blockType: 'thinking',
-              delta: {
-                type: 'thinking',
-                thinking: { text: summary.text },
-              },
-            })
-          }
-        }
-      }
-
-      if (item.type === 'function_call') {
-        chunks.push({
-          type: 'tool_call',
-          blockIndex: i,
-          blockType: 'tool_call',
-          delta: {
-            type: 'tool_call',
-            toolCall: {
-              id: item.call_id || item.id || '',
-              name: item.name || '',
-              arguments: item.arguments || '',
-            },
-          },
-        })
-      }
-    }
-  }
+  // Skip generating chunks for response.output items in streaming mode
+  // because they have already been emitted as individual deltas.
+  // Re-emitting them here causes double/triple output on the client.
 
   if (response.usage) {
     chunks.push({
@@ -480,6 +417,7 @@ function extractFromCompletedResponse(
   chunks.push({
     type: 'done',
     stopReason: response.status === 'completed' ? 'end_turn' : 'error',
+    responseMetadata: extractResponseMetadata(response),
   })
 
   return chunks.length > 0 ? chunks : null

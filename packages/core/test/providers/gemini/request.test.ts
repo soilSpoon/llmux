@@ -266,6 +266,32 @@ describe("Gemini Request Transformations", () => {
         expect(result.tools).toHaveLength(1);
         expect(result.tools![0]!.functionDeclarations).toHaveLength(2);
       });
+      it("should NOT default type to STRING if anyOf is present", () => {
+        const unified = createUnifiedRequest({
+          tools: [
+            createUnifiedTool("test_anyof", "Test AnyOf", {
+              type: "object",
+              properties: {
+                mixed: {
+                  anyOf: [
+                    { type: "string" },
+                    { type: "object", properties: { a: { type: "string" } } },
+                  ],
+                },
+              },
+            }),
+          ],
+        });
+
+        const result = transform(unified);
+        const mixedParam =
+          result.tools![0]!.functionDeclarations![0]!.parameters?.properties?.mixed;
+
+        expect(mixedParam).toBeDefined();
+        // type should be undefined because anyOf is present and type was missing in input
+        expect(mixedParam!.type).toBeUndefined();
+        expect(mixedParam!.anyOf).toHaveLength(2);
+      });
     });
 
     describe("content parts", () => {

@@ -697,9 +697,20 @@ function transformSchemaProperty(prop: JSONSchemaProperty): GeminiSchema {
     }
   }
 
-  const result: GeminiSchema = {
-    type: (prop.type?.toUpperCase() ?? 'STRING') as GeminiSchema['type'],
+  // Determine type:
+  // 1. If explicit, use uppercased version.
+  // 2. If 'anyOf' is present, default to undefined (let validation happen at nested level).
+  // 3. Otherwise, default to 'STRING'.
+  let type: GeminiSchema['type'] | undefined
+  if (prop.type) {
+    type = prop.type.toUpperCase() as GeminiSchema['type']
+  } else if (!prop.anyOf) {
+    // Only default to STRING if there is no structure like anyOf that provides type info
+    type = 'STRING'
   }
+
+  const result: GeminiSchema = {}
+  if (type) result.type = type
 
   if (prop.description) result.description = prop.description
   // Convert enum values to strings as Gemini expects string enums usually
@@ -718,7 +729,28 @@ function transformSchemaProperty(prop: JSONSchemaProperty): GeminiSchema {
   }
 
   if (prop.anyOf) {
-    result.anyOf = prop.anyOf.map(transformSchemaProperty)
+    const nonNullTypes = prop.anyOf.filter((s) => {
+      const type = s.type?.toLowerCase()
+      // Filter out type: 'null' and enum: [null]
+      if (type === 'null') return false
+      if (hasConst(s) && s.const === null) return false
+      if (s.enum?.length === 1 && s.enum[0] === null) return false
+      return true
+    })
+
+    const hasNull = prop.anyOf.length > nonNullTypes.length
+
+    if (hasNull) {
+      result.nullable = true
+    }
+
+    if (nonNullTypes.length === 1 && nonNullTypes[0]) {
+      // If only one type remains, merge it
+      Object.assign(result, transformSchemaProperty(nonNullTypes[0]))
+    } else if (nonNullTypes.length > 1) {
+      result.anyOf = nonNullTypes.map(transformSchemaProperty)
+    }
+    // If 0 types remain (only null), result is just { nullable: true } (and likely type: STRING default)
   }
 
   return result

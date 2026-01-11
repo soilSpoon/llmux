@@ -337,9 +337,8 @@ export function looksLikeCompactedThinkingTurn(msg: ConversationMessage): boolea
     if (hasThinking) return false
 
     // Check for text content (not thinking) before function call
-    // Note: TypeScript might struggle with mixed part types, using 'any' for heuristic check
-    // biome-ignore lint/suspicious/noExplicitAny: complex union types in parts
-    const hasTextBeforeFunctionCall = parts.some((p: any, idx: number) => {
+    // Note: TypeScript might struggle with mixed part types, using 'ThinkingPart' for heuristic check
+    const hasTextBeforeFunctionCall = parts.some((p: ThinkingPart, idx: number) => {
       // Only check parts before the first functionCall
       const firstFuncIdx = parts.findIndex(isFunctionCallPart)
       if (idx >= firstFuncIdx) return false

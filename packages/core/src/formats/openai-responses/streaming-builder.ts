@@ -465,18 +465,16 @@ export class OpenAIResponsesStreamingBuilder {
     if (type === 'thinking') {
       if (chunk.type === 'thinking-end') {
         const events: string[] = []
-        if (chunk.delta?.thinking?.text) {
-          events.push(
-            this.formatEvent('response.reasoning_summary_text.done', {
-              type: 'response.reasoning_summary_text.done',
-              response_id: this.state.responseId,
-              output_index: this.state.currentItemIndex,
-              item_id: this.state.currentItemId,
-              text: chunk.delta.thinking.text,
-              ...commonFields,
-            })
-          )
-        }
+        events.push(
+          this.formatEvent('response.reasoning_summary_text.done', {
+            type: 'response.reasoning_summary_text.done',
+            response_id: this.state.responseId,
+            output_index: this.state.currentItemIndex,
+            item_id: this.state.currentItemId,
+            text: '', // Already streamed via deltas
+            ...commonFields,
+          })
+        )
         events.push(
           this.formatEvent('response.reasoning_summary_part.done', {
             type: 'response.reasoning_summary_part.done',
@@ -599,7 +597,7 @@ export class OpenAIResponsesStreamingBuilder {
           output_index: this.state.currentItemIndex,
           item_id: this.state.currentItemId,
           call_id: this.state.currentItemId,
-          arguments: this.state.currentItemArgs,
+          arguments: '', // Already streamed via deltas
         })
       )
     }
@@ -613,7 +611,7 @@ export class OpenAIResponsesStreamingBuilder {
           output_index: this.state.currentItemIndex,
           item_id: this.state.currentItemId,
           content_index: 0,
-          text: this.state.currentItemContent.join(''),
+          text: '', // Already streamed via deltas
         })
       )
     }
@@ -633,7 +631,7 @@ export class OpenAIResponsesStreamingBuilder {
         content: [
           {
             type: 'output_text',
-            text: this.state.currentItemContent.join(''),
+            text: '', // Already streamed via deltas
           },
         ],
       }
@@ -643,7 +641,7 @@ export class OpenAIResponsesStreamingBuilder {
         type: 'function_call',
         name: this.state.currentItemName,
         call_id: this.state.currentItemId,
-        arguments: this.state.currentItemArgs,
+        arguments: '', // Already streamed via deltas
       }
     } else if (this.state.currentItemType === 'thinking') {
       item = {
@@ -652,7 +650,7 @@ export class OpenAIResponsesStreamingBuilder {
         summary: [
           {
             type: 'summary_text',
-            text: this.state.currentItemContent.join(''),
+            text: '', // Already streamed via deltas
           },
         ],
       }

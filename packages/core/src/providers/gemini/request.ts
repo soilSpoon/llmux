@@ -250,7 +250,7 @@ function parseSchema(schema?: GeminiSchema): JSONSchema {
   }
 
   const result: JSONSchema = {
-    type: schema.type.toLowerCase() as JSONSchema['type'],
+    type: (schema.type?.toLowerCase() || 'object') as JSONSchema['type'],
   }
 
   if (schema.description) result.description = schema.description
@@ -273,7 +273,7 @@ function parseSchema(schema?: GeminiSchema): JSONSchema {
 
 function parseSchemaProperty(schema: GeminiSchema): JSONSchemaProperty {
   const result: JSONSchemaProperty = {
-    type: schema.type.toLowerCase() as JSONSchemaProperty['type'],
+    type: (schema.type?.toLowerCase() || 'string') as JSONSchemaProperty['type'],
   }
 
   if (schema.description) result.description = schema.description
@@ -475,9 +475,20 @@ function transformSchema(schema: JSONSchema): GeminiSchema {
 }
 
 function transformSchemaProperty(prop: JSONSchemaProperty): GeminiSchema {
-  const result: GeminiSchema = {
-    type: (prop.type?.toUpperCase() ?? 'STRING') as GeminiSchema['type'],
+  // Determine type:
+  // 1. If explicit, use uppercased version.
+  // 2. If 'anyOf' is present, default to undefined (let validation happen at nested level).
+  // 3. Otherwise, default to 'STRING'.
+  let type: GeminiSchema['type'] | undefined
+  if (prop.type) {
+    type = prop.type.toUpperCase() as GeminiSchema['type']
+  } else if (!prop.anyOf) {
+    // Only default to STRING if there is no structure like anyOf that provides type info
+    type = 'STRING'
   }
+
+  const result: GeminiSchema = {}
+  if (type) result.type = type
 
   if (prop.description) result.description = prop.description
   if (prop.enum) result.enum = prop.enum as string[]

@@ -119,7 +119,7 @@ export interface GeminiFunctionDeclaration {
  * Gemini Schema (similar to JSON Schema but with uppercase types)
  */
 export interface GeminiSchema {
-  type: 'STRING' | 'INTEGER' | 'BOOLEAN' | 'NUMBER' | 'ARRAY' | 'OBJECT'
+  type?: 'STRING' | 'INTEGER' | 'BOOLEAN' | 'NUMBER' | 'ARRAY' | 'OBJECT'
   format?: 'enum' | 'date-time'
   description?: string
   nullable?: boolean
@@ -209,6 +209,7 @@ export interface GeminiResponse {
   promptFeedback?: GeminiPromptFeedback
   responseId?: string
   modelVersion?: string
+  createTime?: string
 }
 
 /**

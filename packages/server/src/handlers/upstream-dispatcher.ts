@@ -1,6 +1,6 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '@llmux/auth'
-import { createLogger } from '@llmux/core'
-import type { SignatureStore } from '../stores'
+import { createLogger, formatIdToProviderName } from '@llmux/core'
+import { getRequestLogStore, type SignatureStore } from '../stores'
 import { parseRetryAfterMs } from '../upstream'
 import { parseUpstreamError, type UpstreamErrorInfo } from './error-utils'
 import {
@@ -59,13 +59,16 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
   const retryState = createRetryState()
   let lastResponse: Response | undefined
   let lastMeta: UpstreamRequestMeta | null = null
+  const startTime = Date.now()
+  const preTransformRequest: unknown = initialBody
+  let postTransformRequest: unknown = null
 
   while (shouldContinueRetry(retryState)) {
     incrementAttempt(retryState)
 
     const requestResult = await builder({
       reqId,
-      body: initialBody as Record<string, unknown>, // Assuming object for now
+      body: initialBody as Record<string, unknown>,
       options,
       retryState,
       mode,
@@ -75,8 +78,27 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
     const { request } = requestResult
     lastMeta = request.meta
 
-    // Update retry state in case builder mutated it (e.g. rotation)
-    // Actually builder might modify retryState object reference or props
+    postTransformRequest = JSON.parse(request.init.body)
+
+    if (retryState.attempt === 1) {
+      try {
+        const logStore = getRequestLogStore()
+        logStore.logRequest({
+          requestId: reqId,
+          sourceProvider: formatIdToProviderName(options.sourceFormat) || options.sourceFormat,
+          sourceModel: request.meta.originalModel,
+          sourceEndpoint: options.sourceFormat,
+          targetProvider: request.meta.provider,
+          targetModel: request.meta.model,
+          targetEndpoint: request.endpoint,
+          preTransformRequest,
+          postTransformRequest,
+          isStreaming: mode === 'streaming',
+        })
+      } catch (logErr) {
+        logger.warn({ reqId, error: String(logErr) }, 'Failed to log request to SQLite')
+      }
+    }
 
     if (input.onBeforeAttempt) {
       input.onBeforeAttempt(retryState.attempt, request.meta)
@@ -202,74 +224,31 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         options.router.handleSuccess(request.meta.provider, request.meta.model)
       }
 
-      // === DEBUG: non-streaming 응답 로깅 ===
+      // Log response to SQLite (non-streaming only, streaming logs separately)
       if (mode === 'non-streaming') {
         try {
-          const fs = await import('node:fs')
-          const debugDir = '/tmp/llmux-debug'
-          const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-
-          if (!fs.existsSync(debugDir)) {
-            fs.mkdirSync(debugDir, { recursive: true })
-          }
-
-          // 응답 클론해서 본문 읽기
           const responseClone = lastResponse.clone()
           const responseText = await responseClone.text()
-          let responseBody: unknown
+          let preTransformResponse: unknown
           try {
-            responseBody = JSON.parse(responseText)
+            preTransformResponse = JSON.parse(responseText)
           } catch {
-            responseBody = { _raw: responseText }
+            preTransformResponse = { _raw: responseText }
           }
 
-          const responsePath = `${debugDir}/${timestamp}-${reqId}-3-response.json`
-          fs.writeFileSync(
-            responsePath,
-            JSON.stringify(
-              {
-                _meta: {
-                  reqId,
-                  provider: request.meta.provider,
-                  model: request.meta.model,
-                  originalModel: request.meta.originalModel,
-                  endpoint: request.endpoint,
-                  status: lastResponse.status,
-                  mode,
-                  timestamp: new Date().toISOString(),
-                },
-                headers: Object.fromEntries(lastResponse.headers.entries()),
-                body: responseBody,
-              },
-              null,
-              2
-            )
-          )
-
-          // 응답에서 contents 개수 요약
-          const contentsCount =
-            (responseBody as { candidates?: { content?: { parts?: unknown[] } }[] })
-              ?.candidates?.[0]?.content?.parts?.length || 0
-
-          logger.debug(
-            {
-              reqId,
-              provider: request.meta.provider,
-              model: request.meta.model,
-              status: lastResponse.status,
-              contentsCount,
-              debugFile: responsePath,
-            },
-            '[DEBUG] Non-streaming response saved'
-          )
-        } catch (debugErr) {
-          logger.warn(
-            { reqId, error: String(debugErr) },
-            '[DEBUG] Failed to write response debug file'
-          )
+          const durationMs = Date.now() - startTime
+          const logStore = getRequestLogStore()
+          logStore.logResponse({
+            requestId: reqId,
+            preTransformResponse,
+            postTransformResponse: preTransformResponse,
+            statusCode: lastResponse.status,
+            durationMs,
+          })
+        } catch (logErr) {
+          logger.warn({ reqId, error: String(logErr) }, 'Failed to log response to SQLite')
         }
       }
-      // === END DEBUG ===
 
       if (input.onSuccessfulAttempt) {
         input.onSuccessfulAttempt(request.meta, lastResponse)

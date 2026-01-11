@@ -116,19 +116,23 @@ async function createProxyLikeHandler(
 ): Promise<Response> {
   const { body, overrideSourceFormat, defaultTargetProvider, modelMappings, router } = params
   const sourceFormat = overrideSourceFormat ?? detectFormat(request.url)
-  const targetProvider = request.headers.get('X-Target-Provider') || defaultTargetProvider
+  const targetProvider = request.headers.get('X-Target-Provider')
 
   const options: ProxyOptions = {
     sourceFormat,
-    targetProvider: targetProvider,
+    targetProvider: targetProvider ?? undefined,
     targetModel: request.headers.get('X-Target-Model') ?? undefined,
     apiKey: request.headers.get('X-API-Key') ?? undefined,
+    defaultProvider: defaultTargetProvider ?? undefined,
     modelMappings,
     router,
   }
 
   if (body.stream === true) {
-    return handleStreamingProxy(request, options)
+    return handleStreamingProxy(request, {
+      ...options,
+      defaultProvider: options.defaultProvider,
+    })
   }
   return handleProxy(request, options)
 }

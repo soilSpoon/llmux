@@ -28,7 +28,7 @@ export const GoogleGeminiFormat: SchemaFormat = {
 
   // RESPONSE TRANSFORMATION
   parseResponse,
-  buildWireResponse: (unified, _ctx) => buildWireResponse(unified),
+  buildWireResponse: (unified, ctx) => buildWireResponse(unified, ctx),
 
   // STREAMING TRANSFORMATION
   parseStreamChunk,

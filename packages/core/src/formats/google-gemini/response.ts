@@ -45,8 +45,13 @@ export function parseResponse(response: GeminiResponse): UnifiedResponse {
   if (response.modelVersion) result.model = response.modelVersion
 
   // Populate metadata from usage details if available
+  const meta: Record<string, unknown> = {}
+
+  if (response.createTime) {
+    meta.createTime = response.createTime
+  }
+
   if (response.usageMetadata) {
-    const meta: Record<string, unknown> = {}
     if (response.usageMetadata.trafficType) {
       meta.trafficType = response.usageMetadata.trafficType
     }
@@ -59,6 +64,8 @@ export function parseResponse(response: GeminiResponse): UnifiedResponse {
     if (Object.keys(meta).length > 0) {
       result.metadata = meta
     }
+  } else if (Object.keys(meta).length > 0) {
+    result.metadata = meta
   }
 
   return result
@@ -67,7 +74,10 @@ export function parseResponse(response: GeminiResponse): UnifiedResponse {
 /**
  * Transform UnifiedResponse into GeminiResponse
  */
-export function buildWireResponse(response: UnifiedResponse): GeminiResponse {
+export function buildWireResponse(
+  response: UnifiedResponse,
+  ctx?: { provider?: string; model?: string }
+): GeminiResponse {
   const parts: GeminiPart[] = []
 
   // Add thinking parts first
@@ -83,7 +93,7 @@ export function buildWireResponse(response: UnifiedResponse): GeminiResponse {
 
   // Add content parts
   for (const part of response.content) {
-    parts.push(transformContentPart(part))
+    parts.push(transformContentPart(part, ctx?.provider))
   }
 
   const result: GeminiResponse = {
@@ -101,6 +111,10 @@ export function buildWireResponse(response: UnifiedResponse): GeminiResponse {
 
   if (response.model) {
     result.modelVersion = response.model
+  }
+
+  if (response.metadata?.createTime && typeof response.metadata.createTime === 'string') {
+    result.createTime = response.metadata.createTime
   }
 
   if (response.usage) {
@@ -211,7 +225,7 @@ function mapFinishReason(finishReason?: GeminiFinishReason, hasFunctionCall?: bo
 // Transform Helpers (Unified → Gemini)
 // =============================================================================
 
-function transformContentPart(part: ContentPart): GeminiPart {
+function transformContentPart(part: ContentPart, provider?: string): GeminiPart {
   switch (part.type) {
     case 'text':
       return {
@@ -224,11 +238,11 @@ function transformContentPart(part: ContentPart): GeminiPart {
         return {
           functionCall: {
             name: part.toolCall.name,
+            ...(provider === 'antigravity' && { id: part.toolCall.id }),
             args:
               typeof part.toolCall.arguments === 'string'
                 ? { value: part.toolCall.arguments }
                 : part.toolCall.arguments,
-            ...(part.toolCall.id && { id: part.toolCall.id }),
           },
           ...(part.thoughtSignature && { thoughtSignature: part.thoughtSignature }),
         }

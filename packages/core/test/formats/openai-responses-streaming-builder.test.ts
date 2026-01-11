@@ -663,7 +663,7 @@ describe('OpenAIResponsesStreamingBuilder', () => {
       expect(textDoneEvent).toBeDefined()
       expect(textDoneEvent?.data).toMatchObject({
         type: 'response.reasoning_summary_text.done',
-        text: 'Thought done'
+        text: '' // Already streamed via deltas
       })
       expect(partDoneEvent).toBeDefined()
       expect(partDoneEvent?.data).toMatchObject({

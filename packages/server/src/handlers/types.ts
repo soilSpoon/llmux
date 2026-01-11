@@ -9,6 +9,7 @@ export interface ProxyOptions {
   originalModel?: string
   apiKey?: string
   thinking?: boolean
+  defaultProvider?: string
   modelMappings?: AmpModelMapping[]
   router?: Router
 }

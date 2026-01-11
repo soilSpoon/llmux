@@ -4,7 +4,7 @@
  * rather than globally, allowing parallel families to continue when one is rate-limited
  */
 
-export type ModelFamily = 'gemini-flash' | 'gemini-pro' | 'claude'
+export type ModelFamily = 'gemini-flash' | 'gemini-pro' | 'claude' | 'unknown'
 
 interface RateLimitEntry {
   family: ModelFamily

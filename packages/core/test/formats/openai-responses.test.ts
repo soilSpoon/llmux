@@ -121,7 +121,7 @@ describe('OpenAI Responses Format', () => {
       expect(result).toMatchObject({
         type: 'thinking-end',
         blockIndex: 0,
-        delta: { thinking: { text: 'Full thought' } }
+        blockType: 'thinking'
       })
     })
 
@@ -135,7 +135,7 @@ describe('OpenAI Responses Format', () => {
       expect(result).toMatchObject({
         type: 'block_stop',
         blockIndex: 0,
-        delta: { text: 'Full response' }
+        blockType: 'text'
       })
     })
 
