@@ -41,6 +41,27 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
 
     const response = await transformer(upstreamResponse)
 
+    // Log processed response
+    try {
+      const responseClone = response.clone()
+      const responseText = await responseClone.text()
+      let postTransformResponse: unknown
+      try {
+        postTransformResponse = JSON.parse(responseText)
+      } catch {
+        postTransformResponse = { _raw: responseText }
+      }
+
+      const logStore = require('../stores').getRequestLogStore()
+      logStore.updateLog(reqId, {
+        postTransformResponse,
+        // Update status in case transformer changed it
+        statusCode: response.status,
+      })
+    } catch (logErr) {
+      logger.warn({ reqId, error: String(logErr) }, 'Failed to log transformed response')
+    }
+
     // Ensure we have correct headers for the client
     const headers = buildResponseHeaders({
       upstreamHeaders: response.headers,

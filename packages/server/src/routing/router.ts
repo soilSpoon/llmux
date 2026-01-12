@@ -1,6 +1,7 @@
 import { createLogger, type ProviderName } from '@llmux/core'
 import type { RoutingConfig } from '../config'
 import { type CooldownManager, globalCooldownManager } from '../cooldown'
+import { AllCooldownError } from '../handlers/upstream-dispatcher'
 import type { ModelLookup } from '../models/lookup'
 import { ModelRouter } from './model-router'
 import type { UpstreamProvider } from './types'
@@ -103,22 +104,19 @@ export class Router {
         this.currentIndex % this.config.fallbackOrder.length
       ] as UpstreamProvider
       if (provider) {
-        logger.debugTemp({ provider, requestedModel }, '[DEBUG] Using legacy fallbackOrder')
-        return {
-          provider,
-          model: requestedModel,
+        const legacyKey = `${provider}:${requestedModel}`
+        if (this.cooldownManager.isAvailable(legacyKey)) {
+          logger.debugTemp({ provider, requestedModel }, '[DEBUG] Using legacy fallbackOrder')
+          return {
+            provider,
+            model: requestedModel,
+          }
         }
       }
     }
-    // Return primary if everything else fails
-    logger.debugTemp(
-      { provider: resolution.providerId, model: resolution.targetModel },
-      '[DEBUG] No available fallback, returning primary'
-    )
-    return {
-      provider: resolution.providerId,
-      model: resolution.targetModel,
-    }
+
+    // If everything is in cooldown, throw error so caller can return 429
+    throw new AllCooldownError('All available models and providers are currently in cooldown')
   }
 
   getNextProvider(): ProviderName | undefined {

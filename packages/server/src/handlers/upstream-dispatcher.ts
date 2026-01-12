@@ -15,13 +15,13 @@ import type { ProxyOptions } from './types'
 import type {
   RequestBuilderInput,
   RequestBuilderResult,
+  UpstreamRequest,
   UpstreamRequestMeta,
 } from './upstream-request-builder'
 
-const logger = createLogger({ service: 'upstream-dispatcher' })
+export type { UpstreamRequestMeta }
 
-// Re-export for convenience
-export type { UpstreamRequestMeta } from './upstream-request-builder'
+const logger = createLogger({ service: 'upstream-dispatcher' })
 
 export class NonRetriableError extends Error {
   errorInfo: UpstreamErrorInfo
@@ -32,6 +32,13 @@ export class NonRetriableError extends Error {
     super(info.message)
     this.name = 'NonRetriableError'
     this.errorInfo = info
+  }
+}
+
+export class AllCooldownError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AllCooldownError'
   }
 }
 
@@ -61,50 +68,52 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
   let lastMeta: UpstreamRequestMeta | null = null
   const startTime = Date.now()
   const preTransformRequest: unknown = initialBody
-  let postTransformRequest: unknown = null
 
   while (shouldContinueRetry(retryState)) {
     incrementAttempt(retryState)
 
-    const requestResult = await builder({
-      reqId,
-      body: initialBody as Record<string, unknown>,
-      options,
-      retryState,
-      mode,
-      signatureStore,
-    })
-
-    const { request } = requestResult
-    lastMeta = request.meta
-
-    postTransformRequest = JSON.parse(request.init.body)
-
-    if (retryState.attempt === 1) {
-      try {
-        const logStore = getRequestLogStore()
-        logStore.logRequest({
-          requestId: reqId,
-          sourceProvider: formatIdToProviderName(options.sourceFormat) || options.sourceFormat,
-          sourceModel: request.meta.originalModel,
-          sourceEndpoint: options.sourceFormat,
-          targetProvider: request.meta.provider,
-          targetModel: request.meta.model,
-          targetEndpoint: request.endpoint,
-          preTransformRequest,
-          postTransformRequest,
-          isStreaming: mode === 'streaming',
-        })
-      } catch (logErr) {
-        logger.warn({ reqId, error: String(logErr) }, 'Failed to log request to SQLite')
-      }
-    }
-
-    if (input.onBeforeAttempt) {
-      input.onBeforeAttempt(retryState.attempt, request.meta)
-    }
+    let request: UpstreamRequest | undefined
+    let postTransformRequest: unknown
 
     try {
+      const requestResult = await builder({
+        reqId,
+        body: initialBody as Record<string, unknown>,
+        options,
+        retryState,
+        mode,
+        signatureStore,
+      })
+
+      request = requestResult.request
+      lastMeta = request.meta
+
+      postTransformRequest = JSON.parse(request.init.body)
+
+      if (retryState.attempt === 1) {
+        try {
+          const logStore = getRequestLogStore()
+          logStore.logRequest({
+            requestId: reqId,
+            sourceProvider: formatIdToProviderName(options.sourceFormat) || options.sourceFormat,
+            sourceModel: request.meta.originalModel,
+            sourceEndpoint: options.sourceFormat,
+            targetProvider: request.meta.provider,
+            targetModel: request.meta.model,
+            targetEndpoint: request.endpoint,
+            preTransformRequest,
+            postTransformRequest,
+            isStreaming: mode === 'streaming',
+          })
+        } catch (logErr) {
+          logger.warn({ reqId, error: String(logErr) }, 'Failed to log request to SQLite')
+        }
+      }
+
+      if (input.onBeforeAttempt) {
+        input.onBeforeAttempt(retryState.attempt, request.meta)
+      }
+
       logger.debug(
         {
           attempt: retryState.attempt,
@@ -159,6 +168,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
           currentProjectId: request.meta.currentProjectId,
           router: options.router,
           retryAfterMs,
+          apiKey: options.apiKey,
         })
 
         if (result.action === 'retry') {
@@ -238,12 +248,13 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
           const durationMs = Date.now() - startTime
           const logStore = getRequestLogStore()
+
           logStore.logResponse({
             requestId: reqId,
             preTransformResponse,
-            postTransformResponse: preTransformResponse,
+            postTransformResponse: null, // Initial log only has upstream response
             statusCode: lastResponse.status,
-            durationMs,
+            durationMs, // Interim duration
           })
         } catch (logErr) {
           logger.warn({ reqId, error: String(logErr) }, 'Failed to log response to SQLite')
@@ -264,11 +275,31 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         throw error
       }
 
+      if (error instanceof AllCooldownError) {
+        return {
+          response: new Response(
+            JSON.stringify({
+              error: {
+                message: error.message,
+                type: 'rate_limit_error',
+                code: 'all_providers_cooldown',
+              },
+            }),
+            {
+              status: 429,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          ),
+          meta: lastMeta,
+          retryState,
+        }
+      }
+
       const message = error instanceof Error ? error.message : String(error)
       logger.error({ error: message, attempt: retryState.attempt }, 'Upstream fetch/network error')
 
       // Antigravity specific rotation on network error
-      if (request.meta.provider === 'antigravity') {
+      if (request?.meta?.provider === 'antigravity') {
         rotateAntigravityEndpoint(retryState)
         if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
           await new Promise((r) => setTimeout(r, 200))

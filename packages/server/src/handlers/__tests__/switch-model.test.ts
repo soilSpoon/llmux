@@ -1,4 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it, mock, spyOn } from 'bun:test'
+import { TokenRefresh } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core'
 import { dispatchWithRetry, type DispatchInput } from '../upstream-dispatcher'
 import type { RequestBuilderInput, RequestBuilderResult } from '../upstream-request-builder'
@@ -6,6 +7,13 @@ import type { ProxyOptions } from '../types'
 
 describe('switch-model functionality', () => {
   it('should switch provider and model when handleUpstreamError returns switch-model action', async () => {
+    // Mock TokenRefresh
+    const tokenRefreshSpy = spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([{
+       accessToken: 'mock',
+       refreshToken: 'mock', 
+       expiresAt: Date.now() + 3600000 
+    } as any])
+
     // Track which provider/model combinations were attempted
     const attemptedRequests: Array<{ provider: string; model: string }> = []
 
@@ -19,6 +27,9 @@ describe('switch-model functionality', () => {
           provider: currentProvider,
           model: currentModel,
         })
+
+        // Simulate account selection
+        input.retryState.accountIndex = 0
 
         // Simulate successful request on second provider
         if (currentProvider === 'opencode-zen') {
@@ -130,6 +141,8 @@ describe('switch-model functionality', () => {
       expect(result.response?.status).toBe(200)
       expect(result.meta?.provider).toBe('opencode-zen')
       expect(result.meta?.model).toBe('big-pickle')
+
+      tokenRefreshSpy.mockRestore()
     } finally {
       global.fetch = originalFetch
     }

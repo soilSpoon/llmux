@@ -44,7 +44,7 @@ export class AccountRotationWithTierManager {
    * Returns undefined if no accounts are available
    */
   getNextAccount(
-    _family: ModelFamily,
+    family: ModelFamily,
     currentIndex?: number,
     rotate: boolean = true,
     blockedIndices?: Set<number>
@@ -57,12 +57,18 @@ export class AccountRotationWithTierManager {
       currentIndex < this.accounts.length
     ) {
       const currentAccount = this.accounts[currentIndex]
-      if (currentAccount && !blockedIndices?.has(currentIndex)) {
+      if (
+        currentAccount &&
+        !blockedIndices?.has(currentIndex) &&
+        !currentAccount.rateLimitedFamilies.has(family)
+      ) {
         return currentAccount
       }
     }
 
-    const availableAccounts = this.accounts.filter((acc) => !blockedIndices?.has(acc.index))
+    const availableAccounts = this.accounts.filter(
+      (acc) => !blockedIndices?.has(acc.index) && !acc.rateLimitedFamilies.has(family)
+    )
 
     if (availableAccounts.length === 0) return undefined
 

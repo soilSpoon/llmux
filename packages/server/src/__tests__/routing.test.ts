@@ -1,6 +1,7 @@
-import { describe, expect, it, beforeEach } from "bun:test";
-import { Router } from "../routing";
-import { CooldownManager } from "../cooldown";
+import { describe, expect, it, beforeEach } from 'bun:test'
+import { Router } from '../routing'
+import { CooldownManager } from '../cooldown'
+import { AllCooldownError } from '../handlers/upstream-dispatcher'
 
 describe("Router", () => {
   let router: Router;
@@ -60,15 +61,13 @@ describe("Router", () => {
     expect(result).toEqual({ provider: "anthropic", model: "claude-3-opus" });
   });
 
-  it("should return primary if all fallbacks are exhausted (failure mode)", async () => {
-    router.handleRateLimit("gpt-4");
-    router.handleRateLimit("gpt-3.5-turbo");
-    router.handleRateLimit("claude-3-opus");
+  it('should throw AllCooldownError if all fallbacks are exhausted', async () => {
+    router.handleRateLimit('gpt-4')
+    router.handleRateLimit('gpt-3.5-turbo')
+    router.handleRateLimit('claude-3-opus')
 
-    const result = await router.resolveModel("gpt-4");
-    // Based on implementation, should return primary
-    expect(result).toEqual({ provider: "openai", model: "gpt-4" });
-  });
+    await expect(router.resolveModel('gpt-4')).rejects.toThrow(AllCooldownError)
+  })
 
   it("should throw error for unmapped models without lookup", async () => {
     await expect(router.resolveModel("unknown-model")).rejects.toThrow(

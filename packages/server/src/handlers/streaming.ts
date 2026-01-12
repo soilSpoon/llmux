@@ -32,6 +32,7 @@ export async function handleStreamingProxy(
     accumulatedText: '',
     accumulatedThinking: '',
     accumulatedSignatures: [],
+    accumulatedUpstream: '',
   }
 
   try {

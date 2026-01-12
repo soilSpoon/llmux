@@ -15,7 +15,6 @@ import { buildUpstreamHeaders, getDefaultEndpoint } from '../upstream'
 import { accountRotationManager } from './account-rotation'
 import { applyPromptCaching } from './caching-utils'
 import {
-  injectSystemInstructions,
   prepareRequestContext,
   type RequestContext,
   type RetryState,
@@ -252,9 +251,6 @@ export async function buildUpstreamRequest(
   if (isThinkingEnabled !== true || isClaudeFresh) {
     unifiedRequest.thinking = { enabled: false }
   }
-
-  // Inject System Instructions & Tool Hardening
-  injectSystemInstructions(unifiedRequest, effectiveProvider, currentModel || '')
 
   // Apply Prompt Caching
   applyPromptCaching(unifiedRequest, transformTarget)

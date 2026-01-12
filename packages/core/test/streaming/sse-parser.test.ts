@@ -148,9 +148,9 @@ describe('readSseEvents', () => {
       // 한 (ED 95 9C)
       // 글 (EA B8 80)
       // 🚀 (F0 9F 9A 80)
-      const han = [0xED, 0x95, 0x9C]
-      const geul = [0xEA, 0xB8, 0x80]
-      const rocket = [0xF0, 0x9F, 0x9A, 0x80]
+      const han = [0xED, 0x95, 0x9C] as const
+      const geul = [0xEA, 0xB8, 0x80] as const
+      const rocket = [0xF0, 0x9F, 0x9A, 0x80] as const
 
       const stream = new ReadableStream({
         start(controller) {

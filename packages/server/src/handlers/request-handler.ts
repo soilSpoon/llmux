@@ -1,5 +1,5 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS, type Credential, TokenRefresh } from '@llmux/auth'
-import type { ProviderName, UnifiedRequest } from '@llmux/core'
+import type { ProviderName } from '@llmux/core'
 import { createLogger, isValidProviderName } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
@@ -21,60 +21,6 @@ export interface RequestContext {
   effectiveProvider: ProviderName
   isThinkingEnabled: boolean | undefined
   sourceFormat: RequestFormat
-}
-
-/**
- * Inject system instructions for specific models/providers
- * - Gemini: Response quality rules (conciseness, etc)
- * - Claude: Tool usage hardening instructions
- */
-export function injectSystemInstructions(
-  request: UnifiedRequest,
-  provider: ProviderName,
-  model: string
-): void {
-  const lowerModel = model.toLowerCase()
-
-  // 1. Gemini System Instructions
-  // Apply to all Gemini models to improve response quality
-  if (provider === 'antigravity' && lowerModel.includes('gemini')) {
-    const geminiRules = [
-      'Response Rules:',
-      '1. Be concise and direct. Avoid filler phrases.',
-      '2. Use markdown for formatting.',
-      '3. When using tools, output ONLY the tool call JSON.',
-      '4. If you need to search or read files, do so before answering.',
-    ].join('\n')
-
-    // Append to existing system prompt or create new one
-    if (request.system) {
-      request.system += `\n\n${geminiRules}`
-    } else {
-      request.system = geminiRules
-    }
-  }
-
-  // 2. Claude Tool Hardening
-  // Inject CRITICAL TOOL USAGE INSTRUCTIONS when tools are present
-  if (
-    (provider === 'anthropic' || lowerModel.includes('claude')) &&
-    request.tools &&
-    request.tools.length > 0
-  ) {
-    const toolHardening = [
-      'CRITICAL TOOL USAGE INSTRUCTIONS:',
-      '- You MUST use the provided tools to verify your assumptions.',
-      '- When you use a tool, you must wait for the result before continuing.',
-      '- Do not hallucinate tool outputs.',
-      '- Use tools frequently and proactively.',
-    ].join('\n')
-
-    if (request.system) {
-      request.system += `\n\n${toolHardening}`
-    } else {
-      request.system = toolHardening
-    }
-  }
 }
 
 export interface PrepareContextOptions {
@@ -167,20 +113,17 @@ export async function prepareRequestContext(
 
   // If targetProvider is NOT set, use router.
   if (router && currentModel) {
-    try {
-      // Use router to resolve model aliases and provider
-      const routeResult = await router.resolveModel(currentModel)
-      logger.debug({ routeResult }, '[DEBUG] Router Resolved')
+    // Use router to resolve model aliases and provider
+    // If all are in cooldown, this will throw, which we SHOULD propagate
+    const routeResult = await router.resolveModel(currentModel)
+    logger.debug({ routeResult }, '[DEBUG] Router Resolved')
 
-      if (!effectiveProvider) {
-        effectiveProvider = routeResult.provider as ProviderName
-      }
-
-      // We ALWAYS accept the router's resolved model (it handles aliases)
-      currentModel = routeResult.model
-    } catch (error) {
-      logger.warn({ error, model: currentModel }, '[DEBUG] Router Resolution Failed')
+    if (!effectiveProvider) {
+      effectiveProvider = routeResult.provider as ProviderName
     }
+
+    // We ALWAYS accept the router's resolved model (it handles aliases)
+    currentModel = routeResult.model
   }
 
   // Default provider fallback (if not set by header or router)
@@ -218,6 +161,7 @@ export interface ErrorHandlingContext {
   router?: Router
   retryAfterMs?: number
   family?: ModelFamily
+  apiKey?: string
 }
 
 export interface ErrorHandlingResult {
@@ -241,8 +185,17 @@ export interface ErrorHandlingResult {
 export async function handleUpstreamError(
   context: ErrorHandlingContext
 ): Promise<ErrorHandlingResult> {
-  const { reqId, provider, model, status, errorText, retryState, currentProjectId, router } =
-    context
+  const {
+    reqId,
+    provider,
+    model,
+    status,
+    errorText,
+    retryState,
+    currentProjectId,
+    router,
+    apiKey,
+  } = context
 
   // Antigravity license/quota fallback
   if (provider === 'antigravity') {
@@ -340,28 +293,61 @@ export async function handleUpstreamError(
       }
     }
 
-    // Mark current as rate limited with explicit Hard/Soft type
-    accountRotationManager.markRateLimited(
-      provider,
-      model,
-      retryState.accountIndex,
-      retryAfter,
-      isClaudeWeekly ? 'hard' : 'soft',
-      isClaudeWeekly ? 'Claude Weekly Limit' : 'Transient 429'
-    )
+    // Skip account-based rate limiting if we're using an API key
+    if (apiKey) {
+      if (router) {
+        // Notify router of rate limit to avoid immediate retry of the same model
+        router.handleRateLimit(model, retryAfter)
 
-    // Reset endpoint index when rotating account
-    if (provider === 'antigravity') {
-      retryState.antigravityEndpointIndex = 0
+        const targetModel =
+          context.originalModel && context.originalModel !== 'unknown'
+            ? context.originalModel
+            : context.model
+
+        try {
+          const routeResult = await router.resolveModel(targetModel)
+          if (routeResult.provider !== provider || routeResult.model !== model) {
+            return {
+              action: 'switch-model',
+              newModel: routeResult.model,
+              newProvider: routeResult.provider as ProviderName,
+            }
+          }
+        } catch (err) {
+          logger.warn({ reqId, targetModel, err }, 'Failed to resolve fallback with API key')
+        }
+      }
+      return { action: 'retry', delay: 1000 }
     }
 
+    // Mark current as rate limited with explicit Hard/Soft type
     // Check if all accounts are limited
     let areAllLimited = false
     let credentials: Credential[] = []
     try {
+      // Mark current as rate limited with explicit Hard/Soft type
+      // Wrap in try-catch because this may call TokenRefresh which can fail in tests
+      await accountRotationManager
+        .markRateLimited(
+          provider,
+          model,
+          retryState.accountIndex,
+          retryAfter,
+          isClaudeWeekly ? 'hard' : 'soft',
+          isClaudeWeekly ? 'Claude Weekly Limit' : 'Transient 429'
+        )
+        .catch((err) =>
+          logger.debug({ err, provider, model }, 'Failed to mark rate limit (non-critical)')
+        )
+
+      // Reset endpoint index when rotating account or preparing for fallback
+      if (provider === 'antigravity') {
+        retryState.antigravityEndpointIndex = 0
+      }
+
       credentials = (await TokenRefresh.ensureFresh(provider)) || []
       if (
-        credentials.length > 0 &&
+        credentials.length === 0 ||
         accountRotationManager.areAllRateLimited(provider, model, credentials)
       ) {
         areAllLimited = true

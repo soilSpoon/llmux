@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS, TokenRefresh } from '@llmux/auth'
 import { accountRotationManager } from '../account-rotation'
+import { rateLimitStore } from '../rate-limit-store'
 import {
   createRetryState,
   handleUpstreamError,
@@ -17,7 +18,7 @@ import { ANTIGRAVITY_DEFAULT_PROJECT_ID } from '../../providers/antigravity'
 function createMockRetryState(overrides: Partial<RetryState> = {}): RetryState {
   return {
     attempt: 0,
-    accountIndex: 0,
+    accountIndex: -1,
     antigravityEndpointIndex: 0,
     overrideProjectId: null,
     maxRetryAttempts: 20,
@@ -84,7 +85,7 @@ describe('RetryState mutations', () => {
     it('should create default retry state', () => {
       const state = createRetryState()
       expect(state.attempt).toBe(0)
-      expect(state.accountIndex).toBe(0)
+      expect(state.accountIndex).toBe(-1)
       expect(state.antigravityEndpointIndex).toBe(0)
       expect(state.overrideProjectId).toBeNull()
       expect(state.maxRetryAttempts).toBe(20)
@@ -265,7 +266,7 @@ describe('handleUpstreamError - Antigravity provider', () => {
         { accessToken: 'token1', email: 'user1@test.com' },
         { accessToken: 'token2', email: 'user2@test.com' },
       ] as never)
-      spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => {})
+      spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => Promise.resolve())
       spyOn(accountRotationManager, 'areAllRateLimited').mockReturnValue(false)
       spyOn(accountRotationManager, 'hasNext').mockReturnValue(true)
     })
@@ -285,7 +286,7 @@ describe('handleUpstreamError - Antigravity provider', () => {
     })
 
     it('should mark account rate limited after endpoints exhausted', async () => {
-      const markRateLimitedSpy = spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => {})
+      const markRateLimitedSpy = spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => Promise.resolve())
       const retryState = createMockRetryState({
         antigravityEndpointIndex: ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1,
       })
@@ -301,13 +302,15 @@ describe('handleUpstreamError - Antigravity provider', () => {
       expect(markRateLimitedSpy).toHaveBeenCalledWith(
         'antigravity',
         'gemini-2.5-pro',
-        0,
-        60000
+        -1,
+        60000,
+        'soft',
+        'Transient 429'
       )
     })
 
     it('should use default retry-after if not provided', async () => {
-      const markRateLimitedSpy = spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => {})
+      const markRateLimitedSpy = spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => Promise.resolve())
       const retryState = createMockRetryState({
         antigravityEndpointIndex: ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1,
       })
@@ -322,12 +325,14 @@ describe('handleUpstreamError - Antigravity provider', () => {
       expect(markRateLimitedSpy).toHaveBeenCalledWith(
         'antigravity',
         'gemini-2.5-pro',
-        0,
-        30000
+        -1,
+        30000,
+        'soft',
+        'Transient 429'
       )
     })
 
-    it('should rotate account if hasNext returns true', async () => {
+    it('should return retry when hasNext returns true (account rotation happens externally)', async () => {
       spyOn(accountRotationManager, 'hasNext').mockReturnValue(true)
       const retryState = createMockRetryState({
         antigravityEndpointIndex: ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1,
@@ -341,7 +346,9 @@ describe('handleUpstreamError - Antigravity provider', () => {
       const result = await handleUpstreamError(ctx)
 
       expect(result.action).toBe('retry')
-      expect(retryState.accountIndex).toBe(1)
+      // accountIndex is NOT incremented by handleUpstreamError itself
+      // The calling code should call rotateAccount() if needed
+      expect(retryState.accountIndex).toBe(-1)
     })
 
     it('should return all-cooldown when all accounts limited and no fallback', async () => {
@@ -397,7 +404,7 @@ describe('handleUpstreamError - Error result actions', () => {
     spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([
       { accessToken: 'token1', email: 'user1@test.com' },
     ] as never)
-    spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => {})
+    spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => Promise.resolve())
     spyOn(accountRotationManager, 'areAllRateLimited').mockReturnValue(false)
     spyOn(accountRotationManager, 'hasNext').mockReturnValue(false)
 
@@ -625,12 +632,12 @@ describe('AccountRotationManager integration', () => {
   })
 
   describe('rate limit tracking', () => {
-    it('should track rate limited accounts', () => {
-      accountRotationManager.markRateLimited('antigravity', 'test-model', 0, 60000)
+    it('should track rate limited accounts', async () => {
+      await accountRotationManager.markRateLimited('antigravity', 'test-model', 0, 60000)
 
       const credentials = [
-        { accessToken: 'token1', email: 'user1@test.com' },
-        { accessToken: 'token2', email: 'user2@test.com' },
+        { type: 'oauth', accessToken: 'token1', email: 'user1@test.com' },
+        { type: 'oauth', accessToken: 'token2', email: 'user2@test.com' },
       ] as never[]
 
       const allLimited = accountRotationManager.areAllRateLimited('antigravity', 'test-model', credentials)
@@ -639,12 +646,18 @@ describe('AccountRotationManager integration', () => {
 
     it('should detect when all accounts are rate limited', () => {
       const credentials = [
-        { accessToken: 'token1', email: 'user1@test.com' },
+        { type: 'oauth', accessToken: 'token1', email: 'user1@test.com' },
       ] as never[]
 
-      accountRotationManager.markRateLimited('antigravity', 'test-model-2', 0, 60000)
+      // Mock getAccountId to return a predictable ID
+      spyOn(accountRotationManager as any, 'getAccountId').mockReturnValue('user1@test.com')
 
-      const allLimited = accountRotationManager.areAllRateLimited('antigravity', 'test-model-2', credentials)
+      rateLimitStore.markLimit('antigravity', 'user1@test.com', 'gemini-pro', {
+        type: 'soft',
+        expiresAt: Date.now() + 60000,
+      })
+
+      const allLimited = accountRotationManager.areAllRateLimited('antigravity', 'gemini-2.5-pro', credentials)
       expect(allLimited).toBe(true)
     })
   })
@@ -652,8 +665,8 @@ describe('AccountRotationManager integration', () => {
   describe('account selection', () => {
     it('should return next available account', () => {
       const credentials = [
-        { accessToken: 'token1', email: 'user1@test.com' },
-        { accessToken: 'token2', email: 'user2@test.com' },
+        { type: 'oauth', accessToken: 'token1', email: 'user1@test.com' },
+        { type: 'oauth', accessToken: 'token2', email: 'user2@test.com' },
       ] as never[]
 
       const nextIndex = accountRotationManager.getNextAvailable('antigravity', 'test-model-3', credentials)
@@ -662,13 +675,20 @@ describe('AccountRotationManager integration', () => {
 
     it('should skip rate limited accounts', () => {
       const credentials = [
-        { accessToken: 'token1', email: 'user1@test.com' },
-        { accessToken: 'token2', email: 'user2@test.com' },
+        { type: 'oauth', accessToken: 'token1', email: 'user1@test.com' },
+        { type: 'oauth', accessToken: 'token2', email: 'user2@test.com' },
       ] as never[]
 
-      accountRotationManager.markRateLimited('antigravity', 'test-model-4', 0, 60000)
+      // Mock getAccountId
+      const getAccountIdSpy = spyOn(accountRotationManager as any, 'getAccountId')
+      getAccountIdSpy.mockImplementation((cred: any) => cred.email)
 
-      const nextIndex = accountRotationManager.getNextAvailable('antigravity', 'test-model-4', credentials)
+      rateLimitStore.markLimit('antigravity', 'user1@test.com', 'gemini-pro', {
+        type: 'soft',
+        expiresAt: Date.now() + 60000,
+      })
+
+      const nextIndex = accountRotationManager.getNextAvailable('antigravity', 'gemini-2.5-pro', credentials)
       expect(nextIndex).toBe(1)
     })
   })

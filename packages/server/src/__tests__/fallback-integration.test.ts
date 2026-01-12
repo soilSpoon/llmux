@@ -1,7 +1,8 @@
-import { describe, expect, it, beforeEach } from "bun:test";
-import { Router } from "../routing";
-import { CooldownManager } from "../cooldown";
-import type { RoutingConfig } from "../config";
+import { describe, expect, it, beforeEach } from 'bun:test'
+import { Router } from '../routing'
+import { CooldownManager } from '../cooldown'
+import type { RoutingConfig } from '../config'
+import { AllCooldownError } from '../handlers/upstream-dispatcher'
 
 /**
  * Integration tests for 429 fallback behavior
@@ -98,16 +99,13 @@ describe("429 Fallback Integration", () => {
       expect(result.provider).toBe("anthropic");
     });
 
-    it("should return primary when all fallbacks exhausted", async () => {
-      router.handleRateLimit("primary-model");
-      router.handleRateLimit("secondary-model");
-      router.handleRateLimit("tertiary-model");
+    it('should throw AllCooldownError when all fallbacks exhausted', async () => {
+      router.handleRateLimit('primary-model')
+      router.handleRateLimit('secondary-model')
+      router.handleRateLimit('tertiary-model')
 
-      const result = await router.resolveModel("primary-model");
-
-      // When all are down, return primary (caller will get 429)
-      expect(result.model).toBe("gpt-4");
-    });
+      await expect(router.resolveModel('primary-model')).rejects.toThrow(AllCooldownError)
+    })
   });
 
   describe("Provider switching", () => {

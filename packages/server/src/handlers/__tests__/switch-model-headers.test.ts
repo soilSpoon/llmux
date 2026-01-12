@@ -60,6 +60,9 @@ describe('switch-model functionality - antigravity to gemini-cli', () => {
           headers,
         })
 
+        // Simulate account selection
+        input.retryState.accountIndex = 0
+
         // Simulate successful request on gemini-cli
         if (currentProvider === 'gemini-cli') {
           return {

@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto'
 import { type Credential, isOAuthCredential, type OAuthCredential, TokenRefresh } from '@llmux/auth'
+import { createLogger } from '@llmux/core'
 import { AccountRotationWithTierManager, type ModelFamily } from './account-rotation-with-tier'
 import { getModelFamily } from './family-rate-limiting'
 import { type LimitType, rateLimitStore } from './rate-limit-store'
 
+const logger = createLogger({ service: 'account-rotation-manager' })
+
 export class AccountRotationManager {
   private getAccountId(credential: Credential): string {
     if (isOAuthCredential(credential)) {
-      return (credential as OAuthCredential).accountId || 'unknown-oauth'
+      return credential.accountId || credential.email || 'unknown-oauth'
     }
     // For API keys or other types, use a hash of the credential itself as a stable ID
     const str = JSON.stringify(credential)
@@ -66,29 +69,28 @@ export class AccountRotationManager {
   /**
    * Mark an account as rate-limited.
    */
-  markRateLimited(
+  async markRateLimited(
     provider: string,
     model: string,
     index: number,
     durationMs: number,
     type: LimitType = 'soft',
     reason?: string
-  ): void {
+  ): Promise<void> {
     const family = getModelFamily(model, provider)
     // We need to fetch credentials to get the accountId, but this is usually called
     // in context where we already have the credential or can get it from index.
     // For now, we'll assume we can get it from TokenRefresh or caller should provide accountId.
     // To minimize churn, let's keep index for now but look up ID.
-    TokenRefresh.ensureFresh(provider).then((credentials) => {
-      if (credentials?.[index]) {
-        const accountId = this.getAccountId(credentials[index])
-        rateLimitStore.markLimit(provider, accountId, family, {
-          type,
-          expiresAt: durationMs > 0 ? Date.now() + durationMs : null,
-          reason,
-        })
-      }
-    })
+    const credentials = await TokenRefresh.ensureFresh(provider)
+    if (credentials?.[index]) {
+      const accountId = this.getAccountId(credentials[index])
+      rateLimitStore.markLimit(provider, accountId, family, {
+        type,
+        expiresAt: durationMs > 0 ? Date.now() + durationMs : null,
+        reason,
+      })
+    }
   }
 
   /**
@@ -168,12 +170,12 @@ export class AccountRotationManager {
       blockedIndices
     )
 
-    let accountIndex: number
-    if (nextAccount) {
-      accountIndex = nextAccount.index
-    } else {
-      accountIndex = this.getEarliestExpiryIndex(provider, model, freshCredentials)
+    if (!nextAccount) {
+      logger.warn({ provider, model }, 'No accounts available (all rate-limited)')
+      return null
     }
+
+    const accountIndex = nextAccount.index
 
     const credential = freshCredentials[accountIndex]
     if (!credential) {

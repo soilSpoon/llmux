@@ -198,6 +198,36 @@ export class RequestLogStore {
     return rows.map(mapRowToEntry)
   }
 
+  updateLog(requestId: string, updates: Partial<RequestLogEntry>): void {
+    try {
+      const keys = Object.keys(updates).filter(
+        (k) => k !== 'requestId' && k !== 'id' && k !== 'timestamp'
+      )
+      if (keys.length === 0) return
+
+      const sets = keys.map((k) => {
+        // Map camelCase to snake_case
+        const dbKey = k.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+        return `${dbKey} = ?`
+      })
+
+      const values = keys.map((k) => {
+        const val = updates[k as keyof RequestLogEntry]
+        if (val === undefined) return null
+        if (typeof val === 'object' && val !== null) return safeStringify(val)
+        if (typeof val === 'boolean') return val ? 1 : 0
+        return val
+      })
+
+      const sql = `UPDATE request_logs SET ${sets.join(', ')} WHERE request_id = ?`
+      this.db.run(sql, [...values, requestId])
+
+      logger.debug({ requestId, keys }, 'Log entry updated')
+    } catch (error) {
+      logger.error({ error, requestId }, 'Failed to update log entry')
+    }
+  }
+
   close(): void {
     this.db.close()
     logger.info('RequestLogStore closed')

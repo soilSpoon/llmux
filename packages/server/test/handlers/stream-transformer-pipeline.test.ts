@@ -31,6 +31,7 @@ describe('createStreamTransformer with StreamingPipeline', () => {
       accumulatedText: '',
       accumulatedThinking: '',
       accumulatedSignatures: [],
+      accumulatedUpstream: '',
     }
 
     // Create mock pipeline with simple behavior

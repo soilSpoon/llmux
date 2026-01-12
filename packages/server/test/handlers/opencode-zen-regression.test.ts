@@ -26,6 +26,7 @@ describe('Opencode Zen Regression - Empty Response', () => {
       accumulatedText: '',
       accumulatedThinking: '',
       accumulatedSignatures: [],
+      accumulatedUpstream: '',
     }
 
     const transformer = createStreamTransformer({
