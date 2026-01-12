@@ -3,15 +3,11 @@ import type { ProviderName } from '@llmux/core'
 import { createLogger, isValidProviderName } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
-import {
-  ANTIGRAVITY_DEFAULT_PROJECT_ID,
-  isLicenseError,
-  shouldFallbackToDefaultProject,
-} from '../providers'
 import type { Router } from '../routing'
 import { accountRotationManager } from './account-rotation'
 import { getModelFamily, isClaudeWeeklyLimit, type ModelFamily } from './family-rate-limiting'
 import { applyModelMappingV2 } from './model-mapping'
+import { getProviderStrategy } from './providers/provider-strategy'
 
 const logger = createLogger({ service: 'request-handler' })
 
@@ -64,14 +60,17 @@ export async function prepareRequestContext(
 
   // Thinking detection
   const hasThinkingInRequest = body.thinking !== undefined || body.reasoning_effort !== undefined
-  const thinkingType =
-    typeof body.thinking === 'object' && body.thinking !== null && 'type' in body.thinking
-      ? (body.thinking as { type?: string }).type
-      : undefined
 
-  let isThinkingEnabled: boolean | undefined = hasThinkingInRequest
-    ? thinkingType === 'enabled' || body.reasoning_effort !== undefined
-    : undefined
+  let isThinkingEnabled: boolean | undefined
+
+  if (hasThinkingInRequest) {
+    const thinking = body.thinking
+    const thinkingType =
+      typeof thinking === 'object' && thinking !== null && 'type' in thinking
+        ? (thinking as { type?: string }).type
+        : undefined
+    isThinkingEnabled = thinkingType === 'enabled' || body.reasoning_effort !== undefined
+  }
 
   if (optionsThinking !== undefined) {
     isThinkingEnabled = optionsThinking
@@ -98,7 +97,7 @@ export async function prepareRequestContext(
   let effectiveProvider: ProviderName | undefined
 
   if (initialTargetProvider && isValidProviderName(initialTargetProvider)) {
-    effectiveProvider = initialTargetProvider as ProviderName
+    effectiveProvider = initialTargetProvider
   }
 
   logger.debug(
@@ -118,8 +117,10 @@ export async function prepareRequestContext(
     const routeResult = await router.resolveModel(currentModel)
     logger.debug({ routeResult }, '[DEBUG] Router Resolved')
 
-    if (!effectiveProvider) {
-      effectiveProvider = routeResult.provider as ProviderName
+    // Always respect router's provider choice if it resolves successfully
+    const resolvedProvider = routeResult.provider
+    if (isValidProviderName(resolvedProvider)) {
+      effectiveProvider = resolvedProvider
     }
 
     // We ALWAYS accept the router's resolved model (it handles aliases)
@@ -128,7 +129,7 @@ export async function prepareRequestContext(
 
   // Default provider fallback (if not set by header or router)
   if (!effectiveProvider && optionsDefaultProvider && isValidProviderName(optionsDefaultProvider)) {
-    effectiveProvider = optionsDefaultProvider as ProviderName
+    effectiveProvider = optionsDefaultProvider
   }
 
   // Remove default provider 'openai' to align with tests and explicit behavior
@@ -143,7 +144,7 @@ export async function prepareRequestContext(
   return {
     originalModel,
     currentModel,
-    effectiveProvider: effectiveProvider as ProviderName, // Can be undefined, but we cast to ProviderName for interface
+    effectiveProvider: effectiveProvider ?? ('unknown' as ProviderName),
     isThinkingEnabled,
     sourceFormat,
   }
@@ -197,56 +198,27 @@ export async function handleUpstreamError(
     apiKey,
   } = context
 
-  // Antigravity license/quota fallback
-  if (provider === 'antigravity') {
-    const licenseCtx = {
-      errorBody: errorText,
-      status,
-      currentProject: currentProjectId,
-    }
-
-    if (isLicenseError(licenseCtx)) {
-      if (shouldFallbackToDefaultProject(licenseCtx) && !retryState.overrideProjectId) {
-        setOverrideProjectId(retryState, ANTIGRAVITY_DEFAULT_PROJECT_ID)
-        logger.warn(
-          { reqId, status, currentProject: currentProjectId },
-          'Falling back to default project due to license/permission error'
-        )
-        return { action: 'retry' }
-      }
-      // Try next endpoint if license error persists on default project
-      rotateAntigravityEndpoint(retryState)
-      if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
-        return { action: 'retry' }
-      }
-    } else if (
-      status === 403 &&
-      currentProjectId !== ANTIGRAVITY_DEFAULT_PROJECT_ID &&
-      !retryState.overrideProjectId
-    ) {
-      // Any 403 should try default project before giving up on the account
-      setOverrideProjectId(retryState, ANTIGRAVITY_DEFAULT_PROJECT_ID)
-      logger.warn(
-        { reqId, currentProjectId },
-        'Unexpected 403, trying default project before rotation'
-      )
-      return { action: 'retry' }
+  // 1. Provider-Specific Strategy Handling
+  const strategy = getProviderStrategy(provider)
+  if (strategy?.handleError) {
+    const strategyResult = await strategy.handleError(
+      {
+        reqId,
+        provider,
+        model,
+        status,
+        errorText,
+        currentProjectId,
+        retryAfterMs: context.retryAfterMs,
+      },
+      retryState
+    )
+    if (strategyResult) {
+      return strategyResult
     }
   }
 
-  // Antigravity Endpoint Rotation on Server Errors (5xx)
-  if (provider === 'antigravity' && status >= 500) {
-    rotateAntigravityEndpoint(retryState)
-    if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
-      logger.warn(
-        { reqId, status, newEndpointIndex: retryState.antigravityEndpointIndex },
-        'Antigravity server error, rotating endpoint'
-      )
-      return { action: 'retry' }
-    }
-  }
-
-  // Rate limit handling
+  // Rate limit handling (Generic logic that applies after or instead of strategy)
   if (status === 429) {
     const retryAfter = context.retryAfterMs !== undefined ? context.retryAfterMs : 30000
     const family = context.family || getModelFamily(model, provider)
@@ -279,21 +251,7 @@ export async function handleUpstreamError(
 
     logger.warn(logData, 'Rate limited')
 
-    // Antigravity: Try rotating endpoints before marking account as limited
-    // Different endpoints (Daily vs Prod) might have separate quotas/limits
-    // Skip this if it's a Claude Weekly limit as that's account-wide
-    if (provider === 'antigravity' && !isClaudeWeekly) {
-      rotateAntigravityEndpoint(retryState)
-      if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
-        logger.warn(
-          { reqId, newEndpointIndex: retryState.antigravityEndpointIndex },
-          'Antigravity 429, rotating endpoint before rotating account'
-        )
-        return { action: 'retry' }
-      }
-    }
-
-    // Skip account-based rate limiting if we're using an API key
+    // Mark current as rate limited with explicit Hard/Soft type
     if (apiKey) {
       if (router) {
         // Notify router of rate limit to avoid immediate retry of the same model
@@ -465,18 +423,6 @@ export function shouldContinueRetry(state: RetryState): boolean {
 
 export function incrementAttempt(state: RetryState): void {
   state.attempt++
-}
-
-export function rotateAccount(state: RetryState): void {
-  state.accountIndex++
-}
-
-export function rotateAntigravityEndpoint(state: RetryState): void {
-  state.antigravityEndpointIndex++
-}
-
-export function setOverrideProjectId(state: RetryState, projectId: string): void {
-  state.overrideProjectId = projectId
 }
 
 export function removeThinkingFromBody(body: unknown): void {

@@ -256,5 +256,51 @@ describe('opencode-zen provider', () => {
         ])
       })
     })
+    describe('stream option handling', () => {
+      test('sets stream_options.include_usage to true when stream is true', () => {
+        const body: Record<string, unknown> = {
+          model: 'glm-4.7-free',
+          messages: [{ role: 'user', content: 'Hello' }],
+          stream: true,
+        }
+
+        fixOpencodeZenBody(body)
+
+        expect(body.stream_options).toEqual({ include_usage: true })
+      })
+
+      test('does not set stream_options when stream is false or undefined', () => {
+        const body1: Record<string, unknown> = {
+          model: 'glm-4.7-free',
+          messages: [{ role: 'user', content: 'Hello' }],
+          stream: false,
+        }
+        fixOpencodeZenBody(body1)
+        expect(body1.stream_options).toBeUndefined()
+
+        const body2: Record<string, unknown> = {
+          model: 'glm-4.7-free',
+          messages: [{ role: 'user', content: 'Hello' }],
+        }
+        fixOpencodeZenBody(body2)
+        expect(body2.stream_options).toBeUndefined()
+      })
+
+      test('merges with existing stream_options if present', () => {
+        const body: Record<string, unknown> = {
+          model: 'glm-4.7-free',
+          messages: [{ role: 'user', content: 'Hello' }],
+          stream: true,
+          stream_options: { other_option: 'value' },
+        }
+
+        fixOpencodeZenBody(body)
+
+        expect(body.stream_options).toEqual({
+          other_option: 'value',
+          include_usage: true,
+        })
+      })
+    })
   })
 })

@@ -392,38 +392,6 @@ export async function buildUpstreamRequest(
 
   const requestBody = JSON.stringify(transformedRequest)
 
-  // Debug log for gemini-cli provider to understand request structure
-  if (effectiveProvider && effectiveProvider === 'gemini-cli') {
-    logger.debug(
-      {
-        reqId,
-        provider: effectiveProvider,
-        endpoint,
-        bodyPreview: requestBody.slice(0, 500),
-        hasProject: 'project' in transformedRequest,
-        hasRequest: 'request' in transformedRequest,
-        hasContents: 'contents' in transformedRequest,
-        topLevelKeys: Object.keys(transformedRequest),
-      },
-      'Gemini CLI request structure'
-    )
-
-    // Write full request to file for debugging
-    try {
-      const fs = await import('node:fs')
-      fs.writeFileSync(
-        `/tmp/gemini-cli-request-${reqId}.json`,
-        JSON.stringify(transformedRequest, null, 2)
-      )
-      logger.debug(
-        { reqId, path: `/tmp/gemini-cli-request-${reqId}.json` },
-        'Wrote request to file'
-      )
-    } catch {
-      // Ignore write errors
-    }
-  }
-
   return {
     request: {
       endpoint,

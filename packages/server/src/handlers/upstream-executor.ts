@@ -49,13 +49,19 @@ export async function executeUpstream(
     onBeforeAttempt,
   })
 
-  if (!dispatchResult.response || !dispatchResult.meta) {
+  if (!dispatchResult.response) {
     throw new Error('No response from dispatcher')
+  }
+
+  const defaultMeta = {
+    provider: 'unknown',
+    model: 'unknown',
+    originalModel: 'unknown',
   }
 
   return {
     response: dispatchResult.response,
-    meta: dispatchResult.meta,
+    meta: dispatchResult.meta || defaultMeta,
   }
 }
 

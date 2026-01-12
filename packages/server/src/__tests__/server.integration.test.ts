@@ -58,7 +58,7 @@ describe('Server Integration: modelMappings', () => {
         port: 0,
         amp: {
           handlers: {},
-          modelMappings: [{ from: 'claude-opus-4-5-20251101', to: 'antigravity/gemini-claude-opus' }],
+          modelMappings: [{ from: 'claude-opus-4-5-20251101', to: 'openai/mapped-opus' }],
         },
       })
 
@@ -79,7 +79,7 @@ describe('Server Integration: modelMappings', () => {
       )
 
       expect(response.status).toBe(200)
-      expect(capturedBody).toMatchObject({ model: 'gemini-claude-opus' })
+      expect(capturedBody).toMatchObject({ model: 'mapped-opus' })
     })
 
     it('modelMappings가 없으면 원본 model이 유지된다', async () => {
@@ -119,7 +119,7 @@ describe('Server Integration: modelMappings', () => {
         port: 0,
         amp: {
           handlers: {},
-          modelMappings: [{ from: 'claude-3', to: 'anthropic/mapped-claude-3' }],
+          modelMappings: [{ from: 'claude-3', to: 'openai/mapped-claude-3' }],
         },
       })
 

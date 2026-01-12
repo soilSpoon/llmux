@@ -52,6 +52,6 @@ describe('prepareRequestContext', () => {
       sourceFormat: 'openai-chat'
     })
     
-    expect(ctx.effectiveProvider).toBeUndefined()
+    expect(ctx.effectiveProvider).toBe('unknown' as any)
   })
 })

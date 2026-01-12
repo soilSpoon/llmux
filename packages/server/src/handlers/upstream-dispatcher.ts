@@ -8,7 +8,6 @@ import {
   handleUpstreamError,
   incrementAttempt,
   type RetryState,
-  rotateAntigravityEndpoint,
   shouldContinueRetry,
 } from './request-handler'
 import type { ProxyOptions } from './types'
@@ -300,7 +299,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
       // Antigravity specific rotation on network error
       if (request?.meta?.provider === 'antigravity') {
-        rotateAntigravityEndpoint(retryState)
+        retryState.antigravityEndpointIndex++
         if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
           await new Promise((r) => setTimeout(r, 200))
           continue

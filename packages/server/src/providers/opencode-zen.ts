@@ -94,7 +94,7 @@ export interface OpencodeZenBodyOptions {
 }
 
 export function fixOpencodeZenBody(
-  body: Record<string, unknown>,
+  body: { stream_options?: { include_usage?: boolean } } & Record<string, unknown>,
   options?: OpencodeZenBodyOptions
 ): void {
   if (!body || typeof body !== 'object') return
@@ -115,7 +115,7 @@ export function fixOpencodeZenBody(
     delete body.reasoning_effort
   }
 
-  const tools = body.tools as unknown[]
+  const tools = body.tools
 
   if (Array.isArray(tools) && tools.length > 0) {
     const firstTool = tools[0] as OpencodeZenTool
@@ -132,5 +132,14 @@ export function fixOpencodeZenBody(
         }
       })
     }
+  }
+
+  // Set stream_options.include_usage = true if stream is enabled
+  if (body.stream === true) {
+    // Ensure stream_options exists and is an object
+    if (!body.stream_options || typeof body.stream_options !== 'object') {
+      body.stream_options = {}
+    }
+    body.stream_options.include_usage = true
   }
 }

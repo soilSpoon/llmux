@@ -31,6 +31,8 @@ export interface RequestMeta {
   isClaudeFresh?: boolean
 }
 
+import type { Router } from '../../routing'
+
 export interface ErrorContext {
   reqId?: string
   provider: ProviderName
@@ -39,6 +41,7 @@ export interface ErrorContext {
   errorText: string
   currentProjectId?: string
   retryAfterMs?: number
+  router?: Router
 }
 
 export interface ErrorHandlingResult {

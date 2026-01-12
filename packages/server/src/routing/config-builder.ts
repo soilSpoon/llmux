@@ -107,6 +107,7 @@ export async function buildRoutingConfig(
         routingConfig.modelMapping[resolvedPrimary.model] = {
           provider: resolvedPrimary.provider,
           model: resolvedPrimary.model,
+          fallbacks: fallbackModelIds.length > 0 ? fallbackModelIds : undefined,
         }
       }
 

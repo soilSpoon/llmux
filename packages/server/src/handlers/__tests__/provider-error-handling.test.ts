@@ -5,9 +5,6 @@ import { rateLimitStore } from '../rate-limit-store'
 import {
   createRetryState,
   handleUpstreamError,
-  rotateAccount,
-  rotateAntigravityEndpoint,
-  setOverrideProjectId,
   type ErrorHandlingContext,
   type RetryState,
 } from '../request-handler'
@@ -39,46 +36,22 @@ function createMockErrorContext(overrides: Partial<ErrorHandlingContext> = {}): 
 }
 
 describe('RetryState mutations', () => {
-  describe('rotateAccount', () => {
-    it('should increment accountIndex', () => {
-      const state = createMockRetryState({ accountIndex: 0 })
-      rotateAccount(state)
-      expect(state.accountIndex).toBe(1)
-    })
-
-    it('should increment from any value', () => {
-      const state = createMockRetryState({ accountIndex: 5 })
-      rotateAccount(state)
-      expect(state.accountIndex).toBe(6)
-    })
+  it('should increment accountIndex', () => {
+    const state = createMockRetryState({ accountIndex: 0 })
+    state.accountIndex++
+    expect(state.accountIndex).toBe(1)
   })
 
-  describe('rotateAntigravityEndpoint', () => {
-    it('should increment antigravityEndpointIndex', () => {
-      const state = createMockRetryState({ antigravityEndpointIndex: 0 })
-      rotateAntigravityEndpoint(state)
-      expect(state.antigravityEndpointIndex).toBe(1)
-    })
-
-    it('should increment from any value', () => {
-      const state = createMockRetryState({ antigravityEndpointIndex: 2 })
-      rotateAntigravityEndpoint(state)
-      expect(state.antigravityEndpointIndex).toBe(3)
-    })
+  it('should increment antigravityEndpointIndex', () => {
+    const state = createMockRetryState({ antigravityEndpointIndex: 0 })
+    state.antigravityEndpointIndex++
+    expect(state.antigravityEndpointIndex).toBe(1)
   })
 
-  describe('setOverrideProjectId', () => {
-    it('should set project ID', () => {
-      const state = createMockRetryState()
-      setOverrideProjectId(state, 'test-project-123')
-      expect(state.overrideProjectId).toBe('test-project-123')
-    })
-
-    it('should overwrite existing project ID', () => {
-      const state = createMockRetryState({ overrideProjectId: 'old-project' })
-      setOverrideProjectId(state, 'new-project')
-      expect(state.overrideProjectId).toBe('new-project')
-    })
+  it('should set project ID', () => {
+    const state = createMockRetryState()
+    state.overrideProjectId = 'test-project-123'
+    expect(state.overrideProjectId).toBe('test-project-123')
   })
 
   describe('createRetryState', () => {

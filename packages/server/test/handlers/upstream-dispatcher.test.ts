@@ -16,16 +16,17 @@ describe('Upstream Dispatcher', () => {
       maxRetryAttempts: 3,
       accountIndex: 0,
       antigravityEndpointIndex: 0,
-      overrideProjectId: null
+      overrideProjectId: null,
     }))
-    spyOn(requestHandlerModule, 'shouldContinueRetry').mockImplementation((s: any) => s.attempt < s.maxRetryAttempts)
-    spyOn(requestHandlerModule, 'incrementAttempt').mockImplementation((s: any) => { s.attempt++ })
-    spyOn(requestHandlerModule, 'handleUpstreamError').mockImplementation(async (ctx: any) => {
+    spyOn(requestHandlerModule, 'shouldContinueRetry').mockImplementation((s) => s.attempt < s.maxRetryAttempts)
+    spyOn(requestHandlerModule, 'incrementAttempt').mockImplementation((s) => {
+      s.attempt++
+    })
+    spyOn(requestHandlerModule, 'handleUpstreamError').mockImplementation(async (ctx) => {
       if (ctx.status === 429) return { action: 'retry', delay: 10 }
       if (ctx.status === 500) return { action: 'throw' }
       return { action: 'throw' }
     })
-    spyOn(requestHandlerModule, 'rotateAntigravityEndpoint').mockImplementation(() => {})
 
     // Mock upstream functions
     spyOn(upstreamModule, 'parseRetryAfterMs').mockImplementation(() => 1000)

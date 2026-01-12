@@ -30,29 +30,10 @@ export class ModelRouter {
     if (this.config.modelMappings?.[model]) {
       const mapping = this.config.modelMappings[model]
       const fallbacks: Array<{ provider: UpstreamProvider; model: string }> = []
+      const visited = new Set<string>([model])
 
-      for (const fbModel of mapping.fallbacks || []) {
-        const fbMapping = this.config.modelMappings?.[fbModel]
-        if (fbMapping) {
-          fallbacks.push({ provider: fbMapping.provider, model: fbMapping.model })
-        } else if (this.config.modelLookup) {
-          // Try modelLookup for models not in static mappings
-          try {
-            const lookupProvider = await this.config.modelLookup.getProviderForModel(fbModel)
-            if (lookupProvider) {
-              fallbacks.push({ provider: lookupProvider as UpstreamProvider, model: fbModel })
-            } else {
-              logger.warn(
-                { fbModel },
-                'Fallback model not found in mappings or modelLookup, skipping'
-              )
-            }
-          } catch (error) {
-            logger.warn({ fbModel, error }, 'ModelLookup failed for fallback model, skipping')
-          }
-        } else {
-          logger.warn({ fbModel }, 'Fallback model not found in mappings, skipping')
-        }
+      if (mapping.fallbacks) {
+        await this.processFallbacks(mapping.fallbacks, visited, fallbacks)
       }
 
       return {
@@ -105,15 +86,12 @@ export class ModelRouter {
     // 2. Static config mapping
     if (this.config.modelMappings?.[model]) {
       const mapping = this.config.modelMappings[model]
-      const fallbacks = (mapping.fallbacks || [])
-        .map((fbModel) => {
-          const fbMapping = this.config.modelMappings?.[fbModel]
-          if (fbMapping) {
-            return { provider: fbMapping.provider, model: fbMapping.model }
-          }
-          return null
-        })
-        .filter((fb): fb is { provider: UpstreamProvider; model: string } => fb !== null)
+      const fallbacks: Array<{ provider: UpstreamProvider; model: string }> = []
+      const visited = new Set<string>([model])
+
+      if (mapping.fallbacks) {
+        this.processFallbacksSync(mapping.fallbacks, visited, fallbacks)
+      }
 
       return {
         providerId: mapping.provider,
@@ -125,5 +103,78 @@ export class ModelRouter {
 
     // 3. No provider found - throw error
     throw new Error(`No provider found for model: ${model}. Configure modelMappings.`)
+  }
+
+  private async processFallbacks(
+    sourceFallbacks: string[],
+    visited: Set<string>,
+    results: Array<{ provider: UpstreamProvider; model: string }>
+  ): Promise<void> {
+    for (const fbModel of sourceFallbacks) {
+      if (visited.has(fbModel)) continue
+      visited.add(fbModel)
+
+      // 1. Explicit provider suffix
+      const { model: baseModel, provider: explicitProvider } = parseExplicitProvider(fbModel)
+      if (explicitProvider) {
+        results.push({ provider: explicitProvider, model: baseModel })
+        continue
+      }
+
+      // 2. Mapping
+      const mapping = this.config.modelMappings?.[fbModel]
+      if (mapping) {
+        results.push({ provider: mapping.provider, model: mapping.model })
+        if (mapping.fallbacks) {
+          await this.processFallbacks(mapping.fallbacks, visited, results)
+        }
+        continue
+      }
+
+      // 3. Lookup
+      if (this.config.modelLookup) {
+        try {
+          const provider = await this.config.modelLookup.getProviderForModel(fbModel)
+          if (provider) {
+            results.push({ provider: provider as UpstreamProvider, model: fbModel })
+            continue
+          }
+        } catch (error) {
+          logger.warn({ fbModel, error }, 'ModelLookup failed during fallback resolution')
+        }
+      }
+
+      logger.warn({ fbModel }, 'Fallback model not found in mappings or lookup')
+    }
+  }
+
+  private processFallbacksSync(
+    sourceFallbacks: string[],
+    visited: Set<string>,
+    results: Array<{ provider: UpstreamProvider; model: string }>
+  ): void {
+    for (const fbModel of sourceFallbacks) {
+      if (visited.has(fbModel)) continue
+      visited.add(fbModel)
+
+      // 1. Explicit provider suffix
+      const { model: baseModel, provider: explicitProvider } = parseExplicitProvider(fbModel)
+      if (explicitProvider) {
+        results.push({ provider: explicitProvider, model: baseModel })
+        continue
+      }
+
+      // 2. Mapping
+      const mapping = this.config.modelMappings?.[fbModel]
+      if (mapping) {
+        results.push({ provider: mapping.provider, model: mapping.model })
+        if (mapping.fallbacks) {
+          this.processFallbacksSync(mapping.fallbacks, visited, results)
+        }
+        continue
+      }
+
+      logger.warn({ fbModel }, 'Fallback model not found in mappings (Sync)')
+    }
   }
 }
