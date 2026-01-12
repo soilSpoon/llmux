@@ -198,7 +198,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
           }
 
           // Reset retry state for new provider/model
-          retryState.accountIndex = 0
+          retryState.accountIndex = -1
           retryState.antigravityEndpointIndex = 0
           retryState.attempt = 0
 

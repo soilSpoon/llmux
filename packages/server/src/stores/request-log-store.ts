@@ -120,7 +120,7 @@ export class RequestLogStore {
     this.db.exec(CREATE_TABLE_SQL)
 
     this.insertRequestStmt = this.db.prepare(`
-      INSERT INTO request_logs (
+      INSERT OR REPLACE INTO request_logs (
         request_id, timestamp,
         source_provider, source_model, source_endpoint,
         target_provider, target_model, target_endpoint,

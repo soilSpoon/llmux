@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_ENDPOINT_FALLBACKS, TokenRefresh } from '@llmux/auth'
+import { ANTIGRAVITY_ENDPOINT_FALLBACKS, type Credential, TokenRefresh } from '@llmux/auth'
 import type { ProviderName, UnifiedRequest } from '@llmux/core'
 import { createLogger, isValidProviderName } from '@llmux/core'
 import type { AmpModelMapping } from '../config'
@@ -10,12 +10,7 @@ import {
 } from '../providers'
 import type { Router } from '../routing'
 import { accountRotationManager } from './account-rotation'
-import {
-  familyRateLimitManager,
-  getModelFamily,
-  isClaudeWeeklyLimit,
-  type ModelFamily,
-} from './family-rate-limiting'
+import { getModelFamily, isClaudeWeeklyLimit, type ModelFamily } from './family-rate-limiting'
 import { applyModelMappingV2 } from './model-mapping'
 
 const logger = createLogger({ service: 'request-handler' })
@@ -333,7 +328,8 @@ export async function handleUpstreamError(
 
     // Antigravity: Try rotating endpoints before marking account as limited
     // Different endpoints (Daily vs Prod) might have separate quotas/limits
-    if (provider === 'antigravity') {
+    // Skip this if it's a Claude Weekly limit as that's account-wide
+    if (provider === 'antigravity' && !isClaudeWeekly) {
       rotateAntigravityEndpoint(retryState)
       if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
         logger.warn(
@@ -344,71 +340,82 @@ export async function handleUpstreamError(
       }
     }
 
-    // Mark current as rate limited per family (family-specific tracking)
-    // For Antigravity, we only reach here if we've exhausted all endpoints for the current account
-    familyRateLimitManager.markRateLimited(
+    // Mark current as rate limited with explicit Hard/Soft type
+    accountRotationManager.markRateLimited(
+      provider,
+      model,
       retryState.accountIndex,
-      family,
       retryAfter,
-      isClaudeWeekly
+      isClaudeWeekly ? 'hard' : 'soft',
+      isClaudeWeekly ? 'Claude Weekly Limit' : 'Transient 429'
     )
-    accountRotationManager.markRateLimited(provider, model, retryState.accountIndex, retryAfter)
 
-    // Check if all accounts are limited
-    try {
-      const credentials = await TokenRefresh.ensureFresh(provider)
-      if (credentials && accountRotationManager.areAllRateLimited(provider, model, credentials)) {
-        // Router handling: Only mark the model as globally limited if ALL accounts are limited
-        if (router && model) {
-          router.handleRateLimit(model, retryAfter)
-        }
-
-        // 2. Try Router Smart Fallback
-        if (router) {
-          const targetModel =
-            context.originalModel && context.originalModel !== 'unknown'
-              ? context.originalModel
-              : context.model
-
-          try {
-            const routeResult = await router.resolveModel(targetModel)
-
-            // If router found a different provider or model that is NOT the current one
-            // (resolveModel checks cooldowns, so it should return a non-cooled-down option if available)
-            if (routeResult.provider !== provider || routeResult.model !== model) {
-              logger.warn(
-                {
-                  reqId,
-                  current: { provider, model },
-                  fallback: { provider: routeResult.provider, model: routeResult.model },
-                },
-                'All accounts rate limited, router suggested fallback'
-              )
-              return {
-                action: 'switch-model',
-                newModel: routeResult.model,
-                newProvider: routeResult.provider as ProviderName,
-              }
-            }
-          } catch (err) {
-            logger.warn(
-              { reqId, targetModel, err },
-              'Failed to resolve fallback model during rate limit handling'
-            )
-          }
-        }
-
-        // If all limited and no fallback found, return 429 to client
-        return { action: 'all-cooldown' }
-      }
-    } catch (err) {
-      // Ignore credential errors (e.g. when using API key)
-      logger.debug({ err }, 'Failed to check credentials for rate limit')
+    // Reset endpoint index when rotating account
+    if (provider === 'antigravity') {
+      retryState.antigravityEndpointIndex = 0
     }
 
-    // Check if we should fail immediately without rotation (e.g. Claude weekly limits)
-    // This check must happen AFTER markRateLimited to catch the limit we just set
-    // AND AFTER Router Fallback check to allow switching to other providers/models if configured
+    // Check if all accounts are limited
+    let areAllLimited = false
+    let credentials: Credential[] = []
+    try {
+      credentials = (await TokenRefresh.ensureFresh(provider)) || []
+      if (
+        credentials.length > 0 &&
+        accountRotationManager.areAllRateLimited(provider, model, credentials)
+      ) {
+        areAllLimited = true
+      }
+    } catch (err) {
+      logger.debug({ err, provider, model }, 'Failed to check credentials for rate limit')
+      areAllLimited = true
+    }
+
+    if (areAllLimited) {
+      // Router handling: Only mark the model as globally limited if ALL accounts are limited
+      if (router && model) {
+        router.handleRateLimit(model, retryAfter)
+      }
+
+      // 2. Try Router Smart Fallback
+      if (router) {
+        const targetModel =
+          context.originalModel && context.originalModel !== 'unknown'
+            ? context.originalModel
+            : context.model
+
+        try {
+          const routeResult = await router.resolveModel(targetModel)
+
+          // If router found a different provider or model that is NOT the current one
+          // (resolveModel checks cooldowns, so it should return a non-cooled-down option if available)
+          if (routeResult.provider !== provider || routeResult.model !== model) {
+            logger.warn(
+              {
+                reqId,
+                current: { provider, model },
+                fallback: { provider: routeResult.provider, model: routeResult.model },
+              },
+              'All accounts rate limited or provider error, router suggested fallback'
+            )
+            return {
+              action: 'switch-model',
+              newModel: routeResult.model,
+              newProvider: routeResult.provider as ProviderName,
+            }
+          }
+        } catch (err) {
+          logger.warn(
+            { reqId, targetModel, err },
+            'Failed to resolve fallback model during rate limit handling'
+          )
+        }
+      }
+
+      // If all limited and no fallback found, return 429 to client
+      return { action: 'all-cooldown' }
+    }
+
     // Check if we should fail immediately without rotation (e.g. Claude weekly limits)
     // This check must happen AFTER markRateLimited to catch the limit we just set
     // AND AFTER Router Fallback check to allow switching to other providers/models if configured
@@ -429,8 +436,9 @@ export async function handleUpstreamError(
     }
     */
 
-    if (accountRotationManager.hasNext(provider, model, retryState.accountIndex)) {
-      rotateAccount(retryState)
+    if (accountRotationManager.hasNext(provider, model, retryState.accountIndex, credentials)) {
+      // Just retry - the builder will call getCredential(..., currentIndex)
+      // which will naturally move to the next available account.
       return { action: 'retry' }
     }
 
@@ -458,7 +466,7 @@ export interface RetryState {
 export function createRetryState(maxRetryAttempts: number = 20): RetryState {
   return {
     attempt: 0,
-    accountIndex: 0,
+    accountIndex: -1,
     antigravityEndpointIndex: 0,
     overrideProjectId: null,
     maxRetryAttempts,

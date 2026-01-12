@@ -14,16 +14,38 @@ import type {
 /**
  * Parse SSE stream chunk from Gemini format to unified StreamChunk
  */
-export function parseStreamChunk(chunk: string): StreamChunk | null {
-  // Handle non-data lines
-  if (!chunk.startsWith('data:')) {
+export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
+  const trimmedChunk = chunk.trim()
+
+  if (!trimmedChunk) {
     return null
   }
 
-  // Extract JSON data after 'data:' prefix
-  const jsonStr = chunk.slice(5).trim()
+  // Use regex to find all data blocks
+  // Matches lines starting with "data:" or JSON/array-like structures
+  // Group 1: Content after "data:"
+  // Group 2: Content if no "data:" prefix (must start with { or [)
+  const regex = /^\s*(?:data:\s*(.*)|([{[].*))$/gm
 
-  // Handle empty data or [DONE] marker
+  const results: StreamChunk[] = []
+
+  for (const match of trimmedChunk.matchAll(regex)) {
+    const jsonStr = (match[1] || match[2] || '').trim()
+
+    if (!jsonStr) continue
+
+    const parsed = parseSingleChunk(jsonStr)
+    if (parsed) {
+      if (Array.isArray(parsed)) results.push(...parsed)
+      else results.push(parsed)
+    }
+  }
+
+  if (results.length === 0) return null
+  return results.length === 1 ? (results[0] as StreamChunk) : results
+}
+
+function parseSingleChunk(jsonStr: string): StreamChunk | StreamChunk[] | null {
   if (!jsonStr || jsonStr === '[DONE]') {
     return null
   }

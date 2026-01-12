@@ -138,6 +138,19 @@ describe("TokenRefresh", () => {
       expect(result).toContainEqual(apiKey);
       expect(result).toContainEqual(oauth);
     });
+
+    test("resolves gemini-cli alias to antigravity credentials", async () => {
+      const oauth: OAuthCredential = {
+        type: "oauth",
+        accessToken: "antigravity-token",
+        refreshToken: "refresh",
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      };
+      await CredentialStorage.add("antigravity", oauth);
+
+      const result = await TokenRefresh.ensureFresh("gemini-cli");
+      expect(result).toEqual([oauth]);
+    });
   });
 
   describe("OAuth refresh flow", () => {

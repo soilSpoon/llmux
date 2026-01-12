@@ -18,8 +18,14 @@ export namespace TokenRefresh {
   }
 
   export async function ensureFresh(providerId: string): Promise<Credential[]> {
-    const credentials = await CredentialStorage.get(providerId)
+    // Handle aliases: gemini-cli uses antigravity credentials
+    const effectiveProviderId = providerId === 'gemini-cli' ? 'antigravity' : providerId
+
+    // console.log(`[TokenRefresh] ensureFresh called for ${providerId} (effective: ${effectiveProviderId})`)
+
+    const credentials = await CredentialStorage.get(effectiveProviderId)
     if (!credentials || credentials.length === 0) {
+      // console.error(`[TokenRefresh] No credentials found for effective provider: ${effectiveProviderId} (original: ${providerId})`)
       throw new Error(`No credentials found for provider: ${providerId}`)
     }
 
@@ -38,7 +44,7 @@ export namespace TokenRefresh {
           continue
         }
 
-        const provider = AuthProviderRegistry.get(providerId)
+        const provider = AuthProviderRegistry.get(effectiveProviderId)
 
         if (provider?.refresh) {
           try {
@@ -68,7 +74,7 @@ export namespace TokenRefresh {
 
       // I will loop update for now as `add` handles update by key matching.
       for (const cred of updatedCredentials) {
-        await CredentialStorage.update(providerId, cred)
+        await CredentialStorage.update(effectiveProviderId, cred)
       }
     }
 

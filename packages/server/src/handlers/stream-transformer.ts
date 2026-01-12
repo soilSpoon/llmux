@@ -290,7 +290,20 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           '[stream-flush] Buffer events to process'
         )
 
+        const { extractSignaturesFromSSE } = require('./signature-response')
+
         for (const event of events) {
+          if (!event.trim()) continue
+
+          // Record signatures in flush phase as well
+          if (signatureContext) {
+            const signatures = extractSignaturesFromSSE(`data: ${event}`)
+            if (signatures.length > 0) {
+              streamContext.accumulatedSignatures.push(...signatures)
+              recordSignaturesFromSSE(event, signatureContext)
+            }
+          }
+
           try {
             if (streamingBuilder && formatParser?.parseStreamChunk) {
               const parsed = formatParser.parseStreamChunk(event)

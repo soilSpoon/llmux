@@ -43,8 +43,26 @@ export class AccountRotationWithTierManager {
    * Get next available account, preferring paid over free
    * Returns undefined if no accounts are available
    */
-  getNextAccount(family: ModelFamily, currentIndex?: number): Account | undefined {
-    const availableAccounts = this.accounts.filter((acc) => !acc.rateLimitedFamilies.has(family))
+  getNextAccount(
+    _family: ModelFamily,
+    currentIndex?: number,
+    rotate: boolean = true,
+    blockedIndices?: Set<number>
+  ): Account | undefined {
+    // If not rotating and we have a valid current index, check if it's available
+    if (
+      !rotate &&
+      currentIndex !== undefined &&
+      currentIndex >= 0 &&
+      currentIndex < this.accounts.length
+    ) {
+      const currentAccount = this.accounts[currentIndex]
+      if (currentAccount && !blockedIndices?.has(currentIndex)) {
+        return currentAccount
+      }
+    }
+
+    const availableAccounts = this.accounts.filter((acc) => !blockedIndices?.has(acc.index))
 
     if (availableAccounts.length === 0) return undefined
 

@@ -172,9 +172,12 @@ export function getParserType(
   provider: ProviderName,
   model?: string
 ): 'sse-standard' | 'sse-line-delimited' {
-  // Special case for Antigravity/Gemini-3 which seems to use formatted JSON/Standard SSE
-  if (provider === 'antigravity' && model?.includes('gemini')) {
-    return 'sse-standard'
+  // Antigravity/Gemini usually uses standard SSE (\n\n)
+  // But some direct Gemini/Vertex integrations might use line-delimited
+  if (provider === 'antigravity' || provider === 'gemini' || provider === 'gemini-cli') {
+    if (model?.toLowerCase().includes('gemini')) {
+      return 'sse-standard'
+    }
   }
   return 'sse-standard'
 }

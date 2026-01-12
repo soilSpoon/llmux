@@ -28,16 +28,32 @@ export interface PrepareAntigravityRequestOptions {
   overrideProjectId?: string | null
   streaming?: boolean
   reqId?: string
+  provider?: string
+  retryEndpointIndex?: number
 }
 
 export async function prepareAntigravityRequest(
   options: PrepareAntigravityRequestOptions
 ): Promise<AntigravityRequestContext | null> {
-  const { model, accountIndex, overrideProjectId, streaming = true, reqId } = options
+  const {
+    model,
+    accountIndex,
+    overrideProjectId,
+    streaming = true,
+    reqId,
+    provider = 'antigravity',
+    retryEndpointIndex,
+  } = options
 
-  const result = await accountRotationManager.getCredential('antigravity', model, accountIndex)
+  // Determine if we should rotate to the NEXT account or stay on CURRENT
+  // For antigravity, we try multiple endpoints for the same account before rotating.
+  // We use retryState.antigravityEndpointIndex to track endpoint retries.
+  // If retryEndpointIndex > 0, it means we are in the middle of retrying the SAME account.
+  const rotate = retryEndpointIndex === undefined || retryEndpointIndex === 0
+
+  const result = await accountRotationManager.getCredential(provider, model, accountIndex, rotate)
   if (!result) {
-    logger.warn({ reqId }, 'No credentials available for Antigravity')
+    logger.warn({ reqId, provider }, 'No credentials available for provider')
     return null
   }
 
@@ -83,10 +99,11 @@ export async function prepareAntigravityRequest(
     )
   }
 
-  // Rotate endpoints: use Daily (0) or Prod (1) based on account index
-  // This distributes load and provides fallback in case one endpoint is rate-limited
-  const endpointIndex = resolvedAccountIndex % 2
-  const baseUrl = ANTIGRAVITY_ENDPOINT_FALLBACKS[endpointIndex]
+  // Use provided endpoint index for retries, otherwise balance based on account index
+  const endpointIndex =
+    retryEndpointIndex !== undefined ? retryEndpointIndex : resolvedAccountIndex % 2
+
+  const baseUrl = ANTIGRAVITY_ENDPOINT_FALLBACKS[endpointIndex] || ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
   const endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
 
   logger.debug(

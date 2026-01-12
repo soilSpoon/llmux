@@ -1,11 +1,4 @@
-import {
-  ANTIGRAVITY_API_PATH_GENERATE,
-  ANTIGRAVITY_API_PATH_STREAM,
-  ANTIGRAVITY_ENDPOINT_FALLBACKS,
-  AuthProviderRegistry,
-  prepareGeminiCliRequest,
-  TokenRefresh,
-} from '@llmux/auth'
+import { AuthProviderRegistry, prepareGeminiCliRequest, TokenRefresh } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core'
 import { createLogger, formatIdToProviderName, getProvider } from '@llmux/core'
 import {
@@ -120,6 +113,8 @@ export async function buildUpstreamRequest(
       overrideProjectId: retryState.overrideProjectId,
       streaming: mode === 'streaming', // Use mode to decide header
       reqId,
+      provider: effectiveProvider,
+      retryEndpointIndex: retryState.antigravityEndpointIndex,
     })
 
     if (antigravityContext) {
@@ -143,20 +138,7 @@ export async function buildUpstreamRequest(
         account: antigravityContext.account,
       }
 
-      // Endpoint already selected by prepareAntigravityRequest based on account rotation
-      // But handle retry-triggered endpoint rotation (retryState tracks failed attempts)
-      if (retryState.antigravityEndpointIndex > 0) {
-        // Retry: use the next endpoint from the fallback list
-        const baseUrl =
-          ANTIGRAVITY_ENDPOINT_FALLBACKS[retryState.antigravityEndpointIndex] ||
-          ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
-        if (mode === 'streaming') {
-          endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_STREAM}`
-        } else {
-          endpoint = `${baseUrl}${ANTIGRAVITY_API_PATH_GENERATE}`
-        }
-      }
-      // Otherwise use endpoint from prepareAntigravityRequest (already set above)
+      // Endpoint already selected by prepareAntigravityRequest
     }
   }
   // OpenAI Web
@@ -186,6 +168,7 @@ export async function buildUpstreamRequest(
       overrideProjectId: retryState.overrideProjectId,
       streaming: mode === 'streaming',
       reqId,
+      provider: effectiveProvider,
     })
 
     if (antigravityContext) {
