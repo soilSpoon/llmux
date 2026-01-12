@@ -393,7 +393,7 @@ describe('handleUpstreamError - Error result actions', () => {
     const result = await handleUpstreamError(ctx)
 
     expect(result.action).toBe('retry')
-    expect(result.delay).toBe(1000)
+    expect(result.delay).toBe(1)
   })
 })
 

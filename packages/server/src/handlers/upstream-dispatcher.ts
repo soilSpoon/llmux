@@ -171,7 +171,10 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         })
 
         if (result.action === 'retry') {
-          if (result.delay) await new Promise((r) => setTimeout(r, result.delay))
+          if (result.delay) {
+            const delay = process.env.NODE_ENV === 'test' ? 1 : result.delay
+            await new Promise((r) => setTimeout(r, delay))
+          }
           continue
         }
 
@@ -301,12 +304,14 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       if (request?.meta?.provider === 'antigravity') {
         retryState.antigravityEndpointIndex++
         if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
-          await new Promise((r) => setTimeout(r, 200))
+          const delay = process.env.NODE_ENV === 'test' ? 1 : 200
+          await new Promise((r) => setTimeout(r, delay))
           continue
         }
       }
 
-      await new Promise((r) => setTimeout(r, 1000))
+      const delay = process.env.NODE_ENV === 'test' ? 1 : 1000
+      await new Promise((r) => setTimeout(r, delay))
     }
   }
 

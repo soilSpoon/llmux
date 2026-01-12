@@ -275,7 +275,7 @@ export async function handleUpstreamError(
           logger.warn({ reqId, targetModel, err }, 'Failed to resolve fallback with API key')
         }
       }
-      return { action: 'retry', delay: 1000 }
+      return { action: 'retry', delay: process.env.NODE_ENV === 'test' ? 1 : 1000 }
     }
 
     // Mark current as rate limited with explicit Hard/Soft type
@@ -391,7 +391,7 @@ export async function handleUpstreamError(
     // But we checked areAllRateLimited above.
 
     // Fallback behavior: just retry with delay if nothing else works
-    return { action: 'retry', delay: 1000 }
+    return { action: 'retry', delay: process.env.NODE_ENV === 'test' ? 1 : 1000 }
   }
 
   return { action: 'throw' }
