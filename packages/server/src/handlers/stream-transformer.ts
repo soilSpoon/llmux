@@ -12,7 +12,7 @@ import {
   type StreamingPipeline,
 } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
-import type { SignatureStore } from '../stores'
+import { getRequestLogStore, type SignatureStore } from '../stores'
 import {
   handleEmptyResponse,
   logStreamMetrics,
@@ -128,6 +128,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     transform(chunk, controller) {
       const text = decoder.decode(chunk, { stream: true })
       streamContext.totalBytes += text.length
+      streamContext.accumulatedUpstream += text
       buffer += text
 
       // 디버깅: 업스트림에서 받은 청크 기록
@@ -453,6 +454,20 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
       handleEmptyResponse(streamContext, controller, encoder)
       logStreamMetrics(streamContext)
+
+      // Log to SQLite
+      try {
+        const logStore = getRequestLogStore()
+        logStore.logResponse({
+          requestId: options.reqId,
+          preTransformResponse: { _raw: streamContext.accumulatedUpstream },
+          postTransformResponse: { _raw: streamContext.fullResponse },
+          statusCode: 200,
+          durationMs: streamContext.duration,
+        })
+      } catch (err) {
+        logger.warn({ error: String(err) }, 'Failed to log streaming response to SQLite')
+      }
     },
   })
 }

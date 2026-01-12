@@ -179,6 +179,7 @@ export {
   isGemini3WithTierSuffix,
   supportsThinking,
 } from './util/model-capabilities'
+export { SSEParser } from './util/sse-parser'
 // Utilities
 export {
   stripSignaturesFromContents,

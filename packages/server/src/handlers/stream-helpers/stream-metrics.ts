@@ -19,6 +19,7 @@ export interface StreamMetrics {
   accumulatedText: string
   accumulatedThinking: string
   accumulatedSignatures: string[]
+  accumulatedUpstream: string
 }
 
 export function createStreamMetrics(reqId: string): StreamMetrics {
@@ -31,6 +32,7 @@ export function createStreamMetrics(reqId: string): StreamMetrics {
     accumulatedText: '',
     accumulatedThinking: '',
     accumulatedSignatures: [],
+    accumulatedUpstream: '',
   }
 }
 
