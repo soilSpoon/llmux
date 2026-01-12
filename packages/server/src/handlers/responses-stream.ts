@@ -1,4 +1,10 @@
-import { getProvider, OpenAIResponsesStreamingBuilder, type ProviderName } from '@llmux/core'
+import {
+  getFormat,
+  getProvider,
+  OpenAIResponsesStreamingBuilder,
+  type ProviderName,
+  type SchemaFormat,
+} from '@llmux/core'
 
 export function createResponsesStreamTransformer(model: string, initialProvider: ProviderName) {
   const builder = new OpenAIResponsesStreamingBuilder(model)
@@ -7,6 +13,16 @@ export function createResponsesStreamTransformer(model: string, initialProvider:
   let buffer = ''
   let actualUpstreamProvider = initialProvider
   let providerDetected = false
+
+  // Try to resolve format parser from initial provider immediately if possible
+  const initialSourceProvider = getProvider(initialProvider)
+  let formatParser: SchemaFormat | undefined
+  if (initialSourceProvider.getFormatForModel) {
+    const formatId = initialSourceProvider.getFormatForModel(model)
+    if (formatId) {
+      formatParser = getFormat(formatId)
+    }
+  }
 
   return new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
@@ -25,14 +41,30 @@ export function createResponsesStreamTransformer(model: string, initialProvider:
           } else if (trimmed.includes('"choices"')) {
             actualUpstreamProvider = 'openai'
           }
+
+          // Resolve format parser from provider
+          const sourceProvider = getProvider(actualUpstreamProvider)
+          let formatId = sourceProvider.getFormatForModel?.(model)
+
+          // Fallback if provider doesn't support getFormatForModel or returns undefined
+          if (!formatId) {
+            if (actualUpstreamProvider === 'antigravity') {
+              formatId = 'google-gemini'
+            } else if (actualUpstreamProvider === 'openai') {
+              formatId = 'openai-chat'
+            }
+          }
+
+          if (formatId) {
+            formatParser = getFormat(formatId)
+          }
         }
 
-        const sourceProvider = getProvider(actualUpstreamProvider)
-        if (!sourceProvider.parseStreamChunk) {
+        if (!formatParser?.parseStreamChunk) {
           continue
         }
 
-        const unified = sourceProvider.parseStreamChunk(trimmed)
+        const unified = formatParser.parseStreamChunk(trimmed)
         if (unified) {
           const chunks = Array.isArray(unified) ? unified : [unified]
           for (const c of chunks) {
@@ -42,8 +74,6 @@ export function createResponsesStreamTransformer(model: string, initialProvider:
             }
           }
         } else if (trimmed === 'data: [DONE]') {
-          // Manual completion if we see [DONE] (though builder handles 'done' chunk)
-          // Ensure builder is flushed
           const sseEvents = builder.build({ type: 'done' })
           for (const sse of sseEvents) {
             controller.enqueue(encoder.encode(sse))
@@ -52,10 +82,8 @@ export function createResponsesStreamTransformer(model: string, initialProvider:
       }
     },
     flush(controller) {
-      // If we have remaining buffer, try to parse it
-      if (buffer.trim()) {
-        const sourceProvider = getProvider(actualUpstreamProvider)
-        const unified = sourceProvider.parseStreamChunk?.(buffer.trim())
+      if (buffer.trim() && formatParser?.parseStreamChunk) {
+        const unified = formatParser.parseStreamChunk(buffer.trim())
         if (unified) {
           const chunks = Array.isArray(unified) ? unified : [unified]
           for (const c of chunks) {
@@ -67,7 +95,6 @@ export function createResponsesStreamTransformer(model: string, initialProvider:
         }
       }
 
-      // Ensure completion event is sent if not already
       const finalEvents = builder.build({ type: 'done' })
       for (const sse of finalEvents) {
         controller.enqueue(encoder.encode(sse))

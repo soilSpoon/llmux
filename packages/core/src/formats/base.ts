@@ -1,5 +1,5 @@
-import type { ProviderName } from '../providers/base'
 import type { UnifiedError } from '../types/error'
+import type { ProviderName } from '../types/providers'
 import type {
   StreamChunk,
   StreamingPipeline,

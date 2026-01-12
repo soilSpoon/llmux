@@ -488,14 +488,28 @@ export function transformStreamChunk(chunk: StreamChunk): string {
 
     case 'usage':
       if (chunk.usage) {
+        const usage: Record<string, unknown> = {
+          input_tokens: chunk.usage.inputTokens,
+          output_tokens: chunk.usage.outputTokens,
+          total_tokens: chunk.usage.totalTokens,
+        }
+
+        if (chunk.usage.thinkingTokens !== undefined) {
+          usage.output_tokens_details = {
+            reasoning_tokens: chunk.usage.thinkingTokens,
+          }
+        }
+
+        if (chunk.usage.cachedTokens !== undefined) {
+          usage.input_tokens_details = {
+            cached_tokens: chunk.usage.cachedTokens,
+          }
+        }
+
         return `event: response.completed\ndata: ${JSON.stringify({
           type: 'response.completed',
           response: {
-            usage: {
-              input_tokens: chunk.usage.inputTokens,
-              output_tokens: chunk.usage.outputTokens,
-              total_tokens: chunk.usage.totalTokens,
-            },
+            usage,
           },
         })}\n\n`
       }

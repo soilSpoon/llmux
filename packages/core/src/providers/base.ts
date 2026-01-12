@@ -1,35 +1,15 @@
 import type { FormatId } from '../formats/base'
-import type { StreamChunk, StreamDelta, UnifiedRequest, UnifiedResponse } from '../types'
+import type {
+  ProviderName,
+  StreamChunk,
+  StreamDelta,
+  UnifiedRequest,
+  UnifiedResponse,
+} from '../types'
 import type { UnifiedError } from '../types/error'
 
-/**
- * Supported provider names
- */
-export type ProviderName =
-  | 'openai'
-  | 'anthropic'
-  | 'gemini'
-  | 'gemini-cli'
-  | 'antigravity'
-  | 'opencode-zen'
-  | 'openai-web'
-  | 'github-copilot'
-  | 'google'
-
-const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
-  'openai',
-  'anthropic',
-  'gemini',
-  'gemini-cli',
-  'antigravity',
-  'opencode-zen',
-  'openai-web',
-  'google',
-] as const
-
-export function isValidProviderName(value: unknown): value is ProviderName {
-  return typeof value === 'string' && VALID_PROVIDER_NAMES.includes(value as ProviderName)
-}
+export type { ProviderName } from '../types/providers'
+export { isValidProviderName } from '../types/providers'
 
 /**
  * Type guard to check if a StreamDelta contains partial JSON
@@ -118,16 +98,6 @@ export interface Provider {
   transformResponse(response: UnifiedResponse): unknown
 
   /**
-   * Parse a streaming chunk from provider format to unified format
-   */
-  parseStreamChunk?(chunk: string): StreamChunk | StreamChunk[] | null
-
-  /**
-   * Transform a unified stream chunk to provider format
-   */
-  transformStreamChunk?(chunk: StreamChunk): string | string[]
-
-  /**
    * Parse a provider error into UnifiedError
    * @param error The raw error object from the provider
    */
@@ -159,9 +129,6 @@ export abstract class BaseProvider implements Provider {
   abstract transform(request: UnifiedRequest, model: string): unknown
   abstract parseResponse(response: unknown, model?: string): UnifiedResponse
   abstract transformResponse(response: UnifiedResponse): unknown
-
-  parseStreamChunk?(chunk: string): StreamChunk | StreamChunk[] | null
-  transformStreamChunk?(chunk: StreamChunk): string | string[]
 
   // Optional format methods - to be implemented by providers during refactoring
   getFormatForModel?(model: string): FormatId

@@ -66,6 +66,7 @@ describe('Gemini Request Sanitization (Bug Fix)', () => {
     
     // Assert: Valid fields should remain
     expect(part.functionCall).toBeDefined()
-    expect(part.functionCall.name).toBe('edit_file')
+    const functionCall = part.functionCall as { name: string }
+    expect(functionCall.name).toBe('edit_file')
   })
 })

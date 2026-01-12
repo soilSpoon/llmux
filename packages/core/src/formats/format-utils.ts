@@ -5,7 +5,7 @@
  * ProviderName: 제공자 identity (openai, anthropic, openai-web 등)
  */
 
-import type { ProviderName } from '../providers/base'
+import type { ProviderName } from '../types/providers'
 import type { FormatId } from './base'
 
 /**

@@ -417,7 +417,19 @@ function transformMessage(
 ): GeminiContent {
   // Map role: user stays user, assistant becomes model, tool becomes user
   const role = message.role === 'assistant' ? 'model' : 'user'
-  const parts = message.parts.map((p) => transformPart(p, toolNameMap, ctx, fallbackSignature))
+
+  // Transform and filter out empty text parts which cause 400 errors in Gemini API
+  // This typically happens when converting Anthropic messages that have empty text blocks alongside tool use
+  const parts = message.parts
+    .map((p) => transformPart(p, toolNameMap, ctx, fallbackSignature))
+    .filter((p) => !('text' in p && p.text === ''))
+
+  // Using a fallback if the message ends up empty (e.g. was only empty text)
+  // Gemini API requires at least one part
+  if (parts.length === 0) {
+    parts.push({ text: '-' })
+  }
+
   return { role, parts }
 }
 

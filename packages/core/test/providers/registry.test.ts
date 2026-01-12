@@ -12,7 +12,6 @@ import {
   type ProviderName,
 } from "../../src/providers/base";
 import type {
-  StreamChunk,
   UnifiedRequest,
   UnifiedResponse,
 } from "../../src/types/unified";
@@ -44,14 +43,6 @@ class MockProvider extends BaseProvider {
 
   transformResponse(_response: UnifiedResponse): unknown {
     return {};
-  }
-
-  parseStreamChunk(_chunk: string): StreamChunk | null {
-    return null;
-  }
-
-  transformStreamChunk(_chunk: StreamChunk): string {
-    return "";
   }
 }
 
@@ -256,8 +247,6 @@ describe("Provider Registry", () => {
       expect(typeof retrieved.transform).toBe("function");
       expect(typeof retrieved.parseResponse).toBe("function");
       expect(typeof retrieved.transformResponse).toBe("function");
-      expect(typeof retrieved.parseStreamChunk).toBe("function");
-      expect(typeof retrieved.transformStreamChunk).toBe("function");
     });
   });
 });

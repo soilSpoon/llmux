@@ -235,10 +235,25 @@ describe('handleResponses', () => {
   })
 
   describe('HTTP Header Forwarding', () => {
+    const validUpstreamResponse = {
+      id: 'chatcmpl-123',
+      object: 'chat.completion',
+      created: 1234567890,
+      model: 'gpt-4o',
+      choices: [
+        {
+          index: 0,
+          message: { role: 'assistant', content: 'Hello!' },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    }
+
     it('should forward x-codex-plan-type header from upstream response', async () => {
       globalThis.fetch = Object.assign(
         mock(async () => {
-          return new Response(JSON.stringify({}), {
+          return new Response(JSON.stringify(validUpstreamResponse), {
             headers: {
               'Content-Type': 'application/json',
               'x-codex-plan-type': 'enterprise',
@@ -257,7 +272,7 @@ describe('handleResponses', () => {
     it('should forward x-oai-request-id header from upstream response', async () => {
       globalThis.fetch = Object.assign(
         mock(async () => {
-          return new Response(JSON.stringify({}), {
+          return new Response(JSON.stringify(validUpstreamResponse), {
             headers: {
               'Content-Type': 'application/json',
               'x-oai-request-id': 'req-123456',
@@ -276,7 +291,7 @@ describe('handleResponses', () => {
     it('should forward both headers simultaneously', async () => {
       globalThis.fetch = Object.assign(
         mock(async () => {
-          return new Response(JSON.stringify({}), {
+          return new Response(JSON.stringify(validUpstreamResponse), {
             headers: {
               'Content-Type': 'application/json',
               'x-codex-plan-type': 'enterprise',

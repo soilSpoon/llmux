@@ -2,6 +2,7 @@ import {
   createLogger,
   type FormatId,
   formatIdToProviderName,
+  getFormat,
   getProvider,
   type ProviderName,
   transformResponse,
@@ -132,15 +133,16 @@ export function createJsonResponseTransformer(ctx: TransformContext): JsonRespon
 
 /**
  * Get the appropriate schema format handler for request parsing
- * Returns only stream-related handlers that are directly available on Provider
+ * Uses Format for stream operations and Provider for request/response
  */
 export function getFormatSchema(formatId: FormatId) {
   const providerName = formatIdToProviderName(formatId)
   const provider = getProvider(providerName)
+  const format = getFormat(formatId)
 
   return {
-    parseStreamChunk: provider.parseStreamChunk?.bind(provider),
-    transformStreamChunk: provider.transformStreamChunk?.bind(provider),
+    parseStreamChunk: format.parseStreamChunk?.bind(format),
+    buildStreamChunk: format.buildStreamChunk?.bind(format),
     parseRequest: provider.parse.bind(provider),
     transformResponse: provider.transformResponse.bind(provider),
   }

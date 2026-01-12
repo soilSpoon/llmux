@@ -1,5 +1,4 @@
-import { type FormatId, formatIdToProviderName, getProvider } from '@llmux/core'
-import type { ProviderName } from '@llmux/core/providers/base'
+import { type FormatContext, type FormatId, getFormat } from '@llmux/core'
 import type { StreamChunk } from '@llmux/core/types/unified'
 
 /**
@@ -11,22 +10,27 @@ export interface StreamParser {
 }
 
 /**
- * Factory to create appropriate stream parser for a provider
+ * Factory to create appropriate stream parser for formats
+ * Now uses Format-based parsing instead of Provider streaming methods
  */
-export function createStreamParser(provider: ProviderName, targetFormat: FormatId): StreamParser {
-  const sourceProvider = getProvider(provider)
-  const targetProvider = getProvider(formatIdToProviderName(targetFormat))
+export function createStreamParser(
+  sourceFormat: FormatId,
+  targetFormat: FormatId,
+  ctx: FormatContext
+): StreamParser {
+  const sourceSchema = getFormat(sourceFormat)
+  const targetSchema = getFormat(targetFormat)
 
   return {
     parse(chunk: string) {
-      if (sourceProvider.parseStreamChunk) {
-        return sourceProvider.parseStreamChunk(chunk)
+      if (sourceSchema.parseStreamChunk) {
+        return sourceSchema.parseStreamChunk(chunk)
       }
       return null
     },
     transform(chunk: StreamChunk) {
-      if (targetProvider.transformStreamChunk) {
-        return targetProvider.transformStreamChunk(chunk)
+      if (targetSchema.buildStreamChunk) {
+        return targetSchema.buildStreamChunk(chunk, ctx)
       }
       return ''
     },

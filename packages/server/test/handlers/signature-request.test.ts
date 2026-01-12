@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { SignatureStore } from "../../src/stores/signature-store";
-import { validateAndStripSignatures, type Part, type Block } from "../../src/handlers/signature-request";
+import { validateAndStripSignatures } from "../../src/handlers/signature-request";
 import { unlinkSync, existsSync } from "node:fs";
 
 describe("Signature Request Processing", () => {
@@ -51,8 +51,9 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(0);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.thoughtSignature).toBe("sig_project_a");
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thoughtSignature).toBe("sig_project_a");
     });
 
     test("should strip signature when different project", () => {
@@ -84,10 +85,11 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.thoughtSignature).toBeUndefined();
-      expect(part.thought).toBe(true);
-      expect(part.text).toBe("Let me think...");
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thoughtSignature).toBeUndefined();
+      expect(part?.thought).toBe(true);
+      expect(part?.text).toBe("Let me think...");
     });
 
     test("should strip signature when not registered in DB", () => {
@@ -111,10 +113,11 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.thoughtSignature).toBeUndefined();
-      expect(part.thought).toBe(true);
-      expect(part.text).toBe("Unregistered thinking...");
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thoughtSignature).toBeUndefined();
+      expect(part?.thought).toBe(true);
+      expect(part?.text).toBe("Unregistered thinking...");
     });
 
     test("should always preserve thought and text fields", () => {
@@ -145,9 +148,10 @@ describe("Signature Request Processing", () => {
         signatureStore: store,
       });
 
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.thought).toBe(true);
-      expect(part.text).toBe("Important thinking content");
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thought).toBe(true);
+      expect(part?.text).toBe("Important thinking content");
     });
 
     test("should strip only mismatched signatures in multiple parts", () => {
@@ -194,15 +198,16 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const parts = result.contents![0]!.parts as Part[];
-      expect(parts[0]!.thoughtSignature).toBe("sig_valid");
-      expect(parts[1]!.thoughtSignature).toBeUndefined();
-      expect(parts[1]!.thought).toBe(true);
-      expect(parts[1]!.text).toBe("Invalid thinking");
-      expect(parts[2]!.text).toBe("Regular text, no signature");
+      const parts = result.contents?.[0]?.parts;
+      expect(parts).toBeDefined();
+      expect(parts?.[0]?.thoughtSignature).toBe("sig_valid");
+      expect(parts?.[1]?.thoughtSignature).toBeUndefined();
+      expect(parts?.[1]?.thought).toBe(true);
+      expect(parts?.[1]?.text).toBe("Invalid thinking");
+      expect(parts?.[2]?.text).toBe("Regular text, no signature");
     });
 
-    test("should keep signature even if different project when using gemini model (gemini-cache)", () => {
+    test("should strip signature when using gemini model (gemini-cache) because Gemini API rejects signature fields", () => {
       store.saveSignature({
         signature: "sig_gemini",
         projectId: "projectA",
@@ -231,9 +236,14 @@ describe("Signature Request Processing", () => {
         model: "gemini-3-flash-preview", // Should trigger gemini-cache strategy
       });
 
-      expect(result.strippedCount).toBe(0);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.thoughtSignature).toBe("sig_gemini");
+      // Gemini API rejects signature fields (400 Invalid Argument), so they must be stripped
+      expect(result.strippedCount).toBe(1);
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thoughtSignature).toBeUndefined();
+      // But thinking content should be preserved
+      expect(part?.thought).toBe(true);
+      expect(part?.text).toBe("Gemini thinking...");
     });
 
     test("should handle thought_signature (snake_case) format", () => {
@@ -265,9 +275,10 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.thought_signature).toBeUndefined();
-      expect(part.thought).toBe(true);
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thought_signature).toBeUndefined();
+      expect(part?.thought).toBe(true);
     });
 
     test("should handle signature field (Anthropic format)", () => {
@@ -299,8 +310,9 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.signature).toBeUndefined();
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.signature).toBeUndefined();
     });
   });
 
@@ -334,8 +346,11 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(0);
-      const content = result.messages![0]!.content as Block[];
-      expect(content[0]!.signature).toBe("msg_sig");
+      const content = result.messages?.[0]?.content;
+      expect(Array.isArray(content)).toBe(true);
+      if (Array.isArray(content)) {
+        expect(content[0]?.signature).toBe("msg_sig");
+      }
     });
 
     test("should strip signature when different project", () => {
@@ -367,10 +382,13 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const content = result.messages![0]!.content as Block[];
-      expect(content[0]!.signature).toBeUndefined();
-      expect(content[0]!.thinking).toBe("Deep thoughts...");
-      expect(content[0]!.type).toBe("thinking");
+      const content = result.messages?.[0]?.content;
+      expect(Array.isArray(content)).toBe(true);
+      if (Array.isArray(content)) {
+        expect(content[0]?.signature).toBeUndefined();
+        expect(content[0]?.thinking).toBe("Deep thoughts...");
+        expect(content[0]?.type).toBe("thinking");
+      }
     });
 
     test("should handle string content in messages", () => {
@@ -420,8 +438,11 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(1);
-      const content = result.messages![0]!.content as Block[];
-      expect(content[0]!.thoughtSignature).toBeUndefined();
+      const content = result.messages?.[0]?.content;
+      expect(Array.isArray(content)).toBe(true);
+      if (Array.isArray(content)) {
+        expect(content[0]?.thoughtSignature).toBeUndefined();
+      }
     });
   });
 
@@ -477,8 +498,9 @@ describe("Signature Request Processing", () => {
       });
 
       expect(result.strippedCount).toBe(0);
-      const part = result.contents?.[0]?.parts?.[0] as Part;
-      expect(part.text).toBe("Just text");
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.text).toBe("Just text");
     });
 
     test("should handle null/undefined parts gracefully", () => {
@@ -531,10 +553,11 @@ describe("Signature Request Processing", () => {
         signatureStore: store,
       });
 
-      const part = result.contents?.[0]?.parts?.[0] as Part & { customField: string; anotherField: number };
-      expect(part.thoughtSignature).toBeUndefined();
-      expect(part.customField).toBe("preserved");
-      expect(part.anotherField).toBe(123);
+      const part = result.contents?.[0]?.parts?.[0];
+      expect(part).toBeDefined();
+      expect(part?.thoughtSignature).toBeUndefined();
+      expect(part?.['customField']).toBe("preserved");
+      expect(part?.['anotherField']).toBe(123);
     });
   });
 

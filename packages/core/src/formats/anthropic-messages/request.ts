@@ -164,7 +164,13 @@ function parseContent(content: string | AnthropicContentBlock[]): ContentPart[] 
     return [{ type: 'text', text: content }]
   }
 
-  return content.map(parseContentBlock).filter((part): part is ContentPart => part !== null)
+  return content.map(parseContentBlock).filter((part): part is ContentPart => {
+    // Filter out null parts
+    if (part === null) return false
+    // Filter out empty text parts which serve no purpose and trip up downstream providers
+    if (part.type === 'text' && !part.text) return false
+    return true
+  })
 }
 
 function parseContentBlock(block: AnthropicContentBlock): ContentPart | null {

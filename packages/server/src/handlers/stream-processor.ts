@@ -1,7 +1,8 @@
 import {
   createLogger,
+  type FormatId,
   formatIdToProviderName,
-  getProvider,
+  getFormat,
   type ProviderName,
   type StreamChunk,
 } from '@llmux/core'
@@ -19,6 +20,18 @@ export {
 } from './stream-helpers'
 
 const logger = createLogger({ service: 'stream-processor' })
+
+function getFormatIdForProvider(provider: string): FormatId {
+  if (
+    provider === 'antigravity' ||
+    provider === 'gemini-cli' ||
+    provider === 'google' ||
+    provider === 'gemini'
+  )
+    return 'google-gemini'
+  if (provider === 'anthropic') return 'anthropic-messages'
+  return 'openai-chat'
+}
 
 export interface StreamProcessorContext {
   reqId: string
@@ -97,14 +110,15 @@ export function transformStreamChunk(
   }
 
   try {
-    const sourceProvider = getProvider(effectiveFromProvider)
-    const targetProvider = getProvider(targetProviderName)
+    const sourceFormatId = getFormatIdForProvider(effectiveFromProvider)
+    const sourceFormat = getFormat(sourceFormatId)
+    const targetFormat = getFormat(toFormat as FormatId)
 
-    if (!sourceProvider.parseStreamChunk || !targetProvider.transformStreamChunk) {
+    if (!sourceFormat.parseStreamChunk || !targetFormat.buildStreamChunk) {
       return chunk
     }
 
-    const unified = sourceProvider.parseStreamChunk(chunk)
+    const unified = sourceFormat.parseStreamChunk(chunk)
 
     if (!unified) {
       if (chunk.trim().startsWith('{')) {
@@ -119,7 +133,12 @@ export function transformStreamChunk(
           ? unified.map((c) => applyBashNormalizationToChunk(c))
           : unified
       return normalized
-        .map((c) => targetProvider.transformStreamChunk?.(c))
+        .flatMap((c) =>
+          targetFormat.buildStreamChunk?.(c, {
+            provider: targetProviderName,
+            model: 'unknown',
+          })
+        )
         .filter((v): v is string => v !== undefined)
     }
 
@@ -130,7 +149,10 @@ export function transformStreamChunk(
     const normalizedChunk =
       effectiveFromProvider === 'antigravity' ? applyBashNormalizationToChunk(unified) : unified
 
-    const result = targetProvider.transformStreamChunk(normalizedChunk)
+    const result = targetFormat.buildStreamChunk(normalizedChunk, {
+      provider: targetProviderName,
+      model: 'unknown',
+    })
     return result
   } catch (error) {
     logger.error(
@@ -150,18 +172,9 @@ export function getParserType(
   provider: ProviderName,
   model?: string
 ): 'sse-standard' | 'sse-line-delimited' {
-  try {
-    // Special case for Antigravity/Gemini-3 which seems to use formatted JSON/Standard SSE
-    if (provider === 'antigravity' && model?.includes('gemini')) {
-      return 'sse-standard'
-    }
-
-    const providerConfig = getProvider(provider)
-    if (providerConfig?.config?.defaultStreamParser) {
-      return providerConfig.config.defaultStreamParser as 'sse-standard' | 'sse-line-delimited'
-    }
-  } catch {
-    // Ignore
+  // Special case for Antigravity/Gemini-3 which seems to use formatted JSON/Standard SSE
+  if (provider === 'antigravity' && model?.includes('gemini')) {
+    return 'sse-standard'
   }
   return 'sse-standard'
 }

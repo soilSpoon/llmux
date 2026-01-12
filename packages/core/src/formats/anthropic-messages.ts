@@ -1,4 +1,3 @@
-import { createAnthropicStreamingPipeline } from '../providers/anthropic/streaming-pipeline'
 import type {
   StreamChunk,
   StreamingPipeline,
@@ -8,6 +7,7 @@ import type {
 import { parseRequest, transformRequest } from './anthropic-messages/request'
 import { parseResponse, transformResponse } from './anthropic-messages/response'
 import { parseStreamChunk, transformStreamChunk } from './anthropic-messages/streaming'
+import { createAnthropicStreamingPipeline } from './anthropic-messages/streaming-pipeline'
 import { isAnthropicRequest, isAnthropicResponse } from './anthropic-messages/types'
 import type { FormatContext, SchemaFormat } from './base'
 

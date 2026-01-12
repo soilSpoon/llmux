@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import type { Provider, ProviderConfig, ProviderName } from '../../src/providers/base'
 import { BaseProvider } from '../../src/providers/base'
-import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../src/types/unified'
+import type { UnifiedRequest, UnifiedResponse } from '../../src/types/unified'
 
 describe('ProviderName', () => {
   it('should support all provider names', () => {
@@ -23,10 +23,20 @@ describe('ProviderConfig', () => {
   })
 
 
+  it('should allow optional authType field', () => {
+    const configWithAuth: ProviderConfig = {
+      name: 'anthropic',
+      supportsStreaming: true,
+      supportsThinking: true,
+      supportsTools: true,
+      authType: 'apiKey',
+    }
+    expect(configWithAuth.authType).toBe('apiKey')
+  })
 })
 
 describe('Provider interface', () => {
-  it('should define all required methods', () => {
+  it('should require core methods', () => {
     const mockProvider: Provider = {
       name: 'openai',
       config: {
@@ -36,16 +46,10 @@ describe('Provider interface', () => {
         supportsTools: true,
       },
       isSupportedRequest: () => true,
-      parse: (_request: unknown) => ({
-        messages: [],
-      }),
-      transform: (_request: UnifiedRequest) => ({}),
-      parseResponse: (_response: unknown) => ({
-        id: 'test',
-        content: [],
-        stopReason: 'end_turn',
-      }),
-      transformResponse: (_response: UnifiedResponse) => ({}),
+      parse: () => ({ messages: [] }),
+      transform: () => ({}),
+      parseResponse: () => ({ id: 'test', content: [], stopReason: 'end_turn' }),
+      transformResponse: () => ({}),
       parseError: (error: unknown) => ({
         provider: 'openai',
         code: 'unknown_error',
@@ -61,7 +65,7 @@ describe('Provider interface', () => {
     expect(typeof mockProvider.transformResponse).toBe('function')
   })
 
-  it('should allow optional streaming methods', () => {
+  it('should not have streaming methods (removed in Hub-and-Spoke refactor)', () => {
     const mockProvider: Provider = {
       name: 'anthropic',
       config: {
@@ -75,8 +79,6 @@ describe('Provider interface', () => {
       transform: () => ({}),
       parseResponse: () => ({ id: 'test', content: [], stopReason: 'end_turn' }),
       transformResponse: () => ({}),
-      parseStreamChunk: (_chunk: string) => ({ type: 'content', delta: { type: 'text', text: 'Hi' } }),
-      transformStreamChunk: (_chunk: StreamChunk) => 'data: {"text": "Hi"}\n\n',
       parseError: (error: unknown) => ({
         provider: 'anthropic',
         code: 'unknown_error',
@@ -85,8 +87,9 @@ describe('Provider interface', () => {
       })
     }
 
-    expect(mockProvider.parseStreamChunk).toBeDefined()
-    expect(mockProvider.transformStreamChunk).toBeDefined()
+    // Streaming methods are now on Formats, not Providers
+    expect('parseStreamChunk' in mockProvider).toBe(false)
+    expect('transformStreamChunk' in mockProvider).toBe(false)
   })
 })
 
@@ -105,33 +108,29 @@ describe('BaseProvider', () => {
         return true
       }
 
-      parse(_request: unknown): UnifiedRequest {
+      parse(): UnifiedRequest {
         return { messages: [] }
       }
-
-      transform(_request: UnifiedRequest): unknown {
+      transform(): unknown {
         return {}
       }
-
-      parseResponse(_response: unknown): UnifiedResponse {
+      parseResponse(): UnifiedResponse {
         return { id: 'test', content: [], stopReason: 'end_turn' }
       }
-
-      transformResponse(_response: UnifiedResponse): unknown {
+      transformResponse(): unknown {
         return {}
       }
     }
 
     const provider = new TestProvider()
     expect(provider.name).toBe('openai')
-    expect(provider.config.supportsStreaming).toBe(true)
   })
 
-  it('should allow optional stream methods in subclass', () => {
-    class StreamingProvider extends BaseProvider {
-      readonly name = 'gemini' as const
+  it('should have default parseError implementation', () => {
+    class TestProvider extends BaseProvider {
+      readonly name = 'anthropic' as const
       readonly config: ProviderConfig = {
-        name: 'gemini',
+        name: 'anthropic',
         supportsStreaming: true,
         supportsThinking: true,
         supportsTools: true,
@@ -153,22 +152,11 @@ describe('BaseProvider', () => {
       transformResponse(): unknown {
         return {}
       }
-
-      parseStreamChunk(chunk: string): StreamChunk | null {
-        if (!chunk) return null
-        return { type: 'content', delta: { type: 'text', text: chunk } }
-      }
-
-      transformStreamChunk(chunk: StreamChunk): string {
-        return `data: ${JSON.stringify(chunk)}\n\n`
-      }
     }
 
-    const provider = new StreamingProvider()
-    const parsed = provider.parseStreamChunk('Hello')
-    expect(parsed?.delta?.text).toBe('Hello')
-
-    const transformed = provider.transformStreamChunk({ type: 'done', stopReason: 'end_turn' })
-    expect(transformed).toContain('data:')
+    const provider = new TestProvider()
+    const error = provider.parseError(new Error('test error'))
+    expect(error.code).toBe('unknown_error')
+    expect(error.message).toBe('test error')
   })
 })

@@ -35,9 +35,6 @@ export class AntigravityProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
-
-      // Antigravity sends line-delimited SSE format (one data: event per line, not separated by \n\n)
-      defaultStreamParser: 'sse-line-delimited',
     }
   }
 
