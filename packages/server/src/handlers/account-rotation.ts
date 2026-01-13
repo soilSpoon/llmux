@@ -152,8 +152,19 @@ export class AccountRotationManager {
       const cred = freshCredentials[i]
       if (!cred) continue
       const accountId = this.getAccountId(cred)
-      if (rateLimitStore.getLimit(provider, accountId, family)) {
+      const limit = rateLimitStore.getLimit(provider, accountId, family)
+      if (limit) {
         blockedIndices.add(i)
+        logger.debug(
+          {
+            index: i,
+            accountId,
+            family,
+            expiresInMs: limit.expiresAt ? limit.expiresAt - Date.now() : 'indefinite',
+            reason: limit.reason,
+          },
+          'Account is currently blocked in rateLimitStore'
+        )
       }
     }
 
@@ -176,6 +187,17 @@ export class AccountRotationManager {
     }
 
     const accountIndex = nextAccount.index
+
+    logger.debug(
+      {
+        provider,
+        model,
+        accountIndex,
+        availableCount: freshCredentials.length - blockedIndices.size,
+        totalCount: freshCredentials.length,
+      },
+      'Selected account for rotation'
+    )
 
     const credential = freshCredentials[accountIndex]
     if (!credential) {

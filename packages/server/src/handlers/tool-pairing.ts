@@ -289,24 +289,35 @@ export function validateAndFixClaudeToolPairing(messages: ThinkingMessage[]): Th
     return messages
   }
 
-  // First: Try gentle fix (inject placeholder tool_results)
   const fixed = fixClaudeToolPairing(messages)
-
-  // Second: Validate - find any remaining orphans
   const orphanIds = findOrphanedToolUseIds(fixed)
 
-  if (orphanIds.size === 0) {
-    return fixed
+  let finalMessages = fixed
+  if (orphanIds.size > 0) {
+    logger.warn(
+      { orphanIds: [...orphanIds] },
+      'fixClaudeToolPairing left orphans, applying nuclear option'
+    )
+    finalMessages = removeOrphanedToolUse(fixed, orphanIds)
   }
 
-  // Third: Nuclear option - remove orphaned tool_use entirely
-  // This should rarely happen, but provides defense in depth
-  logger.warn(
-    { orphanIds: [...orphanIds] },
-    'fixClaudeToolPairing left orphans, applying nuclear option'
-  )
+  // Final Pass: Merge consecutive messages of the same role
+  const merged: ThinkingMessage[] = []
+  for (const msg of finalMessages) {
+    const last = merged[merged.length - 1]
+    if (
+      last &&
+      last.role === msg.role &&
+      Array.isArray(last.content) &&
+      Array.isArray(msg.content)
+    ) {
+      last.content = [...last.content, ...msg.content]
+    } else {
+      merged.push(msg)
+    }
+  }
 
-  return removeOrphanedToolUse(fixed, orphanIds)
+  return merged
 }
 
 // ============================================================================

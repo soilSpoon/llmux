@@ -138,6 +138,8 @@ export async function buildUpstreamRequest(
       }
 
       // Endpoint already selected by prepareAntigravityRequest
+    } else {
+      throw new Error(`No credentials available for Antigravity (all rate-limited)`)
     }
   }
   // OpenAI Web

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import {
   fixClaudeToolPairing,
+  validateAndFixClaudeToolPairing,
   validateToolPairingStrict,
 } from '../src/handlers/tool-pairing'
 import type { ThinkingBlock, ThinkingMessage } from '../src/handlers/types/thinking-types'
@@ -146,5 +147,78 @@ describe('Tool Pairing Repair', () => {
     const fixed = fixClaudeToolPairing(messages)
     const result = validateToolPairingStrict(fixed)
     expect(result.valid).toBe(true)
+  })
+})
+
+describe('validateAndFixClaudeToolPairing', () => {
+  it('should merge consecutive messages of the same role after fixing/stripping', () => {
+    const messages: ThinkingMessage[] = [
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Hello' }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Still me' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_peitu8ktd', name: 'search' }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Wait for result' }],
+      },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Actually, just do it' }],
+      },
+    ]
+
+    const fixed = validateAndFixClaudeToolPairing(messages)
+
+    // Expected:
+    // 1. User message (merged "Hello" + "Still me")
+    // 2. Assistant message (call A)
+    // 3. User message (Synthetic result + "Wait for result" + "Actually, just do it")
+    expect(fixed).toHaveLength(3)
+    expect(fixed[0]!.role).toBe('user')
+    expect(fixed[0]!.content).toHaveLength(2)
+
+    expect(fixed[1]!.role).toBe('assistant')
+
+    expect(fixed[2]!.role).toBe('user')
+    // 1 (synthetic) + 1 (original wait) + 1 (original actually) = 3 blocks
+    const content = fixed[2]!.content as any[]
+    expect(content).toHaveLength(3)
+    expect(content[0].type).toBe('tool_result')
+    expect(content[0].tool_use_id).toBe('call_peitu8ktd')
+  })
+
+  it('should apply nuclear option AND merge roles', () => {
+    // Scenario where tool_use is orphaned and we cannot fix it gently
+    // (Though validateAndFixClaudeToolPairing tries its best)
+    const messages: ThinkingMessage[] = [
+      {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'orphan_1', name: 'search' }],
+      },
+      {
+        role: 'assistant',
+        content: [{ type: 'text', text: 'I am also assistant' }],
+      },
+    ]
+
+    const fixed = validateAndFixClaudeToolPairing(messages)
+
+    // Expected:
+    // 1. Assistant message (call orphan_1)
+    // 2. User message (Synthetic result injected by fixClaudeToolPairing)
+    // 3. Assistant message (text "I am also assistant")
+    // These alternate roles correctly: assistant -> user -> assistant
+    expect(fixed).toHaveLength(3)
+    expect(fixed[0]!.role).toBe('assistant')
+    expect(fixed[1]!.role).toBe('user')
+    expect(fixed[2]!.role).toBe('assistant')
   })
 })

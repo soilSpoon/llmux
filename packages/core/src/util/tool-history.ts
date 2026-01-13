@@ -14,126 +14,98 @@ export function normalizeToolHistory(messages: UnifiedMessage[]): UnifiedMessage
     return messages
   }
 
-  const normalizedMessages: UnifiedMessage[] = []
-
-  // Track open tool calls: Map<toolCallId, { messageIndex, callIndex, toolCall }>
-  const openToolCalls = new Map<
-    string,
-    {
-      toolName: string
-      id: string
-    }
-  >()
-
-  // Track results found: Set<toolCallId>
-  const foundResults = new Set<string>()
-
-  // 1. First pass: Identify all tool calls and results
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type === 'tool_call' && part.toolCall) {
-        openToolCalls.set(part.toolCall.id, {
-          toolName: part.toolCall.name,
-          id: part.toolCall.id,
-        })
-      } else if (part.type === 'tool_result' && part.toolResult) {
-        foundResults.add(part.toolResult.toolCallId)
+  // Helper to merge consecutive same-role messages
+  const mergeSameRoles = (msgs: UnifiedMessage[]): UnifiedMessage[] => {
+    const merged: UnifiedMessage[] = []
+    for (const msg of msgs) {
+      const last = merged[merged.length - 1]
+      if (last && last.role === msg.role) {
+        last.parts = [...last.parts, ...msg.parts]
+      } else {
+        merged.push({ ...msg })
       }
     }
+    return merged
   }
 
-  // 2. Second pass: Reconstruct messages, fixing open loops and grouping
-  let pendingToolGroup: {
-    message: UnifiedMessage
-    callIds: string[]
-  } | null = null
+  // 1. Initial merge to handle cases where assistant text is split from tool calls
+  const currentMessages = mergeSameRoles(messages)
 
-  for (let i = 0; i < messages.length; i++) {
-    const message = messages[i]
-    if (!message) {
-      continue
+  const normalizedMessages: UnifiedMessage[] = []
+  const synthesizedIds = new Set<string>()
+
+  // 2. Identify and handle missing tool results
+  for (let i = 0; i < currentMessages.length; i++) {
+    const message = currentMessages[i]
+    if (!message) continue
+
+    // Filter out results we're about to synthesize or have already synthesized
+    // This handles moving results "up" to satisfy adjacency requirements
+    if (
+      message.role === 'tool' ||
+      (message.role === 'user' && message.parts.some((p) => p.type === 'tool_result'))
+    ) {
+      const remainingParts = message.parts.filter(
+        (p) =>
+          p.type !== 'tool_result' || !p.toolResult || !synthesizedIds.has(p.toolResult.toolCallId)
+      )
+      if (remainingParts.length === 0) continue
+      normalizedMessages.push({ ...message, parts: remainingParts })
+    } else {
+      normalizedMessages.push(message)
     }
 
-    // Assistant message with tool calls?
+    // Check Assistant tool calls
     const toolCallParts = message.parts.filter((p) => p.type === 'tool_call')
     if (message.role === 'assistant' && toolCallParts.length > 0) {
-      // If we have a pending group from before (shouldn't happen in well-formed history but safety first)
-      if (pendingToolGroup) {
-        // Force close previous group if not closed
-        const synthResultMsg = createSyntheticResultMessage(pendingToolGroup.callIds, foundResults)
-        if (synthResultMsg) {
-          normalizedMessages.push(synthResultMsg)
-        }
-        pendingToolGroup = null
-      }
-
-      const currentCallIds = toolCallParts
+      const callIds = toolCallParts
         .map((p) => p.toolCall?.id)
         .filter((id): id is string => id !== undefined)
-      pendingToolGroup = {
-        message,
-        callIds: currentCallIds,
-      }
-      normalizedMessages.push(message)
-      continue
-    }
 
-    // User message with tool results?
-    const toolResultParts = message.parts.filter((p) => p.type === 'tool_result')
-    if (message.role === 'tool' || (message.role === 'user' && toolResultParts.length > 0)) {
-      // If no pending group, this might be an orphan result or a result for a far-back call
-      // For now, we just pass it through, assuming standard ordering assistant -> tool
-      if (pendingToolGroup) {
-        // Check if this message closes the pending group
-        const resultsInThisMessage = toolResultParts
-          .map((p) => p.toolResult?.toolCallId)
-          .filter((id): id is string => id !== undefined)
+      // Peek at next message for results
+      const nextMsg = currentMessages[i + 1]
+      const nextIsUser = nextMsg && (nextMsg.role === 'user' || nextMsg.role === 'tool')
 
-        // Add valid results to found set for this group
-        for (const id of resultsInThisMessage) {
-          foundResults.add(id)
+      const foundInNext = new Set<string>()
+      if (nextIsUser) {
+        for (const p of nextMsg.parts) {
+          if (p.type === 'tool_result' && p.toolResult) {
+            foundInNext.add(p.toolResult.toolCallId)
+          }
         }
+      }
 
-        // We don't push yet, we might need to merge or fill gaps
-        // But for simple normalization, we just push the user message
-        normalizedMessages.push(message)
+      const missingIds = callIds.filter((id) => !foundInNext.has(id))
 
-        // Check if pending group is fully satisfied
-        const allSatisfied = pendingToolGroup.callIds.every((id) => foundResults.has(id))
-        if (allSatisfied) {
-          pendingToolGroup = null
+      if (missingIds.length > 0) {
+        // We MUST close this loop immediately
+        const synthMsg = createSyntheticResultMessage(missingIds, new Set())
+        if (synthMsg) {
+          normalizedMessages.push(synthMsg)
+          for (const id of missingIds) {
+            synthesizedIds.add(id)
+          }
         }
-      } else {
-        // Orphan result or result without immediate preceding call
-        normalizedMessages.push(message)
       }
-      continue
-    }
-
-    // Regular message (text, image, etc.)
-    // If we have a pending tool group that is NOT closed, we must close it before this text message
-    if (pendingToolGroup) {
-      const synthResultMsg = createSyntheticResultMessage(pendingToolGroup.callIds, foundResults)
-
-      if (synthResultMsg) {
-        // Insert synthetic results to close the loop
-        normalizedMessages.push(synthResultMsg)
-      }
-      pendingToolGroup = null
-    }
-
-    normalizedMessages.push(message)
-  }
-
-  // 3. Final cleanup: If we ended with an open pending group
-  if (pendingToolGroup) {
-    const synthResultMsg = createSyntheticResultMessage(pendingToolGroup.callIds, foundResults)
-    if (synthResultMsg) {
-      normalizedMessages.push(synthResultMsg)
     }
   }
 
-  return normalizedMessages
+  // 3. Final merge and part reordering for provider compatibility
+  const merged = mergeSameRoles(normalizedMessages)
+
+  return merged.map((msg) => {
+    if (msg.role === 'assistant') {
+      const toolCalls = msg.parts.filter((p) => p.type === 'tool_call')
+      if (toolCalls.length > 0) {
+        const others = msg.parts.filter((p) => p.type !== 'tool_call')
+        return {
+          ...msg,
+          parts: [...others, ...toolCalls],
+        }
+      }
+    }
+    return msg
+  })
 }
 
 /**

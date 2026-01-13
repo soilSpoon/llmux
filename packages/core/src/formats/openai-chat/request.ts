@@ -14,6 +14,7 @@ import type {
   UnifiedToolChoice,
 } from '../../types/unified'
 import { createLogger } from '../../util/logger'
+import { normalizeToolHistory } from '../../util/tool-history'
 import type {
   OpenAIChatAssistantMessage,
   OpenAIChatContentPart,
@@ -133,7 +134,8 @@ export function transformRequest(
   }
 
   // Transform messages, extracting tool_result parts from user messages as separate tool messages
-  for (const msg of request.messages) {
+  const normalizedMessages = normalizeToolHistory(request.messages)
+  for (const msg of normalizedMessages) {
     if (!result.messages) result.messages = []
     if (msg.role === 'user') {
       // Check for tool_result parts in user message and extract them as separate tool messages

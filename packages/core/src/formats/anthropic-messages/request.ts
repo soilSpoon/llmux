@@ -15,6 +15,7 @@ import type {
   UnifiedTool,
   UnifiedToolChoice,
 } from '../../types/unified'
+import { normalizeToolHistory } from '../../util/tool-history'
 import type {
   AnthropicContentBlock,
   AnthropicImageBlock,
@@ -88,9 +89,10 @@ function applyThinkingConfigLocal(request: UnifiedRequest, target: AnthropicRequ
  * Transform UnifiedRequest into AnthropicRequest
  */
 export function transformRequest(request: UnifiedRequest, model?: string): AnthropicRequest {
+  const normalizedMessages = normalizeToolHistory(request.messages)
   const result: AnthropicRequest = {
     model: model || (request.metadata?.model as string) || '', // Use provided model or restore from metadata
-    messages: transformMessages(request.messages),
+    messages: transformMessages(normalizedMessages),
     max_tokens: request.config?.maxTokens ?? DEFAULT_MAX_TOKENS,
   }
 

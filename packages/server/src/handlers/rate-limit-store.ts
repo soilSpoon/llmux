@@ -41,7 +41,7 @@ export class InMemoryRateLimitStore implements RateLimitStore {
     const limit = this.store.get(key)
     if (!limit) return null
 
-    if (limit.type === 'soft' && limit.expiresAt && limit.expiresAt < Date.now()) {
+    if (limit.expiresAt && limit.expiresAt < Date.now()) {
       this.store.delete(key)
       return null
     }
@@ -57,7 +57,7 @@ export class InMemoryRateLimitStore implements RateLimitStore {
     for (const [key, limit] of this.store.entries()) {
       if (key.startsWith(prefix)) {
         const accountId = key.slice(prefix.length)
-        if (limit.type === 'soft' && limit.expiresAt && limit.expiresAt < now) {
+        if (limit.expiresAt && limit.expiresAt < now) {
           this.store.delete(key)
         } else {
           result.set(accountId, limit)
