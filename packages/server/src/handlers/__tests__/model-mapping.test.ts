@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import type { AmpModelMapping } from '../../config'
+import type { ModelMapping } from '../../config'
 import { applyModelMapping, parseModelMapping, applyModelMappingV2 } from '../model-mapping'
 
 describe('applyModelMapping', () => {
   describe('단일 매핑', () => {
     it('from → to (string) 매핑 적용', () => {
-      const mappings: AmpModelMapping[] = [{ from: 'gpt-4', to: 'custom-gpt-4' }]
+      const mappings: ModelMapping[] = [{ from: 'gpt-4', to: 'custom-gpt-4' }]
       expect(applyModelMapping('gpt-4', mappings)).toBe('custom-gpt-4')
     })
 
     it('여러 매핑 중 일치하는 매핑 적용', () => {
-      const mappings: AmpModelMapping[] = [
+      const mappings: ModelMapping[] = [
         { from: 'gpt-4', to: 'custom-gpt-4' },
         { from: 'claude-opus', to: 'gemini-claude' },
       ]
@@ -20,26 +20,26 @@ describe('applyModelMapping', () => {
 
   describe('배열 매핑', () => {
     it('from → to[0] 첫 번째 사용', () => {
-      const mappings: AmpModelMapping[] = [{ from: 'claude', to: ['model-a', 'model-b'] }]
+      const mappings: ModelMapping[] = [{ from: 'claude', to: ['model-a', 'model-b'] }]
       expect(applyModelMapping('claude', mappings)).toBe('model-a')
     })
 
     it('빈 배열일 때 원본 model 반환', () => {
-      const mappings: AmpModelMapping[] = [{ from: 'claude', to: [] }]
+      const mappings: ModelMapping[] = [{ from: 'claude', to: [] }]
       expect(applyModelMapping('claude', mappings)).toBe('claude')
     })
   })
 
   describe('매핑 없음', () => {
     it('일치하는 매핑이 없을 때 원본 model 반환', () => {
-      const mappings: AmpModelMapping[] = [{ from: 'other', to: 'mapped' }]
+      const mappings: ModelMapping[] = [{ from: 'other', to: 'mapped' }]
       expect(applyModelMapping('gpt-4', mappings)).toBe('gpt-4')
     })
   })
 
   describe('엣지 케이스', () => {
     it('빈 mappings 배열일 때 원본 model 반환', () => {
-      const mappings: AmpModelMapping[] = []
+      const mappings: ModelMapping[] = []
       expect(applyModelMapping('gpt-4', mappings)).toBe('gpt-4')
     })
 
@@ -114,7 +114,7 @@ describe('parseModelMapping', () => {
 })
 
 describe('applyModelMappingV2', () => {
-  const mappings: AmpModelMapping[] = [
+  const mappings: ModelMapping[] = [
     { from: 'claude-opus-4-5-20251101', to: 'antigravity/claude-opus-4-5-thinking' },
     { from: 'gpt-5.1', to: 'openai/gpt-5.1' },
     { from: 'gemini-pro', to: 'gemini/gemini-pro' },
@@ -163,7 +163,7 @@ describe('applyModelMappingV2', () => {
   })
 
   describe('provider/model format support', () => {
-    const newFormatMappings: AmpModelMapping[] = [
+    const newFormatMappings: ModelMapping[] = [
       { from: 'claude-opus-4-5-20251101', to: 'antigravity/claude-opus-4-5-thinking' },
       { from: 'gpt-5.1', to: 'openai-web/gpt-5.1' },
       { from: 'big-pickle', to: 'opencode-zen/big-pickle' },

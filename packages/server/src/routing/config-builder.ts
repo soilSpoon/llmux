@@ -1,12 +1,12 @@
 import type { ProviderName } from '@llmux/core'
-import type { AmpConfig, AmpModelMapping, AmpTarget, RoutingConfig } from '../config'
+import type { AmpTarget, ModelMapping, ModelResolvedConfig, RoutingConfig } from '../config'
 import { parseModelMapping } from '../handlers/model-mapping'
 import type { ModelLookup } from '../models/lookup'
 
 async function resolveProvider(
   target: string | AmpTarget,
   modelLookup: ModelLookup | undefined,
-  allMappings: AmpModelMapping[] | undefined,
+  allMappings: ModelMapping[] | undefined,
   visited: Set<string> = new Set()
 ): Promise<{ provider: ProviderName; model: string } | undefined> {
   const parsed = parseModelMapping(target)
@@ -54,7 +54,7 @@ async function resolveProvider(
 }
 
 export async function buildRoutingConfig(
-  modelMappings?: AmpConfig['modelMappings'],
+  modelMappings?: ModelMapping[],
   modelLookup?: ModelLookup
 ): Promise<RoutingConfig> {
   if (!modelMappings) {
@@ -101,14 +101,14 @@ export async function buildRoutingConfig(
         provider: resolvedPrimary.provider,
         model: resolvedPrimary.model,
         fallbacks: fallbackModelIds,
-      }
+      } satisfies ModelResolvedConfig
 
       if (!routingConfig.modelMapping[resolvedPrimary.model]) {
         routingConfig.modelMapping[resolvedPrimary.model] = {
           provider: resolvedPrimary.provider,
           model: resolvedPrimary.model,
           fallbacks: fallbackModelIds.length > 0 ? fallbackModelIds : undefined,
-        }
+        } satisfies ModelResolvedConfig
       }
 
       for (const resolved of resolvedFallbacks) {
@@ -116,7 +116,7 @@ export async function buildRoutingConfig(
           routingConfig.modelMapping[resolved.originalName] = {
             provider: resolved.provider,
             model: resolved.model,
-          }
+          } satisfies ModelResolvedConfig
         }
       }
     }

@@ -1,5 +1,5 @@
 import type { CredentialProvider } from '../auth'
-import type { AmpModelMapping } from '../config'
+import type { ModelMapping } from '../config'
 import { createModelCache } from '../models/cache'
 import { createFetcher } from '../models/fetchers'
 import { createModelRegistry } from '../models/registry'
@@ -7,7 +7,7 @@ import type { ModelProvider, ModelsResponse } from '../models/types'
 
 export interface ModelHandlerOptions {
   credentialProvider?: CredentialProvider
-  modelMappings?: AmpModelMapping[]
+  modelMappings?: ModelMapping[]
 }
 
 export async function handleModels(

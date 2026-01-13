@@ -127,9 +127,12 @@ describe("Integration: Request Transformation", () => {
       const targetProvider = getProvider(to);
       const parsed = targetProvider.parse(targetRequest);
 
-      const toolCallMessage = parsed.messages[2];
+      const toolCallMessage = parsed.messages.find(
+        (m) => m.role === "assistant" && m.parts.some((p) => p.type === "tool_call")
+      );
+      expect(toolCallMessage).toBeDefined();
       expect(toolCallMessage!.role).toBe("assistant");
-      expect(toolCallMessage!.parts[0]!.type).toBe("tool_call");
+      expect(toolCallMessage!.parts.some((p) => p.type === "tool_call")).toBe(true);
     });
   });
 });

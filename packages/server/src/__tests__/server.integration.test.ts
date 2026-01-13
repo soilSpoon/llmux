@@ -51,6 +51,70 @@ describe('Server Integration: modelMappings', () => {
     }
   })
 
+  describe('routing.modelMappings config', () => {
+    it('routing.modelMappings가 설정되면 적용된다', async () => {
+      setupFetchMock()
+      server = await startServer({
+        port: 0,
+        routing: {
+          modelMappings: [{ from: 'claude-routing', to: 'openai/mapped-routing' }],
+        },
+      })
+
+      const response = await globalThis.fetch(
+        `http://localhost:${server.port}/v1/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'test-key',
+            'X-Target-Provider': 'openai',
+          },
+          body: JSON.stringify({
+            model: 'claude-routing',
+            messages: [{ role: 'user', content: 'Hello' }],
+          }),
+        }
+      )
+
+      expect(response.status).toBe(200)
+      expect(capturedBody).toMatchObject({ model: 'mapped-routing' })
+    })
+
+    it('routing.modelMappings가 amp.modelMappings보다 우선한다', async () => {
+      setupFetchMock()
+      server = await startServer({
+        port: 0,
+        routing: {
+          modelMappings: [{ from: 'conflict-model', to: 'openai/routing-winner' }],
+        },
+        amp: {
+          handlers: {},
+          modelMappings: [{ from: 'conflict-model', to: 'openai/amp-loser' }],
+        },
+      })
+
+      const response = await globalThis.fetch(
+        `http://localhost:${server.port}/v1/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': 'test-key',
+            'X-Target-Provider': 'openai',
+          },
+          body: JSON.stringify({
+            model: 'conflict-model',
+            messages: [{ role: 'user', content: 'Hello' }],
+          }),
+        }
+      )
+
+      expect(response.status).toBe(200)
+      expect(capturedBody).toMatchObject({ model: 'routing-winner' })
+    })
+  })
+
   describe('POST /v1/chat/completions', () => {
     it('config의 modelMappings가 proxy 요청에 적용된다', async () => {
       setupFetchMock()

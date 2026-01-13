@@ -1,30 +1,29 @@
 
-import { describe, it, expect, mock, beforeEach } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, spyOn, afterEach } from 'bun:test'
 import { executeUpstream } from '../upstream-executor'
-import { AllCooldownError } from '../upstream-dispatcher'
+import { AllCooldownError } from '../error-utils'
 import type { ProxyOptions } from '../types'
-
-// Mock the upstream-request-builder to throw AllCooldownError simulate Router blocking everything
-mock.module('../upstream-request-builder', () => ({
-  buildUpstreamRequest: async () => {
-    throw new AllCooldownError('All available models and providers are currently in cooldown')
-  }
-}))
+import * as UpstreamRequestBuilder from '../upstream-request-builder'
 
 describe('upstream-executor reproduction', () => {
   beforeEach(() => {
+    //
+  })
+
+  afterEach(() => {
     mock.restore()
   })
 
   it('should return 429 response when AllCooldownError occurs, instead of throwing "No response from dispatcher"', async () => {
-    // We cast to ProxyOptions to ensure type safety without 'as any' for the whole object if possible.
-    // However, sourceFormat expects a specific union type. 
-    // We assume 'openai-chat' is valid. If not, typecheck will fail and we will fix it.
+    spyOn(UpstreamRequestBuilder, 'buildUpstreamRequest').mockImplementation(async () => {
+        throw new AllCooldownError('All available models and providers are currently in cooldown')
+    })
+
     const options = {
       sourceFormat: 'openai-chat',
       targetProvider: 'antigravity',
       targetModel: 'test-model',
-    } satisfies ProxyOptions
+    } as unknown as ProxyOptions
 
     const result = await executeUpstream({
       reqId: 'test-req-id',

@@ -2,9 +2,9 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test'
 import {
   dispatchWithRetry,
-  AllCooldownError,
   type DispatchInput,
 } from '../upstream-dispatcher'
+import { AllCooldownError } from '../error-utils'
 import { SignatureStore } from '../../stores'
 
 // Mock dependencies
@@ -46,7 +46,7 @@ describe('upstream-dispatcher', () => {
         message: 'All available models and providers are currently in cooldown',
         type: 'rate_limit_error',
         code: 'all_providers_cooldown',
-      },
+        },
     })
 
     // Check retry state - should ideally be attempt 1 (failed immediately)

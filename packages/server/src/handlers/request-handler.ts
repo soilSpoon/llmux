@@ -1,7 +1,7 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS, type Credential, TokenRefresh } from '@llmux/auth'
 import type { ProviderName } from '@llmux/core'
 import { createLogger, isValidProviderName } from '@llmux/core'
-import type { AmpModelMapping } from '../config'
+import type { ModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
 import type { Router } from '../routing'
 import { accountRotationManager } from './account-rotation'
@@ -27,7 +27,7 @@ export interface PrepareContextOptions {
   originalModel?: string
   thinking?: boolean
   router?: Router
-  modelMappings?: AmpModelMapping[]
+  modelMappings?: ModelMapping[]
   headerTargetProvider?: string | null
   apiKey?: string
   defaultProvider?: string

@@ -3,6 +3,7 @@ export { type CredentialProvider, createCredentialProvider } from './auth'
 export type {
   LlmuxConfig,
   ModelMapping,
+  ModelResolvedConfig,
   RoutingConfig,
   ServerSettings,
 } from './config'

@@ -292,12 +292,22 @@ function parseThinkingConfig(config?: GeminiGenerationConfig) {
   const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
   const thinkingBudget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
 
-  if (!includeThoughts && !thinkingBudget && !thinkingConfig.thinkingLevel) return undefined
+  if (
+    !includeThoughts &&
+    !thinkingBudget &&
+    !thinkingConfig.thinkingLevel &&
+    !thinkingConfig.thinking_level
+  )
+    return undefined
 
   return {
     enabled: includeThoughts ?? true,
     budget: thinkingBudget,
-    level: thinkingConfig.thinkingLevel?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    level: (thinkingConfig.thinkingLevel ?? thinkingConfig.thinking_level)?.toLowerCase() as
+      | 'minimal'
+      | 'low'
+      | 'medium'
+      | 'high',
   }
 }
 
@@ -583,7 +593,8 @@ function transformGenerationConfig(
   if (thinking?.enabled) {
     // Detect Gemini 3+ models to use thinkingLevel instead of budget
     // Model names like: gemini-3.0-flash, gemini-3-pro, etc.
-    const isGemini3 = ctx?.model?.includes('gemini-3')
+    // NOTE: -preview models (like gemini-3-pro-preview) often don't support thinkingLevel yet
+    const isGemini3 = ctx?.model?.includes('gemini-3') && !ctx?.model?.includes('-preview')
 
     result.thinkingConfig = {
       includeThoughts: thinking.includeThoughts ?? true,

@@ -1,4 +1,4 @@
-import type { AmpModelMapping } from '../config'
+import type { ModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
 import type { Router } from '../routing'
 
@@ -10,6 +10,6 @@ export interface ProxyOptions {
   apiKey?: string
   thinking?: boolean
   defaultProvider?: string
-  modelMappings?: AmpModelMapping[]
+  modelMappings?: ModelMapping[]
   router?: Router
 }

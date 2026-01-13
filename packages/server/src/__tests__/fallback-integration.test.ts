@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach } from 'bun:test'
 import { Router } from '../routing'
 import { CooldownManager } from '../cooldown'
 import type { RoutingConfig } from '../config'
-import { AllCooldownError } from '../handlers/upstream-dispatcher'
+import { AllCooldownError } from '../handlers/error-utils'
 
 /**
  * Integration tests for 429 fallback behavior

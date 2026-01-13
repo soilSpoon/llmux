@@ -63,10 +63,13 @@ export class AntigravityProvider extends BaseProvider {
     let project: string | undefined
     let model: string | undefined
 
+    let userRole: string | undefined
+
     if (isAntigravityRequest(request)) {
       geminiRequest = request.request as unknown as Record<string, unknown>
       project = request.project
       model = request.model
+      userRole = request.userRole
     } else {
       // Fallback or unwrapped
       geminiRequest = request as Record<string, unknown>
@@ -76,6 +79,10 @@ export class AntigravityProvider extends BaseProvider {
     const unified = getFormat('google-gemini').parseRequest(
       geminiRequest as unknown as GeminiRequest
     )
+
+    if (userRole) {
+      unified.userRole = userRole
+    }
 
     // Extract non-standard fields from geminiRequest into metadata
     const standardGeminiFields = [
@@ -132,6 +139,7 @@ export class AntigravityProvider extends BaseProvider {
       requestType: 'agent',
       userAgent: 'antigravity',
       requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
+      userRole: request.userRole,
       request: innerRequest,
       metadata: extractMetadata(request.metadata),
     }

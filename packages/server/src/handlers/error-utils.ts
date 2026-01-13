@@ -1,3 +1,14 @@
+export class AllCooldownError extends Error {
+  provider?: string
+  model?: string
+  constructor(message: string, provider?: string, model?: string) {
+    super(message)
+    this.name = 'AllCooldownError'
+    this.provider = provider
+    this.model = model
+  }
+}
+
 export interface UpstreamErrorInfo {
   message: string
   type?: string

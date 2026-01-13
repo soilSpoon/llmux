@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test'
 import '../../../test/setup'
-import type { AmpModelMapping } from '../../config'
+import type { ModelMapping } from '../../config'
 import { handleResponses, type ResponsesOptions } from '../responses'
 
 describe('handleResponses', () => {
@@ -126,7 +126,7 @@ describe('handleResponses', () => {
 
   describe('Model Mapping', () => {
     it('modelMappings가 적용된다', async () => {
-      const mappings: AmpModelMapping[] = [{ from: 'claude-opus', to: 'gpt-4o' }]
+      const mappings: ModelMapping[] = [{ from: 'claude-opus', to: 'gpt-4o' }]
       const request = createRequest({ model: 'claude-opus', input: 'Hi' })
 
       await handleResponses(request, { ...baseOptions, modelMappings: mappings })
@@ -135,7 +135,7 @@ describe('handleResponses', () => {
     })
 
     it('targetModel이 modelMappings를 덮어쓴다', async () => {
-      const mappings: AmpModelMapping[] = [{ from: 'claude-opus', to: 'gpt-4o' }]
+      const mappings: ModelMapping[] = [{ from: 'claude-opus', to: 'gpt-4o' }]
       const request = createRequest({ model: 'claude-opus', input: 'Hi' })
 
       await handleResponses(request, {

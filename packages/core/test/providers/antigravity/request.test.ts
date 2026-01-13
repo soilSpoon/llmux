@@ -1047,20 +1047,23 @@ describe("Antigravity Request Transformations", () => {
       
       if (!contents) throw new Error('Contents should be defined')
 
-      // First message: thinking block PRESERVED, plus tool_call with propagated signature
+      // normalizeToolHistory merges the two assistant messages into one
+      // contents[0] = assistant (thinking + tool_1 + tool_2)
+      // contents[1] = user (synthetic tool results for tool_1 + tool_2)
+      
       const msg1Parts = contents[0]?.parts
-      expect(msg1Parts).toHaveLength(2)
+      expect(msg1Parts).toHaveLength(3) // thinking, tool_1, tool_2
       expect(msg1Parts?.[0]?.thought).toBe(true)
       expect(msg1Parts?.[0]?.thoughtSignature).toBe(validSig)
       expect(msg1Parts?.[1]?.functionCall?.name).toBe('tool_1')
       expect(msg1Parts?.[1]?.thoughtSignature).toBe(validSig)
+      expect(msg1Parts?.[2]?.functionCall?.name).toBe('tool_2')
+      expect(msg1Parts?.[2]?.thoughtSignature).toBe(validSig)
       
-      // Second message: shifted to contents[2] because of interleaved placeholder response for tool_1
-      // contents[0] = tool_1 call, contents[1] = tool_1 placeholder response, contents[2] = tool_2 call
-      const msg2Parts = contents[2]?.parts
-      expect(msg2Parts).toHaveLength(1)
-      expect(msg2Parts?.[0]?.functionCall?.name).toBe('tool_2')
-      expect(msg2Parts?.[0]?.thoughtSignature).toBe(validSig)
+      // Verification of synthetic result message
+      expect(contents).toHaveLength(2)
+      expect(contents[1]?.role).toBe('user')
+      expect(contents[1]?.parts.some(p => p.functionResponse)).toBe(true)
     })
 
     it("should preserve thinking blocks with signatures (server handles filtering)", () => {

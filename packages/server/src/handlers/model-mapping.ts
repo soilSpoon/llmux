@@ -1,4 +1,4 @@
-import type { AmpModelMapping, AmpTarget } from '../config'
+import type { AmpTarget, ModelMapping } from '../config'
 import { KNOWN_PROVIDERS } from '../routing/constants'
 
 /**
@@ -72,7 +72,7 @@ export function parseModelMapping(mapping: string | AmpTarget): ParsedModelMappi
  */
 export function applyModelMappingV2(
   model: string,
-  mappings: AmpModelMapping[] | undefined
+  mappings: ModelMapping[] | undefined
 ): ParsedModelMapping {
   if (!mappings || mappings.length === 0) {
     return { model }
@@ -113,7 +113,7 @@ export function applyModelMappingV2(
  * Legacy function: Apply model mapping and return only the model name.
  * Kept for backward compatibility.
  */
-export function applyModelMapping(model: string, mappings: AmpModelMapping[] | undefined): string {
+export function applyModelMapping(model: string, mappings: ModelMapping[] | undefined): string {
   if (!mappings || mappings.length === 0) {
     return model
   }

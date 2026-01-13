@@ -1,5 +1,5 @@
 import { createLogger, isValidProviderName } from '@llmux/core'
-import type { AmpModelMapping } from '../config'
+import type { ModelMapping } from '../config'
 import { detectFormat } from '../middleware/format'
 import type { ModelLookup } from '../models/lookup'
 import type { RouteParams } from '../router'
@@ -21,13 +21,13 @@ export type ProviderChecker = (model: string) => boolean
 export class FallbackHandler {
   private getProxy: () => UpstreamProxy | null
   private hasLocalProvider: ProviderChecker
-  private modelMappings?: AmpModelMapping[]
+  private modelMappings?: ModelMapping[]
   private router?: Router
 
   constructor(
     getProxy: () => UpstreamProxy | null,
     providerChecker?: ProviderChecker,
-    modelMappings?: AmpModelMapping[],
+    modelMappings?: ModelMapping[],
     _modelLookup?: ModelLookup, // Deprecated, kept for signature compatibility if needed, or remove
     router?: Router
   ) {

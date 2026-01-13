@@ -1,7 +1,7 @@
 import { createLogger, type ProviderName } from '@llmux/core'
 import type { RoutingConfig } from '../config'
 import { type CooldownManager, globalCooldownManager } from '../cooldown'
-import { AllCooldownError } from '../handlers/upstream-dispatcher'
+import { AllCooldownError } from '../handlers/error-utils'
 import type { ModelLookup } from '../models/lookup'
 import { ModelRouter } from './model-router'
 import type { UpstreamProvider } from './types'

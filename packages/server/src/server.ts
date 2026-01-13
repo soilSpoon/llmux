@@ -19,11 +19,11 @@ import {
 import { createManagementRoutes } from './amp/management'
 import { createAmpRoutes, type ProviderHandlers } from './amp/routes'
 import type { CredentialProvider } from './auth'
-import type { AmpModelMapping } from './config'
+import type { ModelMapping } from './config'
 import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
 import { handleModels } from './handlers/models'
-import { handleProxy, type ProxyOptions } from './handlers/proxy'
+import { handleCountTokens, handleProxy, type ProxyOptions } from './handlers/proxy'
 import { handleResponses, type ResponsesOptions } from './handlers/responses'
 import { handleStatus } from './handlers/status'
 import { handleStreamingProxy } from './handlers/streaming'
@@ -57,7 +57,7 @@ export interface AmpConfig {
   providerChecker?: ProviderChecker
   enableManagementRoutes?: boolean
   restrictManagementToLocalhost?: boolean
-  modelMappings?: AmpModelMapping[]
+  modelMappings?: ModelMapping[]
 }
 
 export interface ServerConfig {
@@ -65,6 +65,9 @@ export interface ServerConfig {
   hostname: string
   corsOrigins?: string[]
   amp?: AmpConfig
+  routing?: {
+    modelMappings?: ModelMapping[]
+  }
   credentialProvider?: CredentialProvider
 }
 
@@ -88,6 +91,54 @@ export function createServer(config?: Partial<ServerConfig>): LlmuxServer {
   }
 }
 
+function withRequestLogging(
+  handler: (req: Request) => Promise<Response>
+): (req: Request) => Promise<Response> {
+  return async (req: Request): Promise<Response> => {
+    const requestId = req.headers.get('x-llmux-request-id') || crypto.randomUUID()
+    const start = Date.now()
+    const method = req.method
+    const path = new URL(req.url).pathname
+
+    // Create wrapped request with consistent request ID headers
+    const reqHeaders = new Headers(req.headers)
+    if (!reqHeaders.has('x-llmux-request-id')) {
+      reqHeaders.set('x-llmux-request-id', requestId)
+    }
+    // Also set standard x-request-id if missing
+    if (!reqHeaders.has('x-request-id')) {
+      reqHeaders.set('x-request-id', requestId)
+    }
+
+    const wrappedReq = new Request(req, { headers: reqHeaders })
+
+    try {
+      const response = await handler(wrappedReq)
+
+      // Ensure response has request ID header
+      const resHeaders = new Headers(response.headers)
+      if (!resHeaders.has('x-llmux-request-id')) {
+        resHeaders.set('x-llmux-request-id', requestId)
+      }
+
+      return new Response(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: resHeaders,
+      })
+    } catch (err) {
+      const durationMs = Date.now() - start
+      const error = err instanceof Error ? err : new Error(String(err))
+
+      logger.error(
+        { requestId, method, path, durationMs, error: error.message, stack: error.stack },
+        'Request failed'
+      )
+      throw err
+    }
+  }
+}
+
 async function handleProviders(_request: Request): Promise<Response> {
   const providers = getRegisteredProviders()
   return new Response(JSON.stringify({ providers }), {
@@ -106,7 +157,7 @@ interface BuildProxyOptionsParams {
   body: RequestBody
   defaultTargetProvider?: string
   overrideSourceFormat?: RequestFormat
-  modelMappings?: AmpConfig['modelMappings']
+  modelMappings?: ModelMapping[]
   router?: Router
 }
 
@@ -138,7 +189,7 @@ async function createProxyLikeHandler(
 }
 
 function createProxyHandler(
-  modelMappings?: AmpConfig['modelMappings'],
+  modelMappings?: ModelMapping[],
   router?: Router,
   overrideSourceFormat?: RequestFormat,
   defaultProvider?: string
@@ -156,7 +207,7 @@ function createProxyHandler(
   }
 }
 
-function createAutoHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
+function createAutoHandler(modelMappings?: ModelMapping[], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const body = (await request.clone().json()) as RequestBody
     const detectedFormat = detectFormat(request.url)
@@ -171,7 +222,7 @@ function createAutoHandler(modelMappings?: AmpConfig['modelMappings'], router?: 
   }
 }
 
-function createExplicitHandler(modelMappings?: AmpConfig['modelMappings'], router?: Router) {
+function createExplicitHandler(modelMappings?: ModelMapping[], router?: Router) {
   return async (request: Request): Promise<Response> => {
     const targetProvider = request.headers.get('X-Target-Provider')
     if (!targetProvider) {
@@ -191,8 +242,27 @@ function createExplicitHandler(modelMappings?: AmpConfig['modelMappings'], route
   }
 }
 
+function createAnthropicCountTokensHandler(modelMappings?: ModelMapping[], router?: Router) {
+  return async (request: Request): Promise<Response> => {
+    const body = (await request.clone().json()) as RequestBody
+
+    const sourceFormat: RequestFormat = 'anthropic-messages'
+    const options: ProxyOptions = {
+      sourceFormat,
+      targetProvider: 'anthropic',
+      targetModel: request.headers.get('X-Target-Model') ?? body.model ?? undefined,
+      apiKey: request.headers.get('X-API-Key') ?? undefined,
+      defaultProvider: 'anthropic',
+      modelMappings,
+      router,
+    }
+
+    return handleCountTokens(request, options)
+  }
+}
+
 function createResponsesHandler(
-  modelMappings?: AmpConfig['modelMappings'],
+  modelMappings?: ModelMapping[],
   credentialProvider?: CredentialProvider,
   router?: Router
 ) {
@@ -210,7 +280,7 @@ function createResponsesHandler(
 }
 
 function createCodexResponsesHandler(
-  modelMappings?: AmpConfig['modelMappings'],
+  modelMappings?: ModelMapping[],
   credentialProvider?: CredentialProvider
 ) {
   return async (request: Request): Promise<Response> => {
@@ -225,7 +295,7 @@ function createCodexResponsesHandler(
 
 interface RouteOptions {
   credentialProvider?: CredentialProvider
-  modelMappings?: AmpConfig['modelMappings']
+  modelMappings?: ModelMapping[]
   router?: Router
 }
 
@@ -243,6 +313,10 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
     'anthropic-messages',
     'anthropic'
   )
+  const countTokensHandler = createAnthropicCountTokensHandler(
+    options.modelMappings,
+    options.router
+  )
   const generateContentHandler = createProxyHandler(options.modelMappings, options.router)
   const responsesHandler = createResponsesHandler(
     options.modelMappings,
@@ -259,6 +333,7 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
     { method: 'POST', path: '/v1/chat/completions', handler: chatCompletionsHandler },
     { method: 'POST', path: '/v1/messages', handler: messagesHandler },
     { method: 'POST', path: '/messages', handler: messagesHandler },
+    { method: 'POST', path: '/v1/messages/count_tokens', handler: countTokensHandler },
     { method: 'POST', path: '/v1/generateContent', handler: generateContentHandler },
     {
       method: 'POST',
@@ -281,7 +356,9 @@ function createDefaultRoutes(options: RouteOptions): Route[] {
 
 export async function startServer(config?: Partial<ServerConfig>): Promise<LlmuxServer> {
   const mergedConfig = { ...defaultConfig, ...config }
-  const modelMappings = mergedConfig.amp?.modelMappings
+
+  // modelMappings are now under routing config, but we check amp for backward compatibility
+  const modelMappings = mergedConfig.routing?.modelMappings ?? mergedConfig.amp?.modelMappings
 
   const modelLookup = mergedConfig.credentialProvider
     ? createModelLookup(mergedConfig.credentialProvider)
@@ -353,7 +430,7 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
   const server = Bun.serve({
     port: mergedConfig.port,
     hostname: mergedConfig.hostname,
-    fetch: fetchHandler,
+    fetch: withRequestLogging(fetchHandler),
     idleTimeout: 255,
   })
 

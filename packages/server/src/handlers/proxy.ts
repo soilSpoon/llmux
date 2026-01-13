@@ -8,8 +8,64 @@ const logger = createLogger({ service: 'proxy-handler' })
 
 export type { ProxyOptions } from './types'
 
+export async function handleCountTokens(
+  request: Request,
+  options: ProxyOptions
+): Promise<Response> {
+  const reqId =
+    request.headers.get('x-llmux-request-id') ||
+    request.headers.get('x-request-id') ||
+    Math.random().toString(36).slice(2, 8)
+
+  const reqIdHeader = request.headers.get('x-amp-client-request-id') || reqId
+
+  try {
+    const body = (await request.json()) as { model?: string }
+
+    const { response: upstreamResponse } = await executeUpstream({
+      reqId,
+      body,
+      options,
+      mode: 'count_tokens',
+    })
+
+    // Forward upstream response as-is without transformation
+    // Just fix headers
+    const headers = buildResponseHeaders({
+      upstreamHeaders: upstreamResponse.headers,
+      requestId: reqIdHeader,
+    })
+
+    return new Response(upstreamResponse.body, {
+      status: upstreamResponse.status,
+      headers,
+    })
+  } catch (error) {
+    if (error instanceof NonRetriableError) {
+      return createErrorResponse(error.message, error.errorInfo.status || 500, {
+        requestId: reqIdHeader,
+        type: 'non_retriable_error',
+      })
+    }
+
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    logger.error(
+      { error: message, stack: error instanceof Error ? error.stack : undefined },
+      'Handle Count Tokens Caught Error'
+    )
+    return createErrorResponse(message, 500, {
+      requestId: reqIdHeader,
+      type: 'internal_server_error',
+    })
+  }
+}
+
 export async function handleProxy(request: Request, options: ProxyOptions): Promise<Response> {
-  const reqId = Math.random().toString(36).slice(2, 8)
+  const reqId =
+    request.headers.get('x-llmux-request-id') ||
+    request.headers.get('x-request-id') ||
+    Math.random().toString(36).slice(2, 8)
+
   const targetProviderInput = options.targetProvider
   if (!targetProviderInput) {
     if (options.defaultProvider) {

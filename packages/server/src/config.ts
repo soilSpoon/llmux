@@ -9,7 +9,7 @@ export interface ServerSettings {
   cors: boolean | string[]
 }
 
-export interface ModelMapping {
+export interface ModelResolvedConfig {
   provider: ProviderName
   model: string
   /**
@@ -20,10 +20,11 @@ export interface ModelMapping {
 }
 
 export interface RoutingConfig {
-  modelMapping?: Record<string, ModelMapping>
+  modelMapping?: Record<string, ModelResolvedConfig>
   fallbackOrder?: ProviderName[]
   rotateOn429?: boolean
   maxRetryAttempts?: number
+  modelMappings?: ModelMapping[]
 }
 
 export interface AmpTargetBase {
@@ -38,7 +39,7 @@ export type AmpTarget = AmpTargetBase &
     { thinkingBudget?: number }
   >
 
-export interface AmpModelMapping {
+export interface ModelMapping {
   from: string
   to: string | AmpTarget | (string | AmpTarget)[]
   thinking?: boolean
@@ -49,7 +50,6 @@ export interface AmpConfig {
   upstreamUrl: string
   upstreamApiKey?: string
   restrictManagementToLocalhost?: boolean
-  modelMappings?: AmpModelMapping[]
 }
 
 export interface LlmuxConfig {

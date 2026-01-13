@@ -1,6 +1,6 @@
 import os from 'node:os'
 import * as prompts from '@clack/prompts'
-import { ConfigLoader, type LlmuxConfig, type ModelMapping } from '@llmux/server'
+import { ConfigLoader, type LlmuxConfig, type ModelResolvedConfig } from '@llmux/server'
 import { cmd } from '../cmd'
 
 const dim = (text: string) => `\x1b[2m${text}\x1b[22m`
@@ -47,7 +47,7 @@ const configListCommand = cmd({
     if (config.routing.modelMapping) {
       console.log('  modelMapping:')
       for (const [model, mapping] of Object.entries(config.routing.modelMapping)) {
-        const m = mapping as ModelMapping
+        const m = mapping as ModelResolvedConfig
         console.log(`    ${model}: ${m.provider}/${m.model}`)
       }
     }

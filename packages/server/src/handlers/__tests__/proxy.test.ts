@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import "../../../test/setup";
-import type { AmpModelMapping } from "../../config";
+import type { ModelMapping } from "../../config";
 import { handleProxy, type ProxyOptions } from "../proxy";
 
 describe("handleProxy with modelMappings", () => {
@@ -56,7 +56,7 @@ describe("handleProxy with modelMappings", () => {
 
   describe("매핑 적용", () => {
     it("매핑이 있을 때 request body의 model이 변환된다", async () => {
-      const mappings: AmpModelMapping[] = [
+      const mappings: ModelMapping[] = [
         { from: "claude-opus", to: "gemini-claude" },
       ];
       const request = createRequest({ model: "claude-opus", messages: [] });
@@ -71,7 +71,7 @@ describe("handleProxy with modelMappings", () => {
     });
 
     it("배열 매핑일 때 첫 번째 model로 변환된다", async () => {
-      const mappings: AmpModelMapping[] = [
+      const mappings: ModelMapping[] = [
         { from: "claude", to: ["model-a", "model-b"] },
       ];
       const request = createRequest({ model: "claude", messages: [] });
@@ -100,7 +100,7 @@ describe("handleProxy with modelMappings", () => {
     });
 
     it("일치하는 매핑이 없을 때 원본 model이 유지된다", async () => {
-      const mappings: AmpModelMapping[] = [
+      const mappings: ModelMapping[] = [
         { from: "other-model", to: "mapped" },
       ];
       const request = createRequest({ model: "gpt-4", messages: [] });
@@ -117,7 +117,7 @@ describe("handleProxy with modelMappings", () => {
 
   describe("targetModel과의 상호작용", () => {
     it("modelMappings가 targetModel보다 먼저 적용된다", async () => {
-      const mappings: AmpModelMapping[] = [
+      const mappings: ModelMapping[] = [
         { from: "claude-opus", to: "gemini-claude" },
       ];
       const request = createRequest({ model: "claude-opus", messages: [] });

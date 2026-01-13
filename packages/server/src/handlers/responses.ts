@@ -11,7 +11,7 @@ import {
   transformToResponsesResponse,
 } from '@llmux/core'
 import type { CredentialProvider } from '../auth'
-import type { AmpModelMapping } from '../config'
+import type { ModelMapping } from '../config'
 import { buildCodexBody } from '../providers'
 import type { Router } from '../routing'
 import { buildUpstreamHeaders, getDefaultEndpoint, isRateLimited } from '../upstream'
@@ -24,7 +24,7 @@ export interface ResponsesOptions {
   targetProvider?: string
   targetModel?: string
   apiKey?: string
-  modelMappings?: AmpModelMapping[]
+  modelMappings?: ModelMapping[]
   credentialProvider?: CredentialProvider
   router?: Router
 }

@@ -277,15 +277,18 @@ function parseSystemBlocks(system?: string | AnthropicSystemBlock[]): SystemBloc
 function parseTools(tools?: AnthropicTool[]): UnifiedTool[] | undefined {
   if (!tools || tools.length === 0) return undefined
 
-  return tools.map((tool) => ({
-    name: tool.name,
-    description: tool.description,
-    parameters: {
-      type: (tool.input_schema.type as 'object') || 'object',
-      properties: (tool.input_schema.properties ?? {}) as Record<string, JSONSchemaProperty>,
-      required: tool.input_schema.required,
-    },
-  }))
+  return tools.map((tool) => {
+    const inputSchema = tool.input_schema || {}
+    return {
+      name: tool.name,
+      description: tool.description,
+      parameters: {
+        type: (inputSchema.type as 'object') || 'object',
+        properties: (inputSchema.properties ?? {}) as Record<string, JSONSchemaProperty>,
+        required: inputSchema.required,
+      },
+    }
+  })
 }
 
 function parseConfig(anthropic: AnthropicRequest): GenerationConfig {

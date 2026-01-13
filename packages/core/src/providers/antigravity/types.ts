@@ -28,6 +28,7 @@ export interface AntigravityRequest {
   requestId?: string
   userAgent?: string
   requestType?: string
+  userRole?: string
   request: AntigravityInnerRequest
 
   // Metadata passed through (not injected into inner request)

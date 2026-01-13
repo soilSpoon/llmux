@@ -49,3 +49,10 @@ export function getDefaultEndpoint(
 
   return NON_STREAMING_ENDPOINTS[p] ?? STREAMING_ENDPOINTS[p]
 }
+
+export function getCountTokensEndpoint(provider: UpstreamProvider): string | undefined {
+  if (provider === 'anthropic') {
+    return 'https://api.anthropic.com/v1/messages/count_tokens'
+  }
+  return undefined
+}

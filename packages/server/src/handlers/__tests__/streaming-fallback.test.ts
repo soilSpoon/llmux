@@ -13,8 +13,10 @@ describe("handleStreamingProxy model fallback", () => {
     originalFetch = globalThis.fetch;
     
     tokenRefreshSpy = spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([{
+       type: 'oauth',
        accessToken: 'mock',
        refreshToken: 'mock', 
+       email: 'test@example.com',
        expiresAt: Date.now() + 3600000 
     } as any]);
     
@@ -27,14 +29,12 @@ describe("handleStreamingProxy model fallback", () => {
                 });
             }
             if (body.model === 'gemini-claude-opus-4-5-thinking') {
-              // Return a 429 error to trigger fallback
               return new Response(JSON.stringify({ error: { code: 429, message: "Rate limit exceeded" } }), {
                 status: 429,
                 headers: { "Content-Type": "application/json" },
               });
             }
         }
-        // Default response for other requests (including the fallback request)
         return new Response("data: [DONE]\n", {
           status: 200,
           headers: { "Content-Type": "text/event-stream" },

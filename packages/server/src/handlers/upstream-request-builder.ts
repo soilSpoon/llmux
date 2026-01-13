@@ -11,9 +11,10 @@ import {
   resolveOpencodeZenProtocol,
 } from '../providers'
 import type { SignatureStore } from '../stores'
-import { buildUpstreamHeaders, getDefaultEndpoint } from '../upstream'
+import { buildUpstreamHeaders, getCountTokensEndpoint, getDefaultEndpoint } from '../upstream'
 import { accountRotationManager } from './account-rotation'
 import { applyPromptCaching } from './caching-utils'
+import { AllCooldownError } from './error-utils'
 import {
   prepareRequestContext,
   type RequestContext,
@@ -30,7 +31,7 @@ export interface RequestBuilderInput {
   body: Record<string, unknown>
   options: ProxyOptions
   retryState: RetryState
-  mode: 'streaming' | 'non-streaming'
+  mode: 'streaming' | 'non-streaming' | 'count_tokens'
   signatureStore: SignatureStore
   startContext?: RequestContext
 }
@@ -139,7 +140,11 @@ export async function buildUpstreamRequest(
 
       // Endpoint already selected by prepareAntigravityRequest
     } else {
-      throw new Error(`No credentials available for Antigravity (all rate-limited)`)
+      throw new AllCooldownError(
+        `No credentials available for Antigravity (all rate-limited)`,
+        effectiveProvider,
+        currentModel
+      )
     }
   }
   // OpenAI Web
@@ -157,7 +162,11 @@ export async function buildUpstreamRequest(
       providerInfo.openaiWeb = { endpoint: openaiWebContext.endpoint }
     } else {
       // Fail fast if no credentials
-      throw new Error('No credentials available for OpenAI Web')
+      throw new AllCooldownError(
+        'No credentials available for OpenAI Web',
+        effectiveProvider,
+        currentModel
+      )
     }
   }
   // Gemini CLI - reuse antigravity credentials but with different endpoint/headers
@@ -196,7 +205,11 @@ export async function buildUpstreamRequest(
         throw new Error('Failed to prepare Gemini CLI context')
       }
     } else {
-      throw new Error('No credentials available for Gemini CLI')
+      throw new AllCooldownError(
+        'No credentials available for Gemini CLI',
+        effectiveProvider,
+        currentModel
+      )
     }
   }
 
@@ -354,7 +367,12 @@ export async function buildUpstreamRequest(
           creds || []
         )
         const credential = creds?.[retryState.accountIndex]
-        if (!credential) throw new Error('No credentials')
+        if (!credential)
+          throw new AllCooldownError(
+            'No credentials available (all rate-limited)',
+            effectiveProvider,
+            currentModel
+          )
 
         if (!endpoint) {
           endpoint = currentAuthProvider.getEndpoint(options.targetModel || currentModel || '', {
@@ -369,16 +387,24 @@ export async function buildUpstreamRequest(
         // If auth fails, we might still try with what we have or let fetch fail?
         // Proxy.ts returns 401. We can let Dispatcher handle errors, but here we construct request.
         // If we throw here, dispatcher catches it.
-        throw new Error(`No credentials for ${effectiveProvider}`)
+        throw new AllCooldownError(
+          `No credentials for ${effectiveProvider}`,
+          effectiveProvider,
+          currentModel
+        )
       }
     } else if (!endpoint || Object.keys(headers).length === 0) {
       // Standard endpoint/header
       if (!endpoint) {
-        endpoint =
-          getDefaultEndpoint(effectiveProvider, {
-            streaming: mode === 'streaming',
-            model: currentModel,
-          }) || ''
+        if (mode === 'count_tokens') {
+          endpoint = getCountTokensEndpoint(effectiveProvider) || ''
+        } else {
+          endpoint =
+            getDefaultEndpoint(effectiveProvider, {
+              streaming: mode === 'streaming',
+              model: currentModel,
+            }) || ''
+        }
       }
       if (Object.keys(headers).length === 0) {
         headers = buildUpstreamHeaders(effectiveProvider, options.apiKey, {

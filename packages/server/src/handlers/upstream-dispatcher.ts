@@ -2,7 +2,7 @@ import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '@llmux/auth'
 import { createLogger, formatIdToProviderName } from '@llmux/core'
 import { getRequestLogStore, type SignatureStore } from '../stores'
 import { parseRetryAfterMs } from '../upstream'
-import { parseUpstreamError, type UpstreamErrorInfo } from './error-utils'
+import { AllCooldownError, parseUpstreamError, type UpstreamErrorInfo } from './error-utils'
 import {
   createRetryState,
   handleUpstreamError,
@@ -34,22 +34,19 @@ export class NonRetriableError extends Error {
   }
 }
 
-export class AllCooldownError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'AllCooldownError'
-  }
-}
-
 export interface DispatchInput {
   reqId: string
   builder: (input: RequestBuilderInput) => Promise<RequestBuilderResult>
   initialBody: unknown
   options: ProxyOptions
-  mode: 'streaming' | 'non-streaming'
+  mode: 'streaming' | 'non-streaming' | 'count_tokens'
   signatureStore: SignatureStore
   onBeforeAttempt?: (attempt: number, meta: UpstreamRequestMeta) => void
   onSuccessfulAttempt?: (meta: UpstreamRequestMeta, response: Response) => void
+  // new, all optional
+  timeoutMs?: number
+  networkErrorBaseDelayMs?: number
+  networkErrorMaxDelayMs?: number
 }
 
 export interface DispatchResult {
@@ -123,7 +120,25 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         'Dispatching upstream request'
       )
 
-      lastResponse = await fetch(request.endpoint, request.init)
+      // Decide per-request timeout; fall back to per-mode defaults
+      const timeoutMs = input.timeoutMs ?? (mode === 'streaming' ? 60_000 : 30_000)
+
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+      try {
+        const init: RequestInit = {
+          ...request.init,
+          signal: controller.signal,
+          // non-streaming keep-alive; Bun already reuses connections but this
+          // makes the intent explicit and aligns with the spec
+          ...(mode === 'non-streaming' ? { keepalive: true } : {}),
+        }
+
+        lastResponse = await fetch(request.endpoint, init)
+      } finally {
+        clearTimeout(timeoutId)
+      }
 
       logger.debug(
         {
@@ -278,6 +293,21 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       }
 
       if (error instanceof AllCooldownError) {
+        if (options.router && error.model) {
+          logger.warn(
+            { reqId, provider: error.provider, model: error.model },
+            'All accounts rate limited for current choice, triggering router fallback'
+          )
+          options.router.handleRateLimit(error.model)
+
+          // Reset retry state for fallback attempt
+          retryState.accountIndex = -1
+          retryState.antigravityEndpointIndex = 0
+          // We don't reset retryState.attempt here because we want to count this as an attempt
+          // to avoid infinite loops if something is wrong with router.
+          continue
+        }
+
         return {
           response: new Response(
             JSON.stringify({
@@ -298,7 +328,14 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       }
 
       const message = error instanceof Error ? error.message : String(error)
-      logger.error({ error: message, attempt: retryState.attempt }, 'Upstream fetch/network error')
+      const isAbortError =
+        error instanceof Error &&
+        (error.name === 'AbortError' || message.toLowerCase().includes('aborted'))
+
+      logger.error(
+        { error: message, attempt: retryState.attempt, isTimeout: isAbortError },
+        'Upstream fetch/network error'
+      )
 
       // Antigravity specific rotation on network error
       if (request?.meta?.provider === 'antigravity') {
@@ -310,7 +347,15 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         }
       }
 
-      const delay = process.env.NODE_ENV === 'test' ? 1 : 1000
+      const isTest = process.env.NODE_ENV === 'test'
+
+      const baseDelayMs = input.networkErrorBaseDelayMs ?? 1_000
+      const maxDelayMs = input.networkErrorMaxDelayMs ?? 10_000
+
+      // attempt starts at 1, so exponent index is attempt - 1
+      const attemptIndex = Math.max(retryState.attempt - 1, 0)
+      const delay = isTest ? 1 : Math.min(baseDelayMs * 2 ** attemptIndex, maxDelayMs)
+
       await new Promise((r) => setTimeout(r, delay))
     }
   }

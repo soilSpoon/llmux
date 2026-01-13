@@ -68,13 +68,15 @@ export const serveCommand = cmd({
         hostname,
         corsOrigins,
         credentialProvider,
+        routing: {
+          modelMappings: config.routing?.modelMappings,
+        },
         amp: config.amp?.enabled
           ? {
               handlers: {},
               upstreamUrl: config.amp.upstreamUrl,
               upstreamApiKey,
               restrictManagementToLocalhost: config.amp.restrictManagementToLocalhost,
-              modelMappings: config.amp.modelMappings,
             }
           : undefined,
       })
@@ -87,6 +89,7 @@ export const serveCommand = cmd({
       console.log('  GET  /models              - List models and mappings')
       console.log('  POST /v1/chat/completions - OpenAI-compatible endpoint')
       console.log('  POST /v1/messages         - Anthropic-compatible endpoint')
+      console.log('  POST /v1/messages/count_tokens - Anthropic count_tokens endpoint')
       console.log('  POST /v1/generateContent  - Gemini-compatible endpoint')
       console.log('  POST /v1/proxy            - Explicit proxy endpoint')
       console.log()
