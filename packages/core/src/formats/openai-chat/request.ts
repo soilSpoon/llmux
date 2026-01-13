@@ -89,9 +89,14 @@ export function parseRequest(request: OpenAIChatRequest): UnifiedRequest {
     }
   }
 
-  // Parse GLM thinking config
+  // Parse thinking config
   if (request.thinking) {
     result.thinking = parseGLMThinking(request.thinking)
+  }
+
+  // Preserve stream flag
+  if (request.stream !== undefined) {
+    result.stream = request.stream
   }
 
   return result
@@ -107,12 +112,22 @@ export function transformRequest(
   const result: OpenAIChatRequest = {
     model,
     messages: [],
+    stream: request.stream,
   }
 
   const isReasoning = isReasoningModel(model)
 
-  // Add system message if present
-  if (request.system) {
+  // Add system messages
+  // Prefer systemBlocks (multiple blocks) over single system string to preserve structure
+  if (request.systemBlocks && request.systemBlocks.length > 0) {
+    if (!result.messages) result.messages = []
+    for (const block of request.systemBlocks) {
+      result.messages.push({
+        role: isReasoning ? 'developer' : 'system',
+        content: block.text,
+      })
+    }
+  } else if (request.system) {
     if (!result.messages) result.messages = []
     result.messages.push({
       role: isReasoning ? 'developer' : 'system',

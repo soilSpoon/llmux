@@ -92,6 +92,16 @@ export interface ProviderRequestStrategy {
    * Called when account rotation occurs
    */
   onAccountRotation?(retryState: RetryState): void
+
+  /**
+   * Handle raw stream events (e.g. for signature extraction)
+   */
+  handleStreamEvent?(ctx: StreamEventContext): void
+
+  /**
+   * Handle stream completion (e.g. for caching thinking)
+   */
+  onStreamComplete?(ctx: StreamCompleteContext): void
 }
 
 /**
@@ -109,4 +119,27 @@ export function getProviderStrategy(provider: ProviderName): ProviderRequestStra
 
 export function hasProviderStrategy(provider: ProviderName): boolean {
   return strategies.has(provider)
+}
+
+export interface ProviderStreamContext {
+  [key: string]: unknown
+}
+
+export interface StreamEventContext {
+  event: string
+  context: ProviderStreamContext
+  state: {
+    accumulatedSignatures: string[]
+  }
+}
+
+export interface StreamCompleteContext {
+  context: ProviderStreamContext
+  state: {
+    accumulatedThinking: string
+    accumulatedSignatures: string[]
+    finalModel: string
+    targetModel: string
+  }
+  reqId: string
 }

@@ -2,9 +2,7 @@
 import {
   AnthropicStreamingBuilder,
   createLogger,
-  createTextHash,
   getFormat,
-  getModelFamily,
   getProvider,
   OpenAIChatStreamingBuilder,
   type ProviderName,
@@ -13,12 +11,9 @@ import {
 } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
 import { getRequestLogStore, type SignatureStore } from '../stores'
-import {
-  handleEmptyResponse,
-  logStreamMetrics,
-  recordSignaturesFromSSE,
-  type StreamMetrics,
-} from './stream-helpers'
+import type { ProviderStreamContext } from './providers/provider-strategy'
+import { getProviderStrategy } from './providers/provider-strategy'
+import { handleEmptyResponse, logStreamMetrics, type StreamMetrics } from './stream-helpers'
 import { createStreamDebugLogger, shouldEnableDebugLogging } from './stream-helpers/stream-debug'
 import { getParserType, splitSSEEvents } from './stream-processor'
 
@@ -51,7 +46,7 @@ export interface StreamTransformerOptions {
 }
 
 export function createStreamTransformer(options: StreamTransformerOptions) {
-  const { startTime, sourceFormat, targetProvider, streamContext, signatureContext } = options
+  const { startTime, sourceFormat, targetProvider, streamContext } = options
 
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
@@ -117,6 +112,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   const parsingProvider = targetProvider
   let parserType = getParserType(parsingProvider)
 
+  // Get provider strategy for handling provider-specific stream logic
+  const providerStrategy = getProviderStrategy(targetProvider)
+
   const debugLogger = createStreamDebugLogger({
     reqId: options.reqId,
     targetProvider: targetProvider,
@@ -145,22 +143,15 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
         debugLogger.logEvent(rawEvent)
 
-        if (signatureContext) {
-          // Record signatures to legacy store
-          // AND capture them for thinking cache
-          // We need custom logic here since recordSignaturesFromSSE is void
-          // But looking at imports, we can import extractSignaturesFromSSE
-          // Let's rely on recordSignaturesFromSSE for legacy, but we need to extract for ourselves?
-          // Actually, let's update recordSignaturesFromSSE in stream-helpers or just copy extraction here.
-          // Importing extractSignaturesFromSSE from valid location:
-          const { extractSignaturesFromSSE } = require('./signature-response')
-          const signatures = extractSignaturesFromSSE(`data: ${rawEvent}`)
-
-          if (signatures.length > 0) {
-            streamContext.accumulatedSignatures.push(...signatures)
-            // Also call legacy recorder
-            recordSignaturesFromSSE(rawEvent, signatureContext)
-          }
+        // Provider Strategy: Handle raw stream event (e.g. signature extraction)
+        if (providerStrategy?.handleStreamEvent) {
+          providerStrategy.handleStreamEvent({
+            event: rawEvent,
+            context: options as unknown as ProviderStreamContext,
+            state: {
+              accumulatedSignatures: streamContext.accumulatedSignatures,
+            },
+          })
         }
 
         try {
@@ -264,17 +255,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     },
 
     flush(controller) {
-      logger.info(
-        {
-          reqId: options.reqId,
-          bufferLength: buffer.length,
-          bufferContent: buffer.slice(0, 200),
-          chunkCountBefore: streamContext.chunkCount,
-          totalBytesBefore: streamContext.totalBytes,
-        },
-        '[stream-flush] Starting flush phase'
-      )
-
       if (buffer.trim()) {
         parserType = getParserType(parsingProvider)
         const events =
@@ -282,27 +262,18 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
             ? buffer.split('\n').filter((e) => e.trim())
             : buffer.split('\n\n').filter((e) => e.trim())
 
-        logger.info(
-          {
-            reqId: options.reqId,
-            eventCount: events.length,
-            parserType,
-          },
-          '[stream-flush] Buffer events to process'
-        )
-
-        const { extractSignaturesFromSSE } = require('./signature-response')
-
         for (const event of events) {
           if (!event.trim()) continue
 
-          // Record signatures in flush phase as well
-          if (signatureContext) {
-            const signatures = extractSignaturesFromSSE(`data: ${event}`)
-            if (signatures.length > 0) {
-              streamContext.accumulatedSignatures.push(...signatures)
-              recordSignaturesFromSSE(event, signatureContext)
-            }
+          // Provider Strategy: Handle raw stream event in flush
+          if (providerStrategy?.handleStreamEvent) {
+            providerStrategy.handleStreamEvent({
+              event,
+              context: options as unknown as ProviderStreamContext,
+              state: {
+                accumulatedSignatures: streamContext.accumulatedSignatures,
+              },
+            })
           }
 
           try {
@@ -409,47 +380,19 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
       }
 
       streamContext.duration = Date.now() - startTime
-      logger.info(
-        {
+
+      // Provider Strategy: Handle stream completion (e.g. caching thinking)
+      if (providerStrategy?.onStreamComplete) {
+        providerStrategy.onStreamComplete({
+          context: options as unknown as ProviderStreamContext,
+          state: {
+            accumulatedThinking: streamContext.accumulatedThinking,
+            accumulatedSignatures: streamContext.accumulatedSignatures,
+            finalModel: streamContext.finalModel,
+            targetModel: streamContext.targetModel,
+          },
           reqId: options.reqId,
-          chunkCountFinal: streamContext.chunkCount,
-          totalBytesFinal: streamContext.totalBytes,
-          durationMs: streamContext.duration,
-          hasThinking: !!streamContext.accumulatedThinking,
-          signatureCount: streamContext.accumulatedSignatures.length,
-        },
-        '[stream-flush] Flush complete'
-      )
-
-      // Antigravity: Store Thinking Text in Cache
-      if (
-        signatureContext?.signatureCache &&
-        streamContext.accumulatedThinking &&
-        streamContext.accumulatedSignatures.length > 0
-      ) {
-        const { signatureCache, sessionId } = signatureContext
-        const thinkingText = streamContext.accumulatedThinking
-        const model = streamContext.finalModel || streamContext.targetModel || 'unknown'
-
-        // Use the last signature found (usually corresponds to the block)
-        // Or store for ALL signatures found? Typically 1 thinking block = 1 signature.
-        const signature =
-          streamContext.accumulatedSignatures[streamContext.accumulatedSignatures.length - 1]
-        const textHash = createTextHash(thinkingText)
-        const family = getModelFamily(model) // We need this helper
-
-        logger.debug(
-          { reqId: options.reqId, model, textLength: thinkingText.length },
-          'Caching complete thinking text'
-        )
-
-        if (signature) {
-          try {
-            signatureCache.store({ sessionId, model, textHash }, signature, family, thinkingText)
-          } catch (err) {
-            logger.warn({ error: String(err) }, 'Failed to cache thinking text')
-          }
-        }
+        })
       }
 
       handleEmptyResponse(streamContext, controller, encoder)

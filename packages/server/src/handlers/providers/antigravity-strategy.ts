@@ -14,13 +14,18 @@ import {
   ANTIGRAVITY_API_PATH_STREAM,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
 } from '@llmux/auth'
-import { createLogger } from '@llmux/core'
+import { createLogger, createTextHash, getModelFamily, type SignatureCache } from '@llmux/core'
 import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
   isLicenseError,
   prepareAntigravityRequest,
   shouldFallbackToDefaultProject,
 } from '../../providers/antigravity'
+// Remove unused type imports to fix lint error
+// import type { SignatureStore } from '../../stores'
+import { extractSignaturesFromSSE } from '../signature-response'
+import { recordSignaturesFromSSE } from '../stream-helpers'
+import type { SignatureContext } from '../stream-helpers/stream-signature-recorder'
 import type {
   ErrorContext,
   ErrorHandlingResult,
@@ -28,10 +33,24 @@ import type {
   ProviderRequestContext,
   ProviderRequestStrategy,
   RetryState,
+  StreamCompleteContext,
+  StreamEventContext,
 } from './provider-strategy'
 import { registerProviderStrategy } from './provider-strategy'
 
 const logger = createLogger({ service: 'antigravity-strategy' })
+
+// Define Antigravity-specific context structure
+interface AntigravityStreamContext {
+  signatureContext?: SignatureContext & {
+    signatureCache?: SignatureCache
+    sessionId: string
+    // Allow other fields
+    [key: string]: unknown
+  }
+  // Allow other fields
+  [key: string]: unknown
+}
 
 export class AntigravityStrategy implements ProviderRequestStrategy {
   readonly provider = 'antigravity' as const
@@ -154,6 +173,54 @@ export class AntigravityStrategy implements ProviderRequestStrategy {
 
   onAccountRotation(retryState: RetryState): void {
     retryState.antigravityEndpointIndex = 0
+  }
+
+  handleStreamEvent(ctx: StreamEventContext): void {
+    const { event, context, state } = ctx
+    const agContext = context as AntigravityStreamContext
+
+    if (agContext.signatureContext) {
+      const signatures = extractSignaturesFromSSE(`data: ${event}`)
+      if (signatures.length > 0) {
+        state.accumulatedSignatures.push(...signatures)
+        recordSignaturesFromSSE(event, agContext.signatureContext)
+      }
+    }
+  }
+
+  onStreamComplete(ctx: StreamCompleteContext): void {
+    const { context, state, reqId } = ctx
+    const { accumulatedThinking, accumulatedSignatures, finalModel, targetModel } = state
+    const agContext = context as AntigravityStreamContext
+
+    // Store Thinking Text in Cache
+    if (
+      agContext.signatureContext?.signatureCache &&
+      accumulatedThinking &&
+      accumulatedSignatures.length > 0
+    ) {
+      const { signatureCache, sessionId } = agContext.signatureContext
+      const thinkingText = accumulatedThinking
+      const model = finalModel || targetModel || 'unknown'
+
+      // Use the last signature found
+      const signature = accumulatedSignatures[accumulatedSignatures.length - 1]
+      const textHash = createTextHash(thinkingText)
+      const family = getModelFamily(model)
+
+      logger.debug(
+        { reqId, model, textLength: thinkingText.length },
+        'Caching complete thinking text'
+      )
+
+      if (signature && signatureCache) {
+        try {
+          signatureCache.store({ sessionId, model, textHash }, signature, family, thinkingText)
+        } catch (err) {
+          logger.warn({ error: String(err) }, 'Failed to cache thinking text')
+        }
+      }
+    }
   }
 }
 
