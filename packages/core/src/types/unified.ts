@@ -9,6 +9,7 @@ export interface UnifiedRequest {
   toolChoice?: UnifiedToolChoice // Tool selection mode
   config?: GenerationConfig
   thinking?: ThinkingConfig
+  userRole?: string // User role for Antigravity (user_role)
   metadata?: RequestMetadata
   stream?: boolean // Preserves stream parameter
 }
