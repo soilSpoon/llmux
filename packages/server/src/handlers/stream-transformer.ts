@@ -114,8 +114,8 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     )
   }
 
-  const parsingProvider = targetProvider === 'gemini-cli' ? 'antigravity' : targetProvider
-  let parserType = getParserType(parsingProvider, formatContext.model)
+  const parsingProvider = targetProvider
+  let parserType = getParserType(parsingProvider)
 
   const debugLogger = createStreamDebugLogger({
     reqId: options.reqId,
@@ -135,7 +135,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
       debugLogger.logChunk(text)
 
-      parserType = getParserType(parsingProvider, formatContext.model)
+      parserType = getParserType(parsingProvider)
       const { events: rawEvents, remaining } = splitSSEEvents(buffer, parserType, text)
 
       buffer = remaining
@@ -276,7 +276,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
       )
 
       if (buffer.trim()) {
-        parserType = getParserType(parsingProvider, formatContext.model)
+        parserType = getParserType(parsingProvider)
         const events =
           parserType === 'sse-line-delimited'
             ? buffer.split('\n').filter((e) => e.trim())

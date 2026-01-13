@@ -4,6 +4,7 @@
  */
 
 import type { StopReason, StreamChunk, UsageInfo } from '../../types/unified'
+import { normalizeBashArguments } from './bash-normalization'
 import type {
   GeminiFinishReason,
   GeminiPart,
@@ -179,6 +180,12 @@ function parseFunctionCallChunk(
     partialJson = JSON.stringify(args)
   }
 
+  // Normalize Bash arguments (cmd/code -> command)
+  let normalizedArgs = args
+  if (typeof args === 'object' && args !== null && part.functionCall?.name) {
+    normalizedArgs = normalizeBashArguments(part.functionCall.name, args as Record<string, unknown>)
+  }
+
   // Create the result with original args preserved
   const result: StreamChunk = {
     type: 'tool_call',
@@ -189,7 +196,7 @@ function parseFunctionCallChunk(
       toolCall: {
         id: part.functionCall?.id || generateId(),
         name: part.functionCall?.name ?? '',
-        arguments: args,
+        arguments: normalizedArgs,
       },
       ...(partialJson !== undefined && { partialJson }),
     },

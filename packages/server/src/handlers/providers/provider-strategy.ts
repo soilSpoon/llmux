@@ -82,6 +82,16 @@ export interface ProviderRequestStrategy {
    * Handle upstream errors (provider-specific retry logic)
    */
   handleError?(ctx: ErrorContext, retryState: RetryState): Promise<ErrorHandlingResult | null>
+
+  /**
+   * Handle network errors (provider-specific retry logic)
+   */
+  handleNetworkError?(error: Error, retryState: RetryState): Promise<ErrorHandlingResult | null>
+
+  /**
+   * Called when account rotation occurs
+   */
+  onAccountRotation?(retryState: RetryState): void
 }
 
 /**

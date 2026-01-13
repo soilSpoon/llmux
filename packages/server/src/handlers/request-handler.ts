@@ -299,8 +299,9 @@ export async function handleUpstreamError(
         )
 
       // Reset endpoint index when rotating account or preparing for fallback
-      if (provider === 'antigravity') {
-        retryState.antigravityEndpointIndex = 0
+      const strategy = getProviderStrategy(provider)
+      if (strategy?.onAccountRotation) {
+        strategy.onAccountRotation(retryState)
       }
 
       credentials = (await TokenRefresh.ensureFresh(provider)) || []

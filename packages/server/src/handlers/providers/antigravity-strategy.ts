@@ -139,6 +139,22 @@ export class AntigravityStrategy implements ProviderRequestStrategy {
 
     return null
   }
+
+  async handleNetworkError(
+    _error: Error,
+    retryState: RetryState
+  ): Promise<ErrorHandlingResult | null> {
+    retryState.antigravityEndpointIndex++
+    if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
+      const delay = process.env.NODE_ENV === 'test' ? 1 : 200
+      return { action: 'retry', delay }
+    }
+    return null
+  }
+
+  onAccountRotation(retryState: RetryState): void {
+    retryState.antigravityEndpointIndex = 0
+  }
 }
 
 const antigravityStrategy = new AntigravityStrategy()

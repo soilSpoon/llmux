@@ -3,11 +3,10 @@ import {
   type FormatId,
   formatIdToProviderName,
   getFormat,
+  getProvider,
   type ProviderName,
-  type StreamChunk,
 } from '@llmux/core'
 import type { RequestFormat } from '../middleware/format'
-import { normalizeBashArguments } from './bash-normalization'
 
 export {
   type BlockType,
@@ -20,18 +19,6 @@ export {
 } from './stream-helpers'
 
 const logger = createLogger({ service: 'stream-processor' })
-
-function getFormatIdForProvider(provider: string): FormatId {
-  if (
-    provider === 'antigravity' ||
-    provider === 'gemini-cli' ||
-    provider === 'google' ||
-    provider === 'gemini'
-  )
-    return 'google-gemini'
-  if (provider === 'anthropic') return 'anthropic-messages'
-  return 'openai-chat'
-}
 
 export interface StreamProcessorContext {
   reqId: string
@@ -58,48 +45,14 @@ export interface StreamAccumulator {
   accumulatedSignatures: string[]
 }
 
-function applyBashNormalizationToChunk(chunk: StreamChunk): StreamChunk {
-  if (chunk.type !== 'tool_call' || !chunk.delta?.toolCall) {
-    return chunk
-  }
-
-  const toolCall = chunk.delta.toolCall
-  if (!toolCall.name || !toolCall.arguments || typeof toolCall.arguments !== 'object') {
-    return chunk
-  }
-
-  const normalizedArgs = normalizeBashArguments(
-    toolCall.name,
-    toolCall.arguments as Record<string, unknown>
-  )
-
-  if (normalizedArgs === toolCall.arguments) {
-    return chunk
-  }
-
-  logger.trace(
-    { toolName: toolCall.name, originalArgs: toolCall.arguments, normalizedArgs },
-    '[stream-processor] Bash argument normalization applied'
-  )
-
-  return {
-    ...chunk,
-    delta: {
-      ...chunk.delta,
-      toolCall: { ...toolCall, arguments: normalizedArgs },
-    },
-  }
-}
-
 export function transformStreamChunk(
   chunk: string,
   fromProvider: ProviderName,
   toFormat: RequestFormat
 ): string | string[] {
-  const effectiveFromProvider = fromProvider === 'gemini-cli' ? 'antigravity' : fromProvider
   const targetProviderName = formatIdToProviderName(toFormat)
 
-  if (effectiveFromProvider === targetProviderName && !chunk.trim().startsWith('{')) return chunk
+  if (fromProvider === targetProviderName && !chunk.trim().startsWith('{')) return chunk
 
   if (chunk.trim() === 'data: [DONE]') {
     return chunk
@@ -110,7 +63,9 @@ export function transformStreamChunk(
   }
 
   try {
-    const sourceFormatId = getFormatIdForProvider(effectiveFromProvider)
+    // Use provider to get format ID
+    const sourceProvider = getProvider(fromProvider)
+    const sourceFormatId = sourceProvider.getFormatForModel?.('unknown') ?? 'openai-chat'
     const sourceFormat = getFormat(sourceFormatId)
     const targetFormat = getFormat(toFormat as FormatId)
 
@@ -128,11 +83,7 @@ export function transformStreamChunk(
     }
 
     if (Array.isArray(unified)) {
-      const normalized =
-        effectiveFromProvider === 'antigravity'
-          ? unified.map((c) => applyBashNormalizationToChunk(c))
-          : unified
-      return normalized
+      return unified
         .flatMap((c) =>
           targetFormat.buildStreamChunk?.(c, {
             provider: targetProviderName,
@@ -146,10 +97,7 @@ export function transformStreamChunk(
       return chunk
     }
 
-    const normalizedChunk =
-      effectiveFromProvider === 'antigravity' ? applyBashNormalizationToChunk(unified) : unified
-
-    const result = targetFormat.buildStreamChunk(normalizedChunk, {
+    const result = targetFormat.buildStreamChunk(unified, {
       provider: targetProviderName,
       model: 'unknown',
     })
@@ -168,17 +116,19 @@ export function transformStreamChunk(
   }
 }
 
-export function getParserType(
-  provider: ProviderName,
-  model?: string
-): 'sse-standard' | 'sse-line-delimited' {
-  // Antigravity/Gemini usually uses standard SSE (\n\n)
-  // But some direct Gemini/Vertex integrations might use line-delimited
-  if (provider === 'antigravity' || provider === 'gemini' || provider === 'gemini-cli') {
-    if (model?.toLowerCase().includes('gemini')) {
-      return 'sse-standard'
+export function getParserType(provider: ProviderName): 'sse-standard' | 'sse-line-delimited' {
+  try {
+    const providerConfig = getProvider(provider)
+    if (providerConfig.config.defaultStreamParser) {
+      return providerConfig.config.defaultStreamParser
     }
+  } catch (error) {
+    logger.warn(
+      { provider, error: String(error) },
+      'Failed to get provider config for stream parser'
+    )
   }
+  // Default to sse-standard
   return 'sse-standard'
 }
 

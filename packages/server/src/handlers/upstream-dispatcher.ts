@@ -1,8 +1,8 @@
-import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '@llmux/auth'
 import { createLogger, formatIdToProviderName } from '@llmux/core'
 import { getRequestLogStore, type SignatureStore } from '../stores'
 import { parseRetryAfterMs } from '../upstream'
 import { AllCooldownError, parseUpstreamError, type UpstreamErrorInfo } from './error-utils'
+import { getProviderStrategy } from './providers/provider-strategy'
 import {
   createRetryState,
   handleUpstreamError,
@@ -337,13 +337,23 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         'Upstream fetch/network error'
       )
 
-      // Antigravity specific rotation on network error
-      if (request?.meta?.provider === 'antigravity') {
-        retryState.antigravityEndpointIndex++
-        if (retryState.antigravityEndpointIndex < ANTIGRAVITY_ENDPOINT_FALLBACKS.length) {
-          const delay = process.env.NODE_ENV === 'test' ? 1 : 200
-          await new Promise((r) => setTimeout(r, delay))
-          continue
+      // Provider-specific network error handling (e.g. Antigravity rotation)
+      if (request?.meta?.provider) {
+        const strategy = getProviderStrategy(request.meta.provider)
+        if (strategy?.handleNetworkError) {
+          const strategyResult = await strategy.handleNetworkError(
+            error instanceof Error ? error : new Error(message),
+            retryState
+          )
+          if (strategyResult) {
+            if (strategyResult.action === 'retry') {
+              if (strategyResult.delay) {
+                await new Promise((r) => setTimeout(r, strategyResult.delay))
+              }
+              continue
+            }
+            // Handle other actions if needed, for now mostly retry
+          }
         }
       }
 

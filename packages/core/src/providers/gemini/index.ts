@@ -26,6 +26,7 @@ export class GeminiProvider extends BaseProvider {
       supportsThinking: true,
       supportsTools: true,
       authType: 'apiKey',
+      defaultStreamParser: 'sse-standard',
     }
   }
 
