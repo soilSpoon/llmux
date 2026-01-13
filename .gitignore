@@ -34,6 +34,7 @@ coverage/
 .agent
 .agents
 .specify
+.claude
 
 *.db
 *.db-shm
