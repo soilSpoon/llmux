@@ -54,12 +54,11 @@ export class Router {
     // 1. Resolve using ModelRouter (includes explicit, mappings, lookup, inference)
     const resolution = await this.modelRouter.resolve(requestedModel)
 
-    logger.debugTemp(
+    logger.debug(
       {
         requestedModel,
         primaryProvider: resolution.providerId,
         primaryModel: resolution.targetModel,
-        fallbackCount: resolution.fallbacks.length,
         fallbacks: resolution.fallbacks.map((f) => `${f.provider}/${f.model}`),
         source: resolution.source,
       },
@@ -68,15 +67,15 @@ export class Router {
 
     // 2. Check cooldown for primary choice
     const key = `${resolution.providerId}:${resolution.targetModel}`
-    if (this.cooldownManager.isAvailable(key)) {
-      logger.debugTemp({ key }, '[DEBUG] Primary choice available')
+    // Check both the specific provider:model key AND the requested model alias
+    // This ensures that if handleRateLimit failed to resolve the provider key (e.g. missing mapping),
+    // we still respect the rate limit on the model name itself.
+    if (this.cooldownManager.isAvailable(key) && this.cooldownManager.isAvailable(requestedModel)) {
       return {
         provider: resolution.providerId as ProviderName,
         model: resolution.targetModel,
       }
     }
-
-    logger.debugTemp({ key }, '[DEBUG] Primary choice in cooldown, trying fallbacks')
 
     // 3. Try fallbacks from resolution
     for (const fallback of resolution.fallbacks) {
@@ -84,7 +83,7 @@ export class Router {
       const fallbackKey = `${fallback.provider}:${fallbackModel}`
 
       const available = this.cooldownManager.isAvailable(fallbackKey)
-      logger.debugTemp(
+      logger.debug(
         {
           requestedModel,
           fallbackProvider: fallback.provider,
@@ -96,13 +95,11 @@ export class Router {
       )
 
       if (available) {
-        // logger.debugTemp({ fallbackKey }, '[DEBUG] Fallback available, using it')
         return {
           provider: fallback.provider,
           model: fallbackModel,
         }
       }
-      logger.debugTemp({ fallbackKey }, '[DEBUG] Fallback in cooldown')
     }
 
     // 4. Default fallback rotation (legacy behavior if everything fails)
@@ -113,7 +110,6 @@ export class Router {
       if (provider) {
         const legacyKey = `${provider}:${requestedModel}`
         if (this.cooldownManager.isAvailable(legacyKey)) {
-          logger.debugTemp({ provider, requestedModel }, '[DEBUG] Using legacy fallbackOrder')
           return {
             provider,
             model: requestedModel,
@@ -161,7 +157,6 @@ export class Router {
     if (this.config.modelMapping?.[model]) {
       const mapping = this.config.modelMapping[model]
       const key = `${mapping.provider}:${mapping.model}`
-      logger.debugTemp({ model, key }, '[Router] Also marking mapped provider:model key')
       this.cooldownManager.markRateLimited(key, retryAfterMs)
     }
 

@@ -31,6 +31,30 @@ export function incrementAttempt(state: RetryState): void {
   state.attempt++
 }
 
+function computeRateLimitDelayMs(
+  retryState: RetryState,
+  retryAfterMs?: number
+): number | undefined {
+  // Keep tests fast and deterministic
+  if (process.env.NODE_ENV === 'test') {
+    return 1
+  }
+
+  const MAX_DELAY_MS = 30_000 // cap at 30 seconds
+
+  // If upstream gave us a Retry-After, respect it (with a cap)
+  if (retryAfterMs !== undefined && retryAfterMs > 0) {
+    return Math.min(retryAfterMs, MAX_DELAY_MS)
+  }
+
+  const BASE_DELAY_MS = 1000
+  const attempt = Math.max(0, retryState.attempt ?? 0)
+
+  // Exponential backoff: 1s, 2s, 4s, 8s, ... up to MAX_DELAY_MS
+  const delay = BASE_DELAY_MS * 2 ** attempt
+  return Math.min(delay, MAX_DELAY_MS)
+}
+
 /**
  * Handles upstream errors and determines the next action (retry logic).
  *
@@ -145,7 +169,7 @@ export async function handleUpstreamError(
           logger.warn({ reqId, targetModel, err }, 'Failed to resolve fallback with API key')
         }
       }
-      return { action: 'retry', delay: process.env.NODE_ENV === 'test' ? 1 : 1000 }
+      return { action: 'retry', delay: computeRateLimitDelayMs(retryState, retryAfter) }
     }
 
     // Mark current as rate limited with explicit Hard/Soft type
@@ -237,14 +261,18 @@ export async function handleUpstreamError(
       return { action: 'all-cooldown' }
     }
 
-    if (accountRotationManager.hasNext(provider, model, retryState.accountIndex, credentials)) {
+    // Only attempt account rotation if we know which account failed (index != -1)
+    if (
+      retryState.accountIndex !== -1 &&
+      accountRotationManager.hasNext(provider, model, retryState.accountIndex, credentials)
+    ) {
       // Just retry - the builder will call getCredential(..., currentIndex)
       // which will naturally move to the next available account.
       return { action: 'retry' }
     }
 
     // Fallback behavior: just retry with delay if nothing else works
-    return { action: 'retry', delay: process.env.NODE_ENV === 'test' ? 1 : 1000 }
+    return { action: 'retry', delay: computeRateLimitDelayMs(retryState, retryAfter) }
   }
 
   return { action: 'throw' }

@@ -182,4 +182,51 @@ describe('buildRoutingConfig', () => {
       'Provider must be specified for model mapping: b'
     )
   })
+
+  it('should preserve fallbacks on primary target model for depth-first traversal', async () => {
+    // Given: A -> [B, C, D] where B is "provider/model-b"
+    // When buildRoutingConfig processes this
+    // Then: "model-b" should also have fallbacks [C, D] so ModelRouter can traverse depth-first
+    const mappings = [
+      {
+        from: 'alias-a',
+        to: ['openai/model-b', 'anthropic/model-c', 'gemini/model-d'],
+      },
+    ]
+
+    const result = await buildRoutingConfig(mappings)
+
+    expect(result.modelMapping?.['alias-a']).toEqual({
+      provider: 'openai',
+      model: 'model-b',
+      fallbacks: ['anthropic/model-c', 'gemini/model-d'],
+    })
+
+    expect(result.modelMapping?.['model-b']).toEqual({
+      provider: 'openai',
+      model: 'model-b',
+      fallbacks: ['anthropic/model-c', 'gemini/model-d'],
+    })
+  })
+
+  it('should support nested fallback chains through buildRoutingConfig', async () => {
+    // Given: A -> [B, C] and B -> [D, E]
+    // When: Request comes for A and B fails
+    // Then: ModelRouter should find B's fallbacks [D, E] because buildRoutingConfig set them
+    const mappings = [
+      { from: 'model-a', to: ['openai/model-b', 'model-c'] },
+      { from: 'model-b', to: ['openai/model-b-impl', 'anthropic/model-d', 'gemini/model-e'] },
+      { from: 'model-c', to: 'anthropic/model-c-impl' },
+    ]
+
+    const result = await buildRoutingConfig(mappings)
+
+    expect(result.modelMapping?.['model-a']?.fallbacks).toEqual(['model-c'])
+
+    expect(result.modelMapping?.['model-b']).toEqual({
+      provider: 'openai',
+      model: 'model-b-impl',
+      fallbacks: ['anthropic/model-d', 'gemini/model-e'],
+    })
+  })
 })

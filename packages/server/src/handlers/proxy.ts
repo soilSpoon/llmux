@@ -81,6 +81,8 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       stream?: boolean
     }
 
+    logger.info({ reqId, model: body.model }, 'Incoming request')
+
     const { response: upstreamResponse, meta } = await executeUpstream({
       reqId,
       body,

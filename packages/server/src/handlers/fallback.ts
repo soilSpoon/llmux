@@ -1,7 +1,6 @@
 import { createLogger, isValidProviderName } from '@llmux/core'
 import type { ModelMapping } from '../config'
 import { detectFormat } from '../middleware/format'
-import type { ModelLookup } from '../models/lookup'
 import type { RouteParams } from '../router'
 import type { Router } from '../routing'
 import type { UpstreamProxy } from '../upstream/proxy'

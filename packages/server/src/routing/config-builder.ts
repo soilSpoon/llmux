@@ -23,7 +23,6 @@ async function resolveProvider(
     }
   }
 
-  // Alias lookup: check if this model is defined as another 'from' mapping
   if (allMappings && !visited.has(parsed.model)) {
     visited.add(parsed.model)
     const alias = allMappings.find((m) => m.from === parsed.model)
@@ -38,7 +37,6 @@ async function resolveProvider(
     }
   }
 
-  // Slash fallback: handle "provider/model" where provider is not in KNOWN_PROVIDERS
   if (typeof target === 'string' && target.includes('/')) {
     const parts = target.split('/')
     const possibleProvider = parts[0]
@@ -53,6 +51,13 @@ async function resolveProvider(
   return undefined
 }
 
+interface ResolvedMapping {
+  from: string
+  primary: { provider: ProviderName; model: string }
+  fallbackIds: string[]
+  resolvedFallbacks: Array<{ provider: ProviderName; model: string; originalName: string }>
+}
+
 export async function buildRoutingConfig(
   modelMappings?: ModelMapping[],
   modelLookup?: ModelLookup
@@ -61,7 +66,7 @@ export async function buildRoutingConfig(
     return {}
   }
 
-  const routingConfig: RoutingConfig = { modelMapping: {} }
+  const resolvedMappings: ResolvedMapping[] = []
 
   for (const mapping of modelMappings) {
     const targets = Array.isArray(mapping.to) ? mapping.to : [mapping.to]
@@ -79,7 +84,11 @@ export async function buildRoutingConfig(
     }
 
     const fallbacks = targets.slice(1)
-    const resolvedFallbacks: { provider: ProviderName; model: string; originalName: string }[] = []
+    const resolvedFallbacks: Array<{
+      provider: ProviderName
+      model: string
+      originalName: string
+    }> = []
 
     for (const fallback of fallbacks) {
       const resolved = await resolveProvider(fallback, modelLookup, modelMappings)
@@ -94,36 +103,57 @@ export async function buildRoutingConfig(
       })
     }
 
-    const fallbackModelIds = resolvedFallbacks.map((r) => r.originalName)
+    resolvedMappings.push({
+      from: mapping.from,
+      primary: resolvedPrimary,
+      fallbackIds: resolvedFallbacks.map((r) => r.originalName),
+      resolvedFallbacks,
+    })
+  }
 
-    if (routingConfig.modelMapping) {
-      routingConfig.modelMapping[mapping.from] = {
-        provider: resolvedPrimary.provider,
-        model: resolvedPrimary.model,
-        fallbacks: fallbackModelIds,
+  const routingConfig: RoutingConfig = { modelMapping: {} }
+
+  for (const resolved of resolvedMappings) {
+    if (!routingConfig.modelMapping) continue
+
+    routingConfig.modelMapping[resolved.from] = {
+      provider: resolved.primary.provider,
+      model: resolved.primary.model,
+      fallbacks: resolved.fallbackIds,
+    } satisfies ModelResolvedConfig
+
+    const ownFallbackIds = resolved.fallbackIds
+    const existingPrimary = routingConfig.modelMapping[resolved.primary.model]
+
+    if (!existingPrimary) {
+      routingConfig.modelMapping[resolved.primary.model] = {
+        provider: resolved.primary.provider,
+        model: resolved.primary.model,
+        fallbacks: ownFallbackIds.length > 0 ? ownFallbackIds : undefined,
       } satisfies ModelResolvedConfig
+    } else {
+      const existingFallbacks = existingPrimary.fallbacks ?? []
+      if (ownFallbackIds.length > existingFallbacks.length) {
+        existingPrimary.fallbacks = ownFallbackIds
+      }
+    }
+  }
 
-      if (!routingConfig.modelMapping[resolvedPrimary.model]) {
-        routingConfig.modelMapping[resolvedPrimary.model] = {
-          provider: resolvedPrimary.provider,
-          model: resolvedPrimary.model,
-          fallbacks: fallbackModelIds.length > 0 ? fallbackModelIds : undefined,
+  for (const resolved of resolvedMappings) {
+    if (!routingConfig.modelMapping) continue
+
+    for (const fb of resolved.resolvedFallbacks) {
+      if (!routingConfig.modelMapping[fb.originalName]) {
+        routingConfig.modelMapping[fb.originalName] = {
+          provider: fb.provider,
+          model: fb.model,
         } satisfies ModelResolvedConfig
       }
-
-      for (const resolved of resolvedFallbacks) {
-        if (!routingConfig.modelMapping[resolved.originalName]) {
-          routingConfig.modelMapping[resolved.originalName] = {
-            provider: resolved.provider,
-            model: resolved.model,
-          } satisfies ModelResolvedConfig
-        }
-        if (!routingConfig.modelMapping[resolved.model]) {
-          routingConfig.modelMapping[resolved.model] = {
-            provider: resolved.provider,
-            model: resolved.model,
-          } satisfies ModelResolvedConfig
-        }
+      if (!routingConfig.modelMapping[fb.model]) {
+        routingConfig.modelMapping[fb.model] = {
+          provider: fb.provider,
+          model: fb.model,
+        } satisfies ModelResolvedConfig
       }
     }
   }

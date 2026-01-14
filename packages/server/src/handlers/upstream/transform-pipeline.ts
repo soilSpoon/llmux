@@ -98,11 +98,6 @@ export async function executeTransformPipeline(
       requestId: reqId,
     })
 
-    logger.debugTemp(
-      { reqId, metadata: injectedMetadata, provider: effectiveProvider },
-      'Injecting metadata via strategy'
-    )
-
     unifiedRequest.metadata = {
       ...unifiedRequest.metadata,
       ...injectedMetadata,

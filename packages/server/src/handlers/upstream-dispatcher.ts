@@ -118,15 +118,19 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         input.onBeforeAttempt(retryState.attempt, request.meta)
       }
 
-      logger.debug(
-        {
-          attempt: retryState.attempt,
-          provider: request.meta.provider,
-          model: request.meta.model,
-          endpoint: request.endpoint.slice(0, 100),
-        },
-        'Dispatching upstream request'
-      )
+      const dispatchLogData = {
+        attempt: retryState.attempt,
+        originalModel: request.meta.originalModel,
+        provider: request.meta.provider,
+        model: request.meta.model,
+        endpoint: request.endpoint.slice(0, 100),
+      }
+
+      if (retryState.attempt === 1) {
+        logger.info(dispatchLogData, 'Dispatching upstream request')
+      } else {
+        logger.debug(dispatchLogData, 'Dispatching upstream request')
+      }
 
       // Decide per-request timeout; fall back to per-mode defaults
       const timeoutMs = input.timeoutMs ?? (mode === 'streaming' ? 60_000 : 30_000)

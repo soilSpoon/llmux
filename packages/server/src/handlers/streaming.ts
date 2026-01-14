@@ -43,6 +43,8 @@ export async function handleStreamingProxy(
   try {
     const body = (await request.json()) as Record<string, unknown>
 
+    logger.info({ reqId, model: body.model }, 'Incoming request (streaming)')
+
     const { response, meta } = await executeUpstream({
       reqId,
       body,

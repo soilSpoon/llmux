@@ -348,4 +348,35 @@ describe("FallbackHandler.wrap", () => {
 
     expect(receivedParams).toEqual({ provider: "openai" });
   });
+
+  test("should call router.resolveModel when router is provided", async () => {
+    let resolveModelCalled = false;
+    const mockRouter = {
+      resolveModel: async (model: string) => {
+        resolveModelCalled = true;
+        return { provider: "openai", model };
+      },
+      handleRateLimit: () => {},
+      handleSuccess: () => {},
+    };
+
+    const providerChecker: ProviderChecker = () => false;
+    const fallback = new FallbackHandler(
+      () => null,
+      providerChecker,
+      undefined,
+      mockRouter as never
+    );
+
+    const wrappedHandler = fallback.wrap(async () => new Response("ok"));
+    const request = new Request("http://localhost/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-4o", messages: [], stream: false }),
+    });
+
+    await wrappedHandler(request, {});
+
+    expect(resolveModelCalled).toBe(true);
+  });
 });

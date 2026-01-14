@@ -1,17 +1,10 @@
-import {
-  createLogger,
-  getProvider,
-  type ProviderName,
-  type UpstreamPreparationStrategy,
-} from '@llmux/core'
+import { getProvider, type ProviderName, type UpstreamPreparationStrategy } from '@llmux/core'
 import type { SignatureStore } from '../stores'
 import { AllCooldownError } from './error-utils'
 import { prepareRequestContext, type RequestContext, type RetryState } from './request-handler'
 import type { ProxyOptions } from './types'
 import { resolveGenericContext, resolveSpecialProviderContext } from './upstream/provider-context'
 import { executeTransformPipeline } from './upstream/transform-pipeline'
-
-const logger = createLogger({ service: 'upstream-request-builder' })
 
 export interface RequestBuilderInput {
   reqId: string
@@ -93,11 +86,6 @@ export async function buildUpstreamRequest(
   }
 
   if (upstreamStrategy) {
-    logger.debugTemp(
-      { reqId, model: currentModel, provider: effectiveProvider },
-      'Using UpstreamPreparationStrategy'
-    )
-
     try {
       const context = await upstreamStrategy.prepare({
         model: currentModel || '',
@@ -113,16 +101,6 @@ export async function buildUpstreamRequest(
       currentProjectId = context.projectId
       endpoint = context.endpoint
       headers = context.headers
-
-      logger.debugTemp(
-        {
-          reqId,
-          projectId: context.projectId,
-          account: context.account,
-          endpoint: context.endpoint,
-        },
-        'Upstream context prepared via strategy'
-      )
 
       if (context.providerInfo) {
         Object.assign(providerInfo, context.providerInfo)

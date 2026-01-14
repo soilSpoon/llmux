@@ -85,7 +85,6 @@ export async function prepareAntigravityRequest(
   let projectId: string
   if (overrideProjectId) {
     projectId = overrideProjectId
-    logger.debugTemp({ reqId, projectId, reason: 'override' }, 'Using override projectId')
   } else {
     const storedProjectId = cred.projectId
     logger.debug(
@@ -93,10 +92,6 @@ export async function prepareAntigravityRequest(
       'Checking stored projectId'
     )
     projectId = storedProjectId || (await fetchAntigravityProjectID(cred.accessToken as string))
-    logger.debugTemp(
-      { reqId, projectId, storedProjectId, source: storedProjectId ? 'stored' : 'fetched' },
-      'Resolved projectId for Antigravity'
-    )
   }
 
   // Use provided endpoint index for retries, otherwise balance based on account index

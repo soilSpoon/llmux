@@ -37,6 +37,8 @@ export async function handleResponses(
     const body = (await request.json()) as ResponsesRequest
     const isStreaming = body.stream === true
 
+    logger.info({ model: body.model }, 'Incoming responses request')
+
     let resolvedTargetProvider = options.targetProvider ?? 'openai'
     let fallbackProvider: string | null = null
 

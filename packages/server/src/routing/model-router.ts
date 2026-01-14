@@ -32,6 +32,13 @@ export class ModelRouter {
       const fallbacks: Array<{ provider: UpstreamProvider; model: string }> = []
       const visited = new Set<string>([model])
 
+      visited.add(mapping.model)
+
+      const primaryModelMapping = this.config.modelMappings[mapping.model]
+      if (primaryModelMapping?.fallbacks) {
+        await this.processFallbacks(primaryModelMapping.fallbacks, visited, fallbacks)
+      }
+
       if (mapping.fallbacks) {
         await this.processFallbacks(mapping.fallbacks, visited, fallbacks)
       }
@@ -88,6 +95,13 @@ export class ModelRouter {
       const mapping = this.config.modelMappings[model]
       const fallbacks: Array<{ provider: UpstreamProvider; model: string }> = []
       const visited = new Set<string>([model])
+
+      visited.add(mapping.model)
+
+      const primaryModelMapping = this.config.modelMappings[mapping.model]
+      if (primaryModelMapping?.fallbacks) {
+        this.processFallbacksSync(primaryModelMapping.fallbacks, visited, fallbacks)
+      }
 
       if (mapping.fallbacks) {
         this.processFallbacksSync(mapping.fallbacks, visited, fallbacks)

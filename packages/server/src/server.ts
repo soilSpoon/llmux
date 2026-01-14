@@ -400,7 +400,6 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
         () => upstreamProxy,
         providerChecker,
         modelMappings,
-        modelLookup,
         modelRouter
       )
     }
