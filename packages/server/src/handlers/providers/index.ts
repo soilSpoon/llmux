@@ -1,4 +1,3 @@
-export * from './antigravity-strategy'
 export * from './gemini-cli-strategy'
 export * from './openai-web-strategy'
 export * from './opencode-zen-strategy'

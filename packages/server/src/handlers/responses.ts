@@ -283,7 +283,7 @@ export async function handleResponses(
               if (parsed.response) {
                 fullResponse = parsed.response
               }
-            } catch (_e) {
+            } catch {
               logger.warn({ data }, '[responses] Failed to parse completion event')
             }
           }

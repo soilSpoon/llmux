@@ -181,6 +181,9 @@ export type {
 } from './types'
 // Provider Strategies
 export type {
+  ErrorHandlingAction,
+  ErrorHandlingOptions,
+  ErrorHandlingStrategy,
   MetadataInjectionStrategy,
   PrepareUpstreamOptions,
   ProviderStrategy,

@@ -1,95 +1,83 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test'
-import { AntigravityStrategy } from '../../src/handlers/providers/antigravity-strategy'
-import type { StreamEventContext, StreamCompleteContext } from '../../src/handlers/providers/provider-strategy'
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
+import { extractSignaturesFromSSE, saveSignaturesFromResponse } from '../../src/handlers/signature-response'
+import { SignatureStore } from '../../src/stores/signature-store'
 
-describe('AntigravityStrategy Streaming Hooks', () => {
-  let strategy: AntigravityStrategy
+describe('Signature Streaming Hooks (Updated for new system)', () => {
+  let signatureStore: SignatureStore
 
   beforeEach(() => {
-    strategy = new AntigravityStrategy()
+    signatureStore = new SignatureStore()
   })
 
-  describe('handleStreamEvent', () => {
-    it('should extract and record signatures from real SSE data', () => {
-      // Use raw JSON because the strategy prepends 'data: '
-      const event = '{"thoughtSignature": "hook_sig_123"}'
-      const state = { accumulatedSignatures: [] as string[] }
-      
-      const mockSignatureStore = {
-        saveSignature: mock(() => {})
-      }
-      
-      const context = {
-        signatureContext: {
-          sessionId: 'test-session',
-          projectId: 'p1',
-          provider: 'p',
-          endpoint: 'e',
-          account: 'a',
-          signatureStore: mockSignatureStore
-        }
-      }
-      
-      strategy.handleStreamEvent({
-        event,
-        context,
-        state
-      } as unknown as StreamEventContext)
+  afterEach(() => {
+    signatureStore.close()
+  })
 
-      expect(state.accumulatedSignatures).toContain('hook_sig_123')
-      expect(mockSignatureStore.saveSignature).toHaveBeenCalled()
+  describe('extractSignaturesFromSSE', () => {
+    it('should extract signatures from SSE data', () => {
+      const sseData = 'data: {"thoughtSignature": "hook_sig_123"}'
+      const signatures = extractSignaturesFromSSE(sseData)
+      
+      expect(signatures).toContain('hook_sig_123')
+      expect(signatures).toHaveLength(1)
     })
 
     it('should ignore events without signatures', () => {
-      const state = { accumulatedSignatures: [] as string[] }
-      const context = {
-        signatureContext: {
-           signatureStore: { saveSignature: mock(() => {}) }
-        }
-      }
+      const sseData = 'data: {"content": "hello"}'
+      const signatures = extractSignaturesFromSSE(sseData)
       
-      strategy.handleStreamEvent({
-        event: '{"content": "hello"}',
-        context,
-        state
-      } as unknown as StreamEventContext)
+      expect(signatures).toHaveLength(0)
+    })
 
-      expect(state.accumulatedSignatures).toHaveLength(0)
+    it('should extract multiple signatures from complex SSE data', () => {
+      const sseData = `data: {"thoughtSignature": "sig1"}
+data: {"content": "some content"}
+data: {"thoughtSignature": "sig2"}`
+      const signatures = extractSignaturesFromSSE(sseData)
+      
+      expect(signatures).toContain('sig1')
+      expect(signatures).toContain('sig2')
+      expect(signatures).toHaveLength(2)
     })
   })
 
-  describe('onStreamComplete', () => {
-    it('should cache thinking when requirements are met', () => {
-      const mockStore = {
-        save: (session: any, sig: string, family: string, thinking: string) => {
-          mockStore.calledWith = { session, sig, family, thinking }
-        },
-        calledWith: null as any
-      }
-      
-      const state = {
-        accumulatedThinking: 'thinking process',
-        accumulatedSignatures: ['sig123'],
-        finalModel: 'claude-3-5-sonnet',
-        targetModel: 'claude-3-5-sonnet'
-      }
-      
-      const signatureCache = { store: mockStore.save.bind(mockStore) }
-      const context = {
-        signatureContext: {
-          sessionId: 'test-session',
-          signatureCache
-        }
+  describe('saveSignaturesFromResponse', () => {
+    it('should save extracted signatures to store', async () => {
+      const sseData = 'data: {"thoughtSignature": "test_sig_123"}'
+      const signatureContext = {
+        projectId: 'test-project',
+        provider: 'antigravity',
+        endpoint: 'test-endpoint',
+        account: 'test-account'
       }
 
-      strategy.onStreamComplete({
-        context,
-        state,
-        reqId: 'req-123'
-      } as unknown as StreamCompleteContext)
+      const count = saveSignaturesFromResponse(sseData, signatureContext, signatureStore)
+      
+      expect(count).toBe(1)
+      
+      const record = signatureStore.getRecord('test_sig_123')
+      expect(record).not.toBeNull()
+      expect(record?.projectId).toBe('test-project')
+    })
 
-      expect(mockStore.calledWith).toBeDefined()
-      expect(mockStore.calledWith.sig).toBe('sig123')
+    it('should handle multiple signatures in response', async () => {
+      const sseData = `data: {"thoughtSignature": "sig1"}
+data: {"thoughtSignature": "sig2"}`
+      const signatureContext = {
+        projectId: 'test-project',
+        provider: 'antigravity',
+        endpoint: 'test-endpoint',
+        account: 'test-account'
+      }
+
+      const count = saveSignaturesFromResponse(sseData, signatureContext, signatureStore)
+      
+      expect(count).toBe(2)
+      
+      const record1 = signatureStore.getRecord('sig1')
+      const record2 = signatureStore.getRecord('sig2')
+      expect(record1).not.toBeNull()
+      expect(record2).not.toBeNull()
     })
   })
 })

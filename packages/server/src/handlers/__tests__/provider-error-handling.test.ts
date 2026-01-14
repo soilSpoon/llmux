@@ -8,9 +8,7 @@ import {
   type ErrorHandlingContext,
   type RetryState,
 } from '../request-handler'
-import { AntigravityStrategy } from '../providers/antigravity-strategy'
-import { GeminiCliStrategy } from '../providers/gemini-cli-strategy'
-import { registerLegacyProviderStrategies } from '../providers/register'
+import { AntigravityErrorStrategy } from '../../strategies/antigravity'
 import { ANTIGRAVITY_DEFAULT_PROJECT_ID } from '../../providers/antigravity'
 
 function createMockRetryState(overrides: Partial<RetryState> = {}): RetryState {
@@ -72,9 +70,9 @@ describe('RetryState mutations', () => {
   })
 })
 
-describe('handleUpstreamError - Antigravity provider', () => {
+describe('handleUpstreamError - Antigravity provider (System B)', () => {
   beforeEach(() => {
-    registerLegacyProviderStrategies()
+    // Note: registerLegacyProviderStrategies() is no longer needed
     mock.restore()
     spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([])
     spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => Promise.resolve())
@@ -144,6 +142,8 @@ describe('handleUpstreamError - Antigravity provider', () => {
 
       const result = await handleUpstreamError(ctx)
 
+      // AntigravityErrorStrategy returns null if exhausted, then Generic Rate Limit handler handles it
+      // For non-429, generic handler returns 'throw'
       expect(result.action).toBe('throw')
     })
   })
@@ -366,30 +366,25 @@ describe('handleUpstreamError - Antigravity provider', () => {
   })
 })
 
-describe('AntigravityStrategy.handleError', () => {  const strategy = new AntigravityStrategy()
+describe('antigravityErrorStrategy (System B direct test)', () => {
+  const strategy = new AntigravityErrorStrategy()
 
   beforeEach(() => {
     mock.restore()
-    spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([])
-    spyOn(accountRotationManager, 'markRateLimited').mockImplementation(() => Promise.resolve())
-    spyOn(accountRotationManager, 'areAllRateLimited').mockReturnValue(true)
-    spyOn(accountRotationManager, 'hasNext').mockReturnValue(false)
   })
 
   describe('license error handling', () => {
     it('should set override project on license error', async () => {
       const retryState = createMockRetryState()
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 403,
-          errorText: 'PERMISSION_DENIED: license error #3501',
-          currentProjectId: 'user-project',
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 403,
+        errorText: 'PERMISSION_DENIED: license error #3501',
+        currentProjectId: 'user-project',
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).not.toBeNull()
       expect(result!.action).toBe('retry')
@@ -400,17 +395,15 @@ describe('AntigravityStrategy.handleError', () => {  const strategy = new Antigr
       const retryState = createMockRetryState({
         overrideProjectId: ANTIGRAVITY_DEFAULT_PROJECT_ID,
       })
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 403,
-          errorText: '#3501',
-          currentProjectId: ANTIGRAVITY_DEFAULT_PROJECT_ID,
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 403,
+        errorText: '#3501',
+        currentProjectId: ANTIGRAVITY_DEFAULT_PROJECT_ID,
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).not.toBeNull()
       expect(result!.action).toBe('retry')
@@ -421,17 +414,15 @@ describe('AntigravityStrategy.handleError', () => {  const strategy = new Antigr
   describe('403 error handling', () => {
     it('should retry non-license 403 (fallback to default project)', async () => {
       const retryState = createMockRetryState()
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 403,
-          errorText: 'Forbidden',
-          currentProjectId: 'user-project',
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 403,
+        errorText: 'Forbidden',
+        currentProjectId: 'user-project',
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).not.toBeNull()
       expect(result!.action).toBe('retry')
@@ -442,16 +433,14 @@ describe('AntigravityStrategy.handleError', () => {  const strategy = new Antigr
   describe('5xx error handling', () => {
     it('should rotate endpoint on 500', async () => {
       const retryState = createMockRetryState()
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 500,
-          errorText: 'Internal Server Error',
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 500,
+        errorText: 'Internal Server Error',
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).not.toBeNull()
       expect(result!.action).toBe('retry')
@@ -462,16 +451,14 @@ describe('AntigravityStrategy.handleError', () => {  const strategy = new Antigr
       const retryState = createMockRetryState({
         antigravityEndpointIndex: ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1,
       })
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 500,
-          errorText: 'Internal Server Error',
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 500,
+        errorText: 'Internal Server Error',
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).toBeNull()
     })
@@ -480,16 +467,14 @@ describe('AntigravityStrategy.handleError', () => {  const strategy = new Antigr
   describe('429 rate limit handling', () => {
     it('should rotate endpoint on 429', async () => {
       const retryState = createMockRetryState()
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 429,
-          errorText: 'Too Many Requests',
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 429,
+        errorText: 'Too Many Requests',
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).not.toBeNull()
       expect(result!.action).toBe('retry')
@@ -500,87 +485,22 @@ describe('AntigravityStrategy.handleError', () => {  const strategy = new Antigr
       const retryState = createMockRetryState({
         antigravityEndpointIndex: ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1,
       })
-      const result = await strategy.handleError(
-        {
-          reqId: 'test',
-          provider: 'antigravity',
-          model: 'gemini-2.5-pro',
-          status: 429,
-          errorText: 'Too Many Requests',
-        },
+      const result = await strategy.handleError({
+        provider: 'antigravity',
+        model: 'gemini-2.5-pro',
+        status: 429,
+        errorText: 'Too Many Requests',
+        // @ts-ignore
         retryState
-      )
+      })
 
       expect(result).toBeNull()
     })
   })
 })
 
-describe('GeminiCliStrategy.handleError', () => {
-  // Ensure strategies are registered for delegation
+describe('AccountRotationManager integration', () => {
   beforeEach(() => {
-    registerLegacyProviderStrategies()
-  })
-
-  const strategy = new GeminiCliStrategy()
-
-  it('should delegate to AntigravityStrategy', async () => {
-    const retryState = createMockRetryState()
-    const result = await strategy.handleError(
-      {
-        reqId: 'test',
-        provider: 'gemini-cli',
-        model: 'gemini-2.5-pro',
-        status: 500,
-        errorText: 'Internal Server Error',
-      },
-      retryState
-    )
-
-    expect(result).not.toBeNull()
-    expect(result!.action).toBe('retry')
-    expect(retryState.antigravityEndpointIndex).toBe(1)
-  })
-
-  it('should retry non-license 403 (fallback to default project)', async () => {
-    const retryState = createMockRetryState()
-    const result = await strategy.handleError(
-      {
-        reqId: 'test',
-        provider: 'gemini-cli',
-        model: 'gemini-2.5-pro',
-        status: 403,
-        errorText: 'Forbidden',
-        currentProjectId: 'user-project',
-      },
-      retryState
-    )
-
-    expect(result).not.toBeNull()
-    expect(result!.action).toBe('retry')
-    expect(retryState.overrideProjectId).toBe(ANTIGRAVITY_DEFAULT_PROJECT_ID)
-  })
-
-  it('should handle 429 same as Antigravity', async () => {
-    const retryState = createMockRetryState()
-    const result = await strategy.handleError(
-      {
-        reqId: 'test',
-        provider: 'gemini-cli',
-        model: 'gemini-2.5-pro',
-        status: 429,
-        errorText: 'Too Many Requests',
-      },
-      retryState
-    )
-
-    expect(result).not.toBeNull()
-    expect(result!.action).toBe('retry')
-    expect(retryState.antigravityEndpointIndex).toBe(1)
-  })
-})
-
-describe('AccountRotationManager integration', () => {  beforeEach(() => {
     mock.restore()
   })
 

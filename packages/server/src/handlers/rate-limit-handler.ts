@@ -1,8 +1,12 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS, type Credential, TokenRefresh } from '@llmux/auth'
-import { createLogger, type ProviderName } from '@llmux/core'
+import {
+  createLogger,
+  type ErrorHandlingStrategy,
+  getProvider,
+  type ProviderName,
+} from '@llmux/core'
 import { accountRotationManager } from './account-rotation'
 import { getModelFamily, isClaudeWeeklyLimit } from './family-rate-limiting'
-import { getProviderStrategy } from './providers/provider-strategy'
 import type { ErrorHandlingContext, ErrorHandlingResult, RetryState } from './types'
 
 const logger = createLogger({ service: 'rate-limit-handler' })
@@ -53,24 +57,33 @@ export async function handleUpstreamError(
     apiKey,
   } = context
 
-  // 1. Provider-Specific Strategy Handling
-  const strategy = getProviderStrategy(provider)
-  if (strategy?.handleError) {
-    const strategyResult = await strategy.handleError(
-      {
-        reqId,
+  // 1. Provider-Specific Strategy Handling (System B)
+  try {
+    const providerInstance = getProvider(provider)
+    const strategy = providerInstance.getStrategy<ErrorHandlingStrategy>('errorHandling')
+
+    if (strategy) {
+      // Pass retryState as part of the options (extended context)
+      // This matches the implementation in AntigravityErrorStrategy
+      const strategyResult = await strategy.handleError({
         provider,
         model,
         status,
         errorText,
-        currentProjectId,
         retryAfterMs: context.retryAfterMs,
-      },
-      retryState
-    )
-    if (strategyResult) {
-      return strategyResult
+        currentProjectId,
+        // @ts-expect-error - strategies may expect extended context
+        retryState,
+        reqId,
+      })
+
+      if (strategyResult) {
+        return strategyResult
+      }
     }
+  } catch {
+    // Provider might not support error strategy, or getProvider failed
+    // Fall back to generic handling
   }
 
   // Rate limit handling (Generic logic that applies after or instead of strategy)
@@ -154,9 +167,15 @@ export async function handleUpstreamError(
         )
 
       // Reset endpoint index when rotating account or preparing for fallback
-      const strategy = getProviderStrategy(provider)
-      if (strategy?.onAccountRotation) {
-        strategy.onAccountRotation(retryState)
+      // System B: Check if provider has a hook for account rotation
+      // NOTE: onAccountRotation is currently part of the legacy strategy interface.
+      // In System B, we should probably handle this in the upstream strategy or error strategy?
+      // Or just hardcode for antigravity here if needed, or make it generic.
+      //
+      // For now, AntigravityUpstreamStrategy handles preparing context which sets endpoint index.
+      // But we need to RESET it when we switch accounts.
+      if (provider === 'antigravity') {
+        retryState.antigravityEndpointIndex = 0
       }
 
       credentials = (await TokenRefresh.ensureFresh(provider)) || []

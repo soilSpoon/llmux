@@ -23,7 +23,6 @@ import type { ModelMapping } from './config'
 import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
 import { handleModels } from './handlers/models'
-import { registerLegacyProviderStrategies } from './handlers/providers/register'
 import { handleCountTokens, handleProxy, type ProxyOptions } from './handlers/proxy'
 import { handleResponses, type ResponsesOptions } from './handlers/responses'
 import { handleStatus } from './handlers/status'
@@ -48,7 +47,6 @@ registerProvider(new OpencodeZenProvider())
 registerProvider(new CoreOpenAIWebProvider())
 
 registerServerStrategies()
-registerLegacyProviderStrategies()
 
 AuthProviderRegistry.register(OpencodeZenAuthProvider)
 AuthProviderRegistry.register(OpenAIWebProvider)

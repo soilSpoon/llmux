@@ -1,3 +1,4 @@
+export * from './error'
 export * from './metadata'
 export * from './rate-limit'
 export * from './thinking'

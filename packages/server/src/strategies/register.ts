@@ -1,4 +1,5 @@
 import { type AntigravityProvider, createLogger, getProvider, type ProviderName } from '@llmux/core'
+import { AntigravityErrorStrategy } from './antigravity/error'
 import { AntigravityMetadataStrategy } from './antigravity/metadata'
 import { AntigravityRateLimitStrategy } from './antigravity/rate-limit'
 import { AntigravityThinkingStrategy } from './antigravity/thinking'
@@ -17,6 +18,7 @@ export function registerServerStrategies() {
       provider.registerStrategy(new AntigravityThinkingStrategy())
       provider.registerStrategy(new AntigravityMetadataStrategy())
       provider.registerStrategy(new AntigravityRateLimitStrategy())
+      provider.registerStrategy(new AntigravityErrorStrategy())
 
       // Upstream strategy is currently specific to the 'antigravity' provider.
       // 'gemini-cli' uses specialized logic in upstream-request-builder.ts for now.

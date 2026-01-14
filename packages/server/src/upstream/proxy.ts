@@ -46,7 +46,7 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
 
       try {
         bodyBuffer = await request.arrayBuffer()
-      } catch (_e) {
+      } catch {
         // Body might be empty or not readable
       }
 

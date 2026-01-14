@@ -139,7 +139,7 @@ export async function resolveGenericContext(
         headers = await currentAuthProvider.getHeaders(credential, {
           model: options.targetModel || model,
         })
-      } catch (e) {
+      } catch {
         if (!endpoint) endpoint = ''
         throw new AllCooldownError(`No credentials for ${provider}`, provider, model)
       }

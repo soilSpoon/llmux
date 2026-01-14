@@ -216,12 +216,12 @@ export async function accumulateOpenAIResponse(
           if (chunk.usage) {
             finalResponse.usage = chunk.usage
           }
-        } catch (_e) {
+        } catch {
           // Ignore parse errors for individual lines
         }
       }
     }
-  } catch (_e) {
+  } catch {
     // If stream reading fails, return what we have so far
   }
 
