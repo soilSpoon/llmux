@@ -39,3 +39,6 @@ coverage/
 *.db
 *.db-shm
 *.db-wal
+.devdbrc
+.serena/.gitignore
+.serena/project.yml
