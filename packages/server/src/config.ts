@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ProviderName } from '@llmux/core'
+import { getHomeDir } from '@llmux/core'
 import type { MergeExclusive } from 'type-fest'
 
 export interface ServerSettings {
@@ -77,8 +78,7 @@ const DEFAULT_CONFIG: LlmuxConfig = {
 }
 
 function getConfigPath(): string {
-  const home = process.env.HOME || process.env.USERPROFILE || '~'
-  return join(home, '.llmux', 'config.json')
+  return join(getHomeDir(), '.llmux', 'config.json')
 }
 
 async function ensureDir(path: string): Promise<void> {

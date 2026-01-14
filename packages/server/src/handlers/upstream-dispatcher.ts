@@ -380,8 +380,8 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
       const isTest = process.env.NODE_ENV === 'test'
 
-      const baseDelayMs = input.networkErrorBaseDelayMs ?? 1_000
-      const maxDelayMs = input.networkErrorMaxDelayMs ?? 10_000
+      const baseDelayMs = input.networkErrorBaseDelayMs ?? 100
+      const maxDelayMs = input.networkErrorMaxDelayMs ?? 1000
 
       // attempt starts at 1, so exponent index is attempt - 1
       const attemptIndex = Math.max(retryState.attempt - 1, 0)

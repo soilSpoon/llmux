@@ -55,12 +55,12 @@ export class SQLiteStorage implements SignatureStorage {
 
   constructor(dbPath?: string) {
     const { Database } = require('bun:sqlite')
-    const { homedir } = require('node:os')
+    const { getHomeDir } = require('../util/home')
     const { join, dirname } = require('node:path')
     const { mkdirSync } = require('node:fs')
 
     // Default to ~/.llmux/signatures.db if not provided
-    const targetPath = dbPath ?? join(homedir(), '.llmux', 'signatures.db')
+    const targetPath = dbPath ?? join(getHomeDir(), '.llmux', 'signatures.db')
 
     // Ensure directory exists
     const dir = dirname(targetPath)

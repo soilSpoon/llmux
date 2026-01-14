@@ -1,19 +1,15 @@
-import { describe, expect, it, beforeEach, mock, afterEach } from 'bun:test'
+import { describe, expect, it, beforeEach, mock, afterEach, spyOn } from 'bun:test'
 import { accountRotationManager as manager } from '../../src/handlers/account-rotation'
 import { rateLimitStore } from '../../src/handlers/rate-limit-store'
 import { TokenRefresh } from '@llmux/auth'
 import type { Credential } from '@llmux/auth'
-
-// Mock TokenRefresh.ensureFresh
-// We need to save the original to restore it later
-const originalEnsureFresh = TokenRefresh.ensureFresh
 
 describe('AccountRotationManager', () => {
   let mockCredentials: Credential[]
 
   beforeEach(() => {
     // Reset store
-    (rateLimitStore as any).store.clear()
+    rateLimitStore.clear()
 
     mockCredentials = [
       {
@@ -36,11 +32,11 @@ describe('AccountRotationManager', () => {
       }
     ] as any[]
     
-    TokenRefresh.ensureFresh = mock(async () => mockCredentials)
+    spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue(mockCredentials)
   })
 
   afterEach(() => {
-    TokenRefresh.ensureFresh = originalEnsureFresh
+    mock.restore()
   })
 
   it('getNextAvailable returns 0 when no limits exist', () => {

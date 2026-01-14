@@ -196,6 +196,7 @@ export type {
   UpstreamContext,
   UpstreamPreparationStrategy,
 } from './types/provider-strategies'
+export { getHomeDir } from './util/home'
 // Logging
 export { createLogger, logger } from './util/logger'
 // Model Capabilities & Utilities

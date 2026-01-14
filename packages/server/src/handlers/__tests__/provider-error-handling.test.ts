@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
 import '../../../test/setup'
-import { ANTIGRAVITY_ENDPOINT_FALLBACKS, TokenRefresh } from '@llmux/auth'
+import { ANTIGRAVITY_ENDPOINT_FALLBACKS, TokenRefresh, CredentialStorage } from '@llmux/auth'
 import { accountRotationManager } from '../account-rotation'
 import { rateLimitStore } from '../rate-limit-store'
 import {
@@ -74,7 +74,8 @@ describe('RetryState mutations', () => {
 })
 
 describe('handleUpstreamError - Antigravity provider (System B)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    registerServerStrategies()
     // Note: registerLegacyProviderStrategies() is no longer needed
     mock.restore()
     spyOn(TokenRefresh, 'ensureFresh').mockResolvedValue([])
@@ -539,8 +540,15 @@ describe('antigravityErrorStrategy (System B direct test)', () => {
 })
 
 describe('AccountRotationManager integration', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mock.restore()
+    // Add dummy credentials to prevent TokenRefresh from throwing
+    await CredentialStorage.add('antigravity', {
+      type: 'oauth',
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: Date.now() + 3600000,
+    })
   })
 
   describe('rate limit tracking', () => {

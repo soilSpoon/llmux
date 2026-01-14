@@ -128,7 +128,11 @@ export async function buildUpstreamRequest(
         Object.assign(providerInfo, context.providerInfo)
       }
     } catch (err) {
-      if (err instanceof Error && err.message.includes('No credentials available')) {
+      if (
+        err instanceof Error &&
+        (err.message.includes('No credentials available') ||
+          err.message.includes('No credentials found'))
+      ) {
         throw new AllCooldownError(err.message, effectiveProvider, currentModel)
       }
       throw err

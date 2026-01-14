@@ -8,6 +8,10 @@ const DEFAULT_BUFFER_MS = 5 * 60 * 1000
 const pendingRefreshes = new Map<string, Promise<Credential[]>>()
 
 export namespace TokenRefresh {
+  export function clearPending(): void {
+    pendingRefreshes.clear()
+  }
+
   export function isExpired(credential: OAuthCredential): boolean {
     return credential.expiresAt <= Date.now()
   }
@@ -30,7 +34,7 @@ export namespace TokenRefresh {
     const refreshPromise = (async () => {
       const credentials = await CredentialStorage.get(effectiveProviderId)
       if (!credentials || credentials.length === 0) {
-        throw new Error(`No credentials found for provider: ${providerId}`)
+        throw new Error(`No credentials available for provider: ${providerId}`)
       }
 
       const updatedCredentials: Credential[] = []

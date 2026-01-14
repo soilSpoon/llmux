@@ -150,6 +150,7 @@ export function createRouter(routes: Route[]): (request: Request) => Promise<Res
       if (pathname !== '//api/event_logging/batch' && pathname !== '/api/event_logging/batch') {
         logger.warn({ method, pathname }, '[Router] No match found')
       }
+
       return new Response(JSON.stringify({ error: 'Not found' }), {
         status: 404,
         headers: { 'Content-Type': 'application/json' },

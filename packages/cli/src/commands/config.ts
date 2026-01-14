@@ -1,5 +1,5 @@
-import os from 'node:os'
 import * as prompts from '@clack/prompts'
+import { getHomeDir } from '@llmux/core'
 import { ConfigLoader, type LlmuxConfig, type ModelResolvedConfig } from '@llmux/server'
 import { cmd } from '../cmd'
 
@@ -23,7 +23,7 @@ const configListCommand = cmd({
   describe: 'Show current configuration',
   async handler() {
     const configPath = ConfigLoader.getPath()
-    const homedir = os.homedir()
+    const homedir = getHomeDir()
     const displayPath = configPath.startsWith(homedir)
       ? configPath.replace(homedir, '~')
       : configPath

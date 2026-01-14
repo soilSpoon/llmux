@@ -89,7 +89,6 @@ export function createModelLookup(credentialProvider: CredentialProvider): Model
           return
         }
 
-        // Build tokens map
         const tokens: Record<string, string> = {}
         const validProviders: ModelProvider[] = []
         for (const provider of providers) {
@@ -105,13 +104,11 @@ export function createModelLookup(credentialProvider: CredentialProvider): Model
         }
 
         // Add gemini-cli as a virtual provider if antigravity credentials exist
-        // gemini-cli uses the same OAuth credentials as antigravity but routes to different models
         if (
           providers.includes('antigravity' as ModelProvider) &&
           !validProviders.includes('gemini-cli' as ModelProvider)
         ) {
           validProviders.push('gemini-cli' as ModelProvider)
-          // gemini-cli doesn't need a token in the tokens map - it reuses antigravity credentials
         }
 
         // Fetch models using registry

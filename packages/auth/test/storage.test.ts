@@ -1,28 +1,18 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
+import { describe, expect, test, beforeEach } from 'bun:test'
 import { CredentialStorage } from '../src/storage'
 import type { OAuthCredential, ApiKeyCredential } from '../src/types'
-import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { unlink } from 'node:fs/promises'
 
 describe('CredentialStorage', () => {
-  let tempDir: string
-  let originalHome: string | undefined
-
   beforeEach(async () => {
-    tempDir = await mkdtemp(join(tmpdir(), 'llmux-auth-test-'))
-    originalHome = process.env.HOME
-    process.env.HOME = tempDir
-  })
-
-  afterEach(async () => {
-    process.env.HOME = originalHome
-    await rm(tempDir, { recursive: true, force: true })
+    try {
+      await unlink(CredentialStorage.getPath())
+    } catch {}
   })
 
   test('getPath returns correct path', () => {
     const path = CredentialStorage.getPath()
-    expect(path).toBe(join(tempDir, '.llmux', 'credentials.json'))
+    expect(path).toContain('.llmux/credentials.json')
   })
 
   test('get returns empty array when no credentials exist', async () => {

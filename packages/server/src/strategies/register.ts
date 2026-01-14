@@ -1,6 +1,6 @@
 import {
   type AntigravityProvider,
-  BaseProvider,
+  type BaseProvider,
   createLogger,
   getProvider,
   type ProviderName,
@@ -21,16 +21,18 @@ export function registerServerStrategies() {
     try {
       const provider = getProvider(providerId as ProviderName)
 
-      if (!(provider instanceof BaseProvider)) {
+      if (typeof (provider as BaseProvider).registerStrategy !== 'function') {
         logger.warn(
           { provider: providerId },
-          'Provider does not inherit from BaseProvider, cannot register strategies'
+          'Provider does not support strategies, cannot register'
         )
         continue
       }
 
+      const baseProvider = provider as BaseProvider
+
       if (providerId === 'antigravity' || providerId === 'gemini-cli') {
-        const agProvider = provider as AntigravityProvider
+        const agProvider = baseProvider as unknown as AntigravityProvider
         // Common strategies for all Antigravity-based providers
         agProvider.registerStrategy(new AntigravityThinkingStrategy())
         agProvider.registerStrategy(new AntigravityMetadataStrategy())
@@ -45,7 +47,7 @@ export function registerServerStrategies() {
       }
 
       if (providerId === 'opencode-zen') {
-        provider.registerStrategy(new OpencodeZenErrorStrategy())
+        baseProvider.registerStrategy(new OpencodeZenErrorStrategy())
       }
 
       logger.debug({ provider: providerId }, 'Registered server strategies for provider')

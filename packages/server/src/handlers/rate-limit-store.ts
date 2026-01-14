@@ -21,11 +21,17 @@ export interface RateLimitStore {
   getLimits(provider: string, family: ModelFamily | string): Map<string, RateLimit>
 
   clearLimit(provider: string, accountId: string, family: ModelFamily | string): void
+
+  clear(): void
 }
 
 export class InMemoryRateLimitStore implements RateLimitStore {
   // Key: provider:family:accountId
   private store: Map<string, RateLimit> = new Map()
+
+  clear(): void {
+    this.store.clear()
+  }
 
   private getKey(provider: string, accountId: string, family: string): string {
     return `${provider}:${family}:${accountId}`

@@ -1,5 +1,6 @@
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -15,8 +16,38 @@ import {
   createUpstreamProxy,
   type UpstreamProxy,
 } from "../../src/upstream/proxy";
+import { rateLimitStore } from "../../src/handlers/rate-limit-store";
+import { TokenRefresh, CredentialStorage } from "@llmux/auth";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 describe("FallbackHandler", () => {
+  let tempDir: string;
+  let originalHome: string | undefined;
+
+  beforeEach(async () => {
+    rateLimitStore.clear();
+    TokenRefresh.clearPending();
+
+    tempDir = await mkdtemp(join(tmpdir(), "llmux-fallback-test-"));
+    originalHome = process.env.HOME;
+    process.env.HOME = tempDir;
+
+    // Add dummy credentials to prevent TokenRefresh from throwing
+    await CredentialStorage.add("antigravity", {
+      type: "oauth",
+      accessToken: "test-token",
+      refreshToken: "test-refresh",
+      expiresAt: Date.now() + 3600000,
+    });
+  });
+
+  afterEach(async () => {
+    process.env.HOME = originalHome;
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
   describe("constructor", () => {
     test("should create fallback handler with proxy getter", () => {
       const mockProxy: UpstreamProxy = {

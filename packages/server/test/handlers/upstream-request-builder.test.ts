@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it, mock, beforeEach, afterEach } from 'bun:test'
 import {
   type RequestBuilderInput,
   buildUpstreamRequest,
@@ -6,6 +6,11 @@ import {
 import { SignatureStore } from '../../src/stores'
 import { createRetryState } from '../../src/handlers/request-handler'
 import { clearProviders, registerProvider, OpenAIWebProvider, OpenAIProvider, AnthropicProvider, GeminiProvider, AntigravityProvider, OpencodeZenProvider } from '@llmux/core'
+import { CredentialStorage, TokenRefresh } from '@llmux/auth'
+import { rateLimitStore } from '../../src/handlers/rate-limit-store'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 // Ensure providers are registered before tests run
 clearProviders()
@@ -18,6 +23,35 @@ registerProvider(new OpencodeZenProvider())
 
 describe('Upstream Request Builder', () => {
   const mockSignatureStore = new SignatureStore()
+  let tempDir: string
+  let originalHome: string | undefined
+
+  beforeEach(async () => {
+    rateLimitStore.clear()
+    TokenRefresh.clearPending()
+
+    tempDir = await mkdtemp(join(tmpdir(), 'llmux-builder-test-'))
+    originalHome = process.env.HOME
+    process.env.HOME = tempDir
+
+    await CredentialStorage.add('antigravity', {
+      type: 'oauth',
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: Date.now() + 3600000,
+    })
+    await CredentialStorage.add('openai-web', {
+      type: 'oauth',
+      accessToken: 'test-token',
+      refreshToken: 'test-refresh',
+      expiresAt: Date.now() + 3600000,
+    })
+  })
+
+  afterEach(async () => {
+    process.env.HOME = originalHome
+    await rm(tempDir, { recursive: true, force: true })
+  })
 
   it('builds a basic request for generic provider', async () => {
     const input: RequestBuilderInput = {

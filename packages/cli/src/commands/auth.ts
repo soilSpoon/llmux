@@ -1,4 +1,3 @@
-import os from 'node:os'
 import * as prompts from '@clack/prompts'
 import {
   type AuthMethod,
@@ -7,6 +6,7 @@ import {
   type Credential,
   CredentialStorage,
 } from '@llmux/auth'
+import { getHomeDir } from '@llmux/core'
 import { cmd } from '../cmd'
 import { CancelledError } from '../errors'
 
@@ -91,7 +91,7 @@ const authListCommand = cmd({
   describe: 'List stored credentials',
   async handler() {
     const credPath = CredentialStorage.getPath()
-    const homedir = os.homedir()
+    const homedir = getHomeDir()
     const displayPath = credPath.startsWith(homedir) ? credPath.replace(homedir, '~') : credPath
 
     console.log()

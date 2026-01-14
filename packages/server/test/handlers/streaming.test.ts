@@ -1,36 +1,39 @@
 import { describe, expect, test, mock, afterEach, beforeEach, spyOn } from "bun:test";
 import "../setup";
-import {
-  handleStreamingProxy,
-  type ProxyOptions,
-} from "../../src/handlers/streaming";
-
-// Helper to intentionally cast invalid data for resilience testing
-function castTo<T>(data: unknown): T {
-  return data as T;
-}
+import { handleStreamingProxy, type ProxyOptions } from "../../src/handlers/streaming";
+import { TokenRefresh } from "@llmux/auth";
+import { rateLimitStore } from "../../src/handlers/rate-limit-store";
 
 describe("handleStreamingProxy", () => {
   const originalFetch = globalThis.fetch;
-  let setTimeoutSpy: any;
 
-  beforeEach(() => {
-    // Mock setTimeout to resolve immediately
-    setTimeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(
-      castTo<typeof setTimeout>((cb: (...args: any[]) => void) => {
-        if (typeof cb === "function") {
-          cb();
-        }
-        return castTo<ReturnType<typeof setTimeout>>(0);
-      })
-    );
+  beforeEach(async () => {
+    rateLimitStore.clear();
+    TokenRefresh.clearPending();
+
+    // Mock TokenRefresh to provide dummy credentials
+    spyOn(TokenRefresh, "ensureFresh").mockImplementation(async (providerId: string) => {
+      if (providerId === "antigravity" || providerId === "gemini-cli") {
+        return [{
+          type: "oauth",
+          accessToken: "test-token",
+          refreshToken: "test-refresh",
+          expiresAt: Date.now() + 3600000,
+        }];
+      }
+      if (providerId === "anthropic") {
+        return [{
+          type: "api",
+          key: "test-key",
+        }];
+      }
+      return [];
+    });
   });
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
-    if (setTimeoutSpy) {
-      setTimeoutSpy.mockRestore();
-    }
+    mock.restore();
   });
 
   test("returns streaming response with correct content type", async () => {

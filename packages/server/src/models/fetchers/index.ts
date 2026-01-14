@@ -49,7 +49,6 @@ export function createFetcher(
     case 'api':
       return createGithubCopilotFetcher()
     case 'models-dev': {
-      // Map internal provider to models.dev provider ID
       const modelsDevProvider = MODELS_DEV_PROVIDER_MAP[provider] ?? provider
       return createModelsDevFetcher(modelsDevProvider as ModelProvider, options.cache, provider)
     }

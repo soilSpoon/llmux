@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { getHomeDir } from '@llmux/core'
 import type { Model, ModelProvider } from './types'
 
 export interface CacheOptions {
@@ -19,22 +19,19 @@ export interface ModelCache {
   clear(provider: ModelProvider): Promise<void>
 }
 
-const DEFAULT_CACHE_DIR = join(homedir(), '.cache', 'llmux')
 const DEFAULT_TTL_MS = 60 * 60 * 1000 // 1 hour
 
-export function createModelCache(
-  cacheDir: string = DEFAULT_CACHE_DIR,
-  options: CacheOptions = {}
-): ModelCache {
+export function createModelCache(cacheDir?: string, options: CacheOptions = {}): ModelCache {
+  const actualCacheDir = cacheDir ?? join(getHomeDir(), '.cache', 'llmux')
   const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS
 
   const getCachePath = (provider: ModelProvider): string => {
-    return join(cacheDir, `models-${provider}.json`)
+    return join(actualCacheDir, `models-${provider}.json`)
   }
 
   const ensureCacheDir = (): void => {
-    if (!existsSync(cacheDir)) {
-      mkdirSync(cacheDir, { recursive: true })
+    if (!existsSync(actualCacheDir)) {
+      mkdirSync(actualCacheDir, { recursive: true })
     }
   }
 

@@ -84,7 +84,7 @@ describe("TokenRefresh", () => {
     test("throws when no credentials found", async () => {
       await expect(
         TokenRefresh.ensureFresh("nonexistent-provider")
-      ).rejects.toThrow("No credentials found");
+      ).rejects.toThrow("No credentials available");
     });
 
     test("returns API key credentials as-is", async () => {
