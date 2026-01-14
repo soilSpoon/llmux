@@ -1,4 +1,4 @@
-import type { FormatContext, FormatId, SchemaFormat } from '../base'
+import type { FormatId, SchemaFormat } from '../base'
 import { buildWireRequest, parseRequest } from './request'
 import { buildWireResponse, parseResponse } from './response'
 import { buildStreamChunk, parseStreamChunk } from './streaming'

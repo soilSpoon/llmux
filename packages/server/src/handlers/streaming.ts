@@ -1,4 +1,9 @@
-import { createLogger, type ProviderName } from '@llmux/core'
+import {
+  createLogger,
+  getProvider,
+  type ProviderName,
+  type ThinkingStrategyResolver,
+} from '@llmux/core'
 import { createErrorResponse } from './error-utils'
 import { createStreamTransformer, type StreamContext } from './stream-transformer'
 import { getSignatureCache } from './thinking/cache-instance'
@@ -45,16 +50,22 @@ export async function handleStreamingProxy(
       mode: 'streaming',
       onBeforeAttempt: (attempt, requestMeta) => {
         // Generic debug log for Fresh requests
-        if (requestMeta.isClaudeFresh) {
-          logger.trace(
-            {
-              reqId,
-              attempt,
-              model: requestMeta.model,
-              provider: requestMeta.provider,
-            },
-            'DEBUG: Claude (Fresh) request'
-          )
+        try {
+          const provider = getProvider(requestMeta.provider)
+          const strategy = provider.getStrategy<ThinkingStrategyResolver>('thinking')
+          if (strategy && strategy.getMode(requestMeta.model) === 'claude-fresh') {
+            logger.trace(
+              {
+                reqId,
+                attempt,
+                model: requestMeta.model,
+                provider: requestMeta.provider,
+              },
+              'DEBUG: Claude (Fresh) request'
+            )
+          }
+        } catch {
+          // Ignore provider lookup errors
         }
       },
     })

@@ -116,11 +116,16 @@ describe('Reliability & Observability Verification', () => {
         options: { sourceFormat: 'openai-chat' },
         mode: 'non-streaming',
         signatureStore: createMockSignatureStore(),
-        timeoutMs: 10,
         networkErrorBaseDelayMs: 1,
+        // The test overrides timeout internally for simulation, but we must pass valid type
       }
+      
+      // We manually construct options with timeoutMs for this specific test
+      // ignoring TS error if the type definition isn't updated yet in test context
+      // (though we updated it in implementation)
+      const inputWithTimeout = { ...input, timeoutMs: 10 } as DispatchInput
 
-      const result = await dispatchWithRetry(input)
+      const result = await dispatchWithRetry(inputWithTimeout)
 
       expect(attempt).toBe(2)
       expect(result.response?.status).toBe(200)
@@ -182,10 +187,10 @@ describe('Reliability & Observability Verification', () => {
         options: { sourceFormat: 'openai-chat' },
         mode: 'non-streaming',
         signatureStore: createMockSignatureStore(),
-        timeoutMs: 5000,
       }
+      const inputWithTimeout = { ...input, timeoutMs: 5000 } as DispatchInput
 
-      await dispatchWithRetry(input)
+      await dispatchWithRetry(inputWithTimeout)
 
       expect(capturedSignal).toBeDefined()
       expect(capturedSignal).toBeInstanceOf(AbortSignal)

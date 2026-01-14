@@ -7,6 +7,7 @@ import type {
   UnifiedResponse,
 } from '../types'
 import type { UnifiedError } from '../types/error'
+import type { ProviderStrategy, StrategyType } from '../types/provider-strategies'
 
 export type { ProviderName } from '../types/providers'
 export { isValidProviderName } from '../types/providers'
@@ -114,6 +115,31 @@ export interface Provider {
    * Detects the format from an incoming request object.
    */
   getFormatForWireRequest?(request: unknown): FormatId
+
+  /**
+   * Get a provider-specific strategy implementation.
+   *
+   * Enables providers to expose optional behavior strategies without polluting
+   * the Provider interface with many optional methods.
+   *
+   * @param type Strategy type identifier
+   * @returns Strategy implementation or null if not supported
+   *
+   * @example
+   * ```typescript
+   * const strategy = provider.getStrategy<UpstreamPreparationStrategy>('upstream')
+   * if (strategy) {
+   *   const context = await strategy.prepare({ model, accountIndex, ... })
+   * }
+   * ```
+   */
+  getStrategy<T extends ProviderStrategy>(type: StrategyType): T | null
+
+  /**
+   * Create a streaming pipeline for this provider/model.
+   * Used for stateful transformation of SSE streams.
+   */
+  createStreamingPipeline?(model: string): import('../types').StreamingPipeline
 }
 
 /**
@@ -134,6 +160,9 @@ export abstract class BaseProvider implements Provider {
   getFormatForModel?(model: string): FormatId
   getFormatForWireRequest?(request: unknown): FormatId
 
+  // Optional streaming pipeline factory
+  createStreamingPipeline?(model: string): import('../types').StreamingPipeline
+
   /**
    * Default error parser implementation.
    * Providers should override this to provide more specific error mapping.
@@ -147,5 +176,25 @@ export abstract class BaseProvider implements Provider {
       retryable: false,
       originalError: error,
     }
+  }
+
+  // Strategy Management
+  protected strategies: Map<StrategyType, ProviderStrategy> = new Map<
+    StrategyType,
+    ProviderStrategy
+  >()
+
+  /**
+   * Register a provider strategy
+   */
+  registerStrategy(strategy: ProviderStrategy): void {
+    this.strategies.set(strategy.strategyType, strategy)
+  }
+
+  /**
+   * Get a registered strategy
+   */
+  getStrategy<T extends ProviderStrategy>(type: StrategyType): T | null {
+    return (this.strategies.get(type) as T) || null
   }
 }

@@ -38,6 +38,8 @@ describe('OpenAI Responses Roundtrip (Real Capture)', () => {
     expect(reconstructed.id).toBe(UPSTREAM_CAPTURE_RESPONSE.id)
     expect(reconstructed.object).toBe('response')
     expect(reconstructed.status).toBe('in_progress')
+    expect(reconstructed.created_at).toBe(UPSTREAM_CAPTURE_RESPONSE.created_at)
+    expect(reconstructed.instructions).toBe(UPSTREAM_CAPTURE_RESPONSE.instructions)
     
     // Model field check: Upstream didn't have it in the snippet, but our transformer might add it?
     // If upstream capture has no model, parsed metadata might have undefined model.

@@ -29,14 +29,14 @@ describe('StreamingPipeline Architecture', () => {
       // openai-chat may provide streaming pipeline (optional)
     })
 
-    it('google-gemini format has streaming pipeline', () => {
+    it('google-gemini format uses GeminiStreamingBuilder (not getStreamingPipeline)', () => {
+      // After refactor: google-gemini format no longer has getStreamingPipeline.
+      // Streaming is handled via GeminiStreamingBuilder (builder pattern).
+      // The StreamingPipeline is now on AntigravityProvider.createStreamingPipeline().
       const format = getFormat('google-gemini')
       expect(format).toBeDefined()
-      expect(format.getStreamingPipeline).toBeDefined()
-
-      const pipeline = format.getStreamingPipeline!({ provider: 'google', model: 'gemini-2.0-flash' })
-      expect(pipeline).toBeDefined()
-      verifyStreamingPipelineInterface(pipeline)
+      // getStreamingPipeline was intentionally removed for Hub-and-Spoke compliance
+      expect(format.getStreamingPipeline).toBeUndefined()
     })
 
     it('openai-responses format supports streaming', () => {

@@ -167,6 +167,16 @@ export class RequestLogStore {
         input.isStreaming ? 1 : 0
       )
       logger.debug({ requestId: input.requestId }, 'Request logged')
+
+      // Retention: 최근 1000개만 유지
+      this.db.run(`
+        DELETE FROM request_logs 
+        WHERE id NOT IN (
+          SELECT id FROM request_logs 
+          ORDER BY timestamp DESC 
+          LIMIT 1000
+        )
+      `)
     } catch (error) {
       logger.error({ error, requestId: input.requestId }, 'Failed to log request')
     }
@@ -276,9 +286,13 @@ function mapRowToEntry(row: DbRow): RequestLogEntry {
   }
 }
 
-function safeStringify(value: unknown): string {
+function safeStringify(value: unknown, limit = 0): string {
   try {
-    return JSON.stringify(value)
+    const s = JSON.stringify(value)
+    if (limit > 0 && s.length > limit) {
+      return `${s.slice(0, limit)}... (truncated)`
+    }
+    return s
   } catch {
     return String(value)
   }

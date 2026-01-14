@@ -11,9 +11,20 @@ describe("handleProxy with modelMappings", () => {
     originalFetch = globalThis.fetch;
     capturedBody = undefined;
     globalThis.fetch = Object.assign(
-      mock(async (_url: unknown, options?: { body?: string }) => {
-        if (options?.body) {
-          capturedBody = JSON.parse(options.body);
+      mock(async (input: Request | unknown, options?: { body?: string }) => {
+        if (input instanceof Request) {
+          const cloned = input.clone();
+          try {
+            capturedBody = await cloned.json();
+          } catch {
+            // Ignore parse errors
+          }
+        } else if (options?.body) {
+          try {
+            capturedBody = JSON.parse(options.body);
+          } catch {
+            // Ignore parse errors
+          }
         }
         return new Response(
           JSON.stringify({

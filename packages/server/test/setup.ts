@@ -8,6 +8,7 @@ import {
   AntigravityProvider,
   OpencodeZenProvider,
 } from '@llmux/core'
+import { registerServerStrategies } from '../src/strategies/register'
 
 clearProviders()
 registerProvider(new OpenAIProvider())
@@ -16,3 +17,5 @@ registerProvider(new AnthropicProvider())
 registerProvider(new GeminiProvider())
 registerProvider(new AntigravityProvider())
 registerProvider(new OpencodeZenProvider())
+
+registerServerStrategies()

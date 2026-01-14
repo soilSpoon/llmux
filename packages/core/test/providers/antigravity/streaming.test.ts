@@ -485,5 +485,30 @@ describe("Antigravity Streaming Transformations", () => {
       expect((parsed as StreamChunk)?.delta?.toolCall?.name).toBe("search");
       expect((parsed as StreamChunk)?.delta?.toolCall?.id).toBe("call-xyz");
     });
+
+    it("should handle special characters in tool names through round-trip", () => {
+      const originalChunk: StreamChunk = {
+        type: "tool_call",
+        delta: {
+          type: "tool_call",
+          toolCall: {
+            id: "call-xyz",
+            name: "mcp/read_file",
+            arguments: { path: "test.txt" },
+          },
+        },
+      };
+
+      const transformed = transformStreamChunk(originalChunk);
+      
+      // Verify encoding happens in transform
+      expect(transformed).toContain('"name":"mcp__slash__read_file"');
+
+      const parsed = parseStreamChunk(transformed) as StreamChunk | null;
+
+      expect(parsed?.type).toBe("tool_call");
+      expect((parsed as StreamChunk)?.delta?.toolCall?.name).toBe("mcp/read_file");
+      expect((parsed as StreamChunk)?.delta?.toolCall?.id).toBe("call-xyz");
+    });
   });
 });

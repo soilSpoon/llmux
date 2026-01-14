@@ -120,7 +120,13 @@ export class SignatureStore {
     if (!record) {
       return false
     }
-    return record.projectId === targetProjectId
+    const match = record.projectId === targetProjectId
+    if (!match) {
+      console.log(
+        `[SignatureStore] PROJECT MISMATCH signature: ${signature.slice(0, 15)}... stored: ${record.projectId} target: ${targetProjectId}`
+      )
+    }
+    return match
   }
 
   private cleanup(): void {

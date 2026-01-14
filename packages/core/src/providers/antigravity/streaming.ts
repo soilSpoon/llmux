@@ -6,7 +6,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { decodeAntigravityToolName } from '../../schema/reversible-tool-name'
+import {
+  decodeAntigravityToolName,
+  encodeAntigravityToolName,
+} from '../../schema/reversible-tool-name'
 import type { StopReason, StreamChunk, UsageInfo } from '../../types/unified'
 import { createLogger } from '../../util/logger'
 import type { GeminiFinishReason, GeminiUsageMetadata } from '../gemini/types'
@@ -207,6 +210,12 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
       }
     }
 
+    // Thinking chunk with just text (Antigravity can sometimes return text part with thought=true)
+    if (part.thought === true && !part.text) {
+      // Skip empty thought part
+      return null
+    }
+
     // Function call chunk - decode tool name
     if (part.functionCall) {
       const fc = part.functionCall as Record<string, unknown>
@@ -324,7 +333,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
       if (chunk.delta?.toolCall) {
         partsArray.push({
           functionCall: {
-            name: chunk.delta.toolCall.name,
+            name: encodeAntigravityToolName(chunk.delta.toolCall.name),
             args: chunk.delta.toolCall.arguments,
             id: chunk.delta.toolCall.id,
           },

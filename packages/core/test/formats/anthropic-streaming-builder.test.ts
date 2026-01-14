@@ -218,9 +218,12 @@ describe('AnthropicStreamingBuilder', () => {
     })
     
     const flushEvents = builder.flush()
-    expect(flushEvents.length).toBe(1)
+    expect(flushEvents.length).toBe(3)
     expect(flushEvents[0]).toContain('"type":"content_block_stop"')
     expect(flushEvents[0]).toContain('"index":0')
+    expect(flushEvents[1]).toContain('"type":"message_delta"')
+    expect(flushEvents[1]).toContain('"stop_reason":"end_turn"')
+    expect(flushEvents[2]).toContain('"type":"message_stop"')
   })
 
   test('should not emit duplicate message_start on subsequent calls', () => {
@@ -293,5 +296,92 @@ describe('AnthropicStreamingBuilder', () => {
     
     // Should be empty, no more message_start or message_stop
     expect(events2.length).toBe(0)
+  })
+
+  describe('flush() guarantees message_stop', () => {
+    test('flush after text-only stream should emit message_stop', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      builder.build({ type: 'text-delta', delta: { text: 'Hello' } })
+      builder.build({ type: 'text-delta', delta: { text: ' world' } })
+      
+      const flushEvents = builder.flush()
+      
+      expect(flushEvents.some(e => e.includes('"type":"message_stop"'))).toBe(true)
+      expect(flushEvents.some(e => e.includes('"type":"message_delta"'))).toBe(true)
+      expect(flushEvents.some(e => e.includes('"stop_reason":"end_turn"'))).toBe(true)
+    })
+
+    test('flush after tool_call stream should emit message_stop with tool_use reason', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      builder.build({
+        type: 'tool_call',
+        delta: { toolCall: { name: 'search', id: 'c1', arguments: {} } }
+      })
+      
+      const flushEvents = builder.flush()
+      
+      expect(flushEvents.some(e => e.includes('"type":"message_stop"'))).toBe(true)
+      expect(flushEvents.some(e => e.includes('"stop_reason":"tool_use"'))).toBe(true)
+    })
+
+    test('flush on idle builder should return empty (no message_start sent)', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      const flushEvents = builder.flush()
+      
+      expect(flushEvents.length).toBe(0)
+    })
+
+    test('flush after already finished stream should return empty', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      builder.build({ type: 'text-delta', delta: { text: 'Hello' } })
+      builder.build({ type: 'done', stopReason: 'end_turn' })
+      
+      const flushEvents = builder.flush()
+      
+      expect(flushEvents.length).toBe(0)
+    })
+
+    test('double flush should be idempotent', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      builder.build({ type: 'text-delta', delta: { text: 'Hello' } })
+      
+      const flush1 = builder.flush()
+      const flush2 = builder.flush()
+      
+      expect(flush1.some(e => e.includes('"type":"message_stop"'))).toBe(true)
+      expect(flush2.length).toBe(0)
+    })
+
+    test('CRITICAL: abrupt stream termination still guarantees message_stop', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      builder.build({ type: 'text-delta', delta: { text: 'Partial response...' } })
+      
+      const flushEvents = builder.flush()
+      
+      const hasMessageDelta = flushEvents.some(e => e.includes('"type":"message_delta"'))
+      const hasMessageStop = flushEvents.some(e => e.includes('"type":"message_stop"'))
+      const hasBlockStop = flushEvents.some(e => e.includes('"type":"content_block_stop"'))
+      
+      expect(hasBlockStop).toBe(true)
+      expect(hasMessageDelta).toBe(true)
+      expect(hasMessageStop).toBe(true)
+    })
+
+    test('flush after thinking block should close properly', () => {
+      const builder = new AnthropicStreamingBuilder(model)
+      
+      builder.build({ type: 'thinking-delta', delta: { thinking: { text: 'Let me think...' } } })
+      
+      const flushEvents = builder.flush()
+      
+      expect(flushEvents.some(e => e.includes('"type":"content_block_stop"'))).toBe(true)
+      expect(flushEvents.some(e => e.includes('"type":"message_stop"'))).toBe(true)
+    })
   })
 })

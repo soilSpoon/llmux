@@ -177,4 +177,13 @@ export interface SchemaFormat {
    * @returns Unified error representation
    */
   parseError?(error: unknown): UnifiedError
+
+  /**
+   * Get a streaming pipeline for this format.
+   * Some formats require stateful pipelines for correct streaming (e.g. Anthropic).
+   *
+   * @param ctx - Format context with provider and model info
+   * @returns StreamingPipeline instance or undefined if stateless
+   */
+  getStreamingPipeline?(ctx: FormatContext): StreamingPipeline
 }

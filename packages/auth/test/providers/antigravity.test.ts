@@ -77,7 +77,6 @@ describe("AntigravityProvider", () => {
   });
 
   test("getEndpoint returns correct Gemini URL for streaming", () => {
-    // @ts-ignore - interface update pending
     const endpoint = AntigravityProvider.getEndpoint("gemini-2.0-flash", {
       streaming: true,
     });

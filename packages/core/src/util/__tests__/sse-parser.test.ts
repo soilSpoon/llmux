@@ -75,4 +75,63 @@ describe("SSEParser", () => {
     const results = parser.flush();
     expect(results).toEqual(['{"id": "1"}']);
   });
+
+  it("should handle 4-byte emoji split across chunks", () => {
+    const parser = new SSEParser();
+    // 🎉 emoji: F0 9F 8E 89 (4 bytes)
+    const text = 'data: {"emoji": "🎉"}\n';
+    const encoded = new TextEncoder().encode(text);
+    
+    // Split after first 2 bytes of the emoji
+    const emojiStart = text.indexOf("🎉");
+    const byteOffset = new TextEncoder().encode(text.slice(0, emojiStart)).length;
+    const chunk1 = encoded.slice(0, byteOffset + 2); // F0 9F
+    const chunk2 = encoded.slice(byteOffset + 2);    // 8E 89 + rest
+    
+    expect(parser.push(chunk1)).toEqual([]);
+    expect(parser.push(chunk2)).toEqual(['{"emoji": "🎉"}']);
+  });
+
+  it("should handle multiple multibyte splits in sequence", () => {
+    const parser = new SSEParser();
+    const text = 'data: 가나다\n';
+    const encoded = new TextEncoder().encode(text);
+    
+    // Split each character: 가(3 bytes) 나(3 bytes) 다(3 bytes)
+    // "data: " = 6 bytes
+    const chunk1 = encoded.slice(0, 8);  // "data: " + 가[0..1]
+    const chunk2 = encoded.slice(8, 11); // 가[2] + 나[0..1]
+    const chunk3 = encoded.slice(11);    // 나[2] + 다 + \n
+    
+    expect(parser.push(chunk1)).toEqual([]);
+    expect(parser.push(chunk2)).toEqual([]);
+    expect(parser.push(chunk3)).toEqual(['가나다']);
+  });
+
+  it("should handle CRLF line endings with multibyte", () => {
+    const parser = new SSEParser();
+    const chunk = new TextEncoder().encode('data: 日本語\r\ndata: 中文\r\n');
+    const results = parser.push(chunk);
+    expect(results).toEqual(['日本語', '中文']);
+  });
+
+  it("should handle flush with incomplete multibyte at stream end", () => {
+    const parser = new SSEParser();
+    const text = 'data: テスト';
+    const encoded = new TextEncoder().encode(text);
+    
+    // Push incomplete - missing newline
+    expect(parser.push(encoded)).toEqual([]);
+    expect(parser.flush()).toEqual(['テスト']);
+  });
+
+  it("should handle mixed ASCII and multibyte in same chunk", () => {
+    const parser = new SSEParser();
+    const chunk = new TextEncoder().encode(
+      'data: {"en": "hello", "ko": "안녕", "jp": "こんにちは"}\n'
+    );
+    expect(parser.push(chunk)).toEqual([
+      '{"en": "hello", "ko": "안녕", "jp": "こんにちは"}'
+    ]);
+  });
 });

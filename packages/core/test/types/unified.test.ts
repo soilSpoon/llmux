@@ -47,6 +47,27 @@ describe("UnifiedRequest", () => {
     expect(request.config?.maxTokens).toBe(1000);
     expect(request.thinking?.enabled).toBe(true);
   });
+
+  it("should accept userRole for Antigravity provider", () => {
+    const request: UnifiedRequest = {
+      messages: [{ role: "user", parts: [{ type: "text", text: "Hello" }] }],
+      userRole: "developer",
+    };
+    expect(request.userRole).toBe("developer");
+  });
+
+  it("should accept userRole with other optional fields", () => {
+    const request: UnifiedRequest = {
+      messages: [{ role: "user", parts: [{ type: "text", text: "Hello" }] }],
+      system: "You are a coding assistant",
+      userRole: "admin",
+      thinking: { enabled: true },
+      stream: true,
+    };
+    expect(request.userRole).toBe("admin");
+    expect(request.thinking?.enabled).toBe(true);
+    expect(request.stream).toBe(true);
+  });
 });
 
 describe("UnifiedResponse", () => {

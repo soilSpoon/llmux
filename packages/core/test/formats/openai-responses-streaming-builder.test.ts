@@ -704,4 +704,129 @@ describe('OpenAIResponsesStreamingBuilder', () => {
       })
     })
   })
+
+  describe('flush() guarantees response.completed', () => {
+    it('flush after text stream should emit response.completed', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({ type: 'content', blockIndex: 0, delta: { type: 'text', text: 'Hello' } })
+      builder.build({ type: 'content', blockIndex: 0, delta: { type: 'text', text: ' world' } })
+      
+      const flushEvents = builder.flush()
+      const events = parseSSEEvents(flushEvents)
+      
+      const completedEvent = events.find(e => e.event === 'response.completed')
+      expect(completedEvent).toBeDefined()
+      expect(completedEvent?.data).toMatchObject({
+        type: 'response.completed',
+        response: { status: 'completed' }
+      })
+    })
+
+    it('flush after tool_call stream should emit response.completed', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({
+        type: 'tool_call',
+        blockIndex: 0,
+        toolCall: { id: 'call_1', name: 'search' },
+        delta: { partialJson: '{"q":"test"}' }
+      })
+      
+      const flushEvents = builder.flush()
+      const events = parseSSEEvents(flushEvents)
+      
+      const completedEvent = events.find(e => e.event === 'response.completed')
+      expect(completedEvent).toBeDefined()
+    })
+
+    it('flush on idle builder should return empty (no response.created sent)', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      const flushEvents = builder.flush()
+      
+      expect(flushEvents.length).toBe(0)
+    })
+
+    it('flush should close open items before completing', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({ type: 'content', blockIndex: 0, delta: { type: 'text', text: 'Hello' } })
+      
+      const flushEvents = builder.flush()
+      const events = parseSSEEvents(flushEvents)
+      
+      const eventTypes = events.map(e => e.event)
+      
+      expect(eventTypes).toContain('response.output_text.done')
+      expect(eventTypes).toContain('response.output_item.done')
+      expect(eventTypes).toContain('response.completed')
+    })
+
+    it('flush should include usage in response.completed', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({ type: 'content', blockIndex: 0, delta: { type: 'text', text: 'Hi' } })
+      builder.build({ 
+        type: 'usage', 
+        usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 } 
+      })
+      
+      const flushEvents = builder.flush()
+      const events = parseSSEEvents(flushEvents)
+      
+      const completedEvent = events.find(e => e.event === 'response.completed')
+      const data = completedEvent?.data as any
+      
+      expect(data.response.usage).toMatchObject({
+        input_tokens: 100,
+        output_tokens: 50,
+        total_tokens: 150
+      })
+    })
+
+    it('CRITICAL: abrupt stream termination still guarantees response.completed', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({ type: 'content', blockIndex: 0, delta: { type: 'text', text: 'Partial...' } })
+      
+      const flushEvents = builder.flush()
+      const events = parseSSEEvents(flushEvents)
+      
+      const completedEvent = events.find(e => e.event === 'response.completed')
+      expect(completedEvent).toBeDefined()
+      expect(completedEvent?.data).toMatchObject({
+        type: 'response.completed',
+        response: { status: 'completed' }
+      })
+    })
+
+    it('double flush should be idempotent', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({ type: 'content', blockIndex: 0, delta: { type: 'text', text: 'Hi' } })
+      
+      const flush1 = builder.flush()
+      const flush2 = builder.flush()
+      
+      expect(flush1.length).toBeGreaterThan(0)
+      expect(flush2.length).toBe(0)
+    })
+
+    it('flush after thinking stream should emit response.completed', () => {
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-5.1')
+      
+      builder.build({ 
+        type: 'thinking', 
+        blockIndex: 0, 
+        delta: { thinking: { text: 'Let me think...' } } 
+      })
+      
+      const flushEvents = builder.flush()
+      const events = parseSSEEvents(flushEvents)
+      
+      expect(events.some(e => e.event === 'response.output_item.done')).toBe(true)
+      expect(events.some(e => e.event === 'response.completed')).toBe(true)
+    })
+  })
 })

@@ -8,10 +8,11 @@ import type { StreamChunk } from '../../types/unified'
  */
 export class GeminiStreamingBuilder {
   private state = {
-    phase: 'idle' as 'idle' | 'started' | 'finished',
+    phase: 'idle' as 'idle' | 'started' | 'finished' | 'flushed',
     accumulatedParts: [] as Array<Record<string, unknown>>,
     finishReason: null as string | null,
     usage: null as { inputTokens: number; outputTokens: number } | null,
+    currentToolCallPart: null as Record<string, unknown> | null,
   }
 
   /**
@@ -59,10 +60,12 @@ export class GeminiStreamingBuilder {
     if (chunk.type === 'text-delta' && chunk.delta?.text) {
       part.text = chunk.delta.text
       this.state.accumulatedParts.push(part)
+      this.state.currentToolCallPart = null // Clear tool context on text
     } else if (chunk.type === 'thinking-delta' && chunk.delta?.thinking?.text) {
       part.text = chunk.delta.thinking.text
       part.thought = true
       this.state.accumulatedParts.push(part)
+      this.state.currentToolCallPart = null
     } else if (chunk.type === 'tool-call-start' && chunk.toolCall) {
       // Store tool call info for later
       part.functionCall = {
@@ -70,13 +73,23 @@ export class GeminiStreamingBuilder {
         args: {},
       }
       this.state.accumulatedParts.push(part)
+      this.state.currentToolCallPart = part // Keep reference
     } else if (chunk.type === 'tool-input-delta' && chunk.delta?.partialJson) {
-      // Merge tool input into last part if it's a functionCall
-      const lastPart = this.state.accumulatedParts[this.state.accumulatedParts.length - 1]
-      if (lastPart?.functionCall) {
+      // Merge tool input into last part OR currentToolCallPart
+      // Try accumulatedParts first (if same batch)
+      let targetPart = this.state.accumulatedParts.find((p) => p === this.state.currentToolCallPart)
+
+      // If not in current batch, use the stored reference
+      if (!targetPart && this.state.currentToolCallPart) {
+        targetPart = this.state.currentToolCallPart
+        // Re-add to accumulated parts to re-emit (updated)
+        this.state.accumulatedParts.push(targetPart)
+      }
+
+      if (targetPart?.functionCall) {
         try {
           const parsed = JSON.parse(chunk.delta.partialJson)
-          const fc = lastPart.functionCall as { name: string; args: unknown }
+          const fc = targetPart.functionCall as { name: string; args: unknown }
           fc.args = parsed
         } catch {
           // Keep building partial JSON
@@ -101,6 +114,7 @@ export class GeminiStreamingBuilder {
 
       // Clear accumulated parts after emission (streaming mode)
       this.state.accumulatedParts = []
+      // Note: we KEEP state.currentToolCallPart so we can update it in next chunk if needed
     }
 
     return results
@@ -113,7 +127,6 @@ export class GeminiStreamingBuilder {
     const results: string[] = []
 
     if (this.state.phase === 'finished') {
-      // Emit final chunk with finish reason and usage
       const finalChunk: Record<string, unknown> = {
         candidates: [
           {
@@ -135,6 +148,7 @@ export class GeminiStreamingBuilder {
       }
 
       results.push(`data: ${JSON.stringify(finalChunk)}\n\n`)
+      this.state.phase = 'flushed'
     }
 
     return results

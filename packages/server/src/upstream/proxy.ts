@@ -43,13 +43,9 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
 
       // Read body once to avoid "Body already used" errors
       let bodyBuffer: ArrayBuffer | undefined
-      let bodyText = ''
 
       try {
         bodyBuffer = await request.arrayBuffer()
-        if (bodyBuffer.byteLength > 0) {
-          bodyText = new TextDecoder().decode(bodyBuffer)
-        }
       } catch (_e) {
         // Body might be empty or not readable
       }
@@ -94,7 +90,6 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
 
         // Log warning/error for non-2xx responses with full request/response details
         if (!upstreamResponse.ok) {
-          const responseText = await upstreamResponse.clone().text()
           const headersObj: Record<string, string> = {}
           filteredHeaders.forEach((v, k) => {
             headersObj[k] =
@@ -104,29 +99,6 @@ export function createUpstreamProxy(config: UpstreamProxyConfig): UpstreamProxy 
           upstreamResponse.headers.forEach((v, k) => {
             responseHeadersObj[k] = v
           })
-
-          const logLevel = upstreamResponse.status >= 500 ? 'error' : 'warn'
-          const logData = {
-            reqId,
-            status: upstreamResponse.status,
-            statusText: upstreamResponse.statusText,
-            proxyUrl,
-            request: {
-              method: request.method,
-              headers: headersObj,
-              body: bodyText.slice(0, 2000),
-            },
-            response: {
-              headers: responseHeadersObj,
-              body: responseText.slice(0, 2000),
-            },
-          }
-
-          if (logLevel === 'error') {
-            logger.error(logData, `[Proxy] Upstream returned ${upstreamResponse.status}`)
-          } else {
-            logger.warn(logData, `[Proxy] Upstream returned ${upstreamResponse.status}`)
-          }
         }
 
         // For streaming responses or non-2xx responses, pass through without modification

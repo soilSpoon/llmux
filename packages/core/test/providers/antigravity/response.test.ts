@@ -696,5 +696,35 @@ describe("Antigravity Response Transformations", () => {
       expect(parsedBack.content[0]!.toolCall?.name).toBe("search");
       expect(parsedBack.content[0]!.toolCall?.id).toBe("call-abc");
     });
+
+    it("should handle special characters in tool names through round-trip", () => {
+      const unifiedResponse = createUnifiedResponse({
+        content: [
+          {
+            type: "tool_call",
+            toolCall: {
+              id: "call-xyz",
+              name: "mcp/read_file",
+              arguments: { path: "test.txt" },
+            },
+          },
+        ],
+        stopReason: "tool_use",
+      });
+
+      const antigravityResponse = transformResponse(
+        unifiedResponse
+      ) as AntigravityResponse;
+      
+      // Verify encoding happens in transform
+      const fc = antigravityResponse.response.candidates[0]!.content.parts[0]!.functionCall;
+      expect(fc?.name).toBe("mcp__slash__read_file");
+
+      const parsedBack = parseResponse(antigravityResponse);
+
+      // Verify decoding happens in parse
+      expect(parsedBack.content[0]!.type).toBe("tool_call");
+      expect(parsedBack.content[0]!.toolCall?.name).toBe("mcp/read_file");
+    });
   });
 });

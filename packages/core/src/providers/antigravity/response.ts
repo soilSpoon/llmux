@@ -6,7 +6,10 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { decodeAntigravityToolName } from '../../schema/reversible-tool-name'
+import {
+  decodeAntigravityToolName,
+  encodeAntigravityToolName,
+} from '../../schema/reversible-tool-name'
 import type {
   ContentPart,
   StopReason,
@@ -136,7 +139,7 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
       case 'tool_call':
         parts.push({
           functionCall: {
-            name: part.toolCall?.name ?? '',
+            name: encodeAntigravityToolName(part.toolCall?.name ?? ''),
             args:
               typeof part.toolCall?.arguments === 'string'
                 ? { value: part.toolCall?.arguments }

@@ -18,8 +18,6 @@ export {
   patchStopReasonForToolUse,
 } from './stream-helpers'
 
-const logger = createLogger({ service: 'stream-processor' })
-
 export interface StreamProcessorContext {
   reqId: string
   sourceFormat: RequestFormat
@@ -45,27 +43,47 @@ export interface StreamAccumulator {
   accumulatedSignatures: string[]
 }
 
+const logger = createLogger({ service: 'stream-processor' })
+
 export function transformStreamChunk(
   chunk: string,
-  fromProvider: ProviderName,
-  toFormat: RequestFormat
+  fromProvider: ProviderName | string,
+  toFormat: RequestFormat | string
 ): string | string[] {
-  const targetProviderName = formatIdToProviderName(toFormat)
+  const targetProviderName = formatIdToProviderName(toFormat as RequestFormat)
 
+  // 1. Basic passthrough
   if (fromProvider === targetProviderName && !chunk.trim().startsWith('{')) return chunk
-
-  if (chunk.trim() === 'data: [DONE]') {
-    return chunk
-  }
-
-  if (!chunk.trim()) {
-    return chunk === '\n\n' ? '\n' : chunk
-  }
+  if (chunk.trim() === 'data: [DONE]') return chunk
+  if (!chunk.trim()) return chunk === '\n\n' ? '\n' : chunk
 
   try {
-    // Use provider to get format ID
-    const sourceProvider = getProvider(fromProvider)
-    const sourceFormatId = sourceProvider.getFormatForModel?.('unknown') ?? 'openai-chat'
+    // 2. Resolve source format ID
+    let sourceFormatId: FormatId = 'openai-chat'
+    if (fromProvider === 'anthropic') {
+      sourceFormatId = 'anthropic-messages'
+    } else if (fromProvider === 'openai') {
+      sourceFormatId = 'openai-chat'
+    } else if (fromProvider === 'gemini' || fromProvider === 'antigravity') {
+      sourceFormatId = 'google-gemini'
+    } else {
+      // Fallback to provider lookup
+      try {
+        const provider = getProvider(fromProvider as ProviderName)
+        sourceFormatId = provider.getFormatForModel?.('unknown') ?? 'openai-chat'
+      } catch {
+        // Ultimate fallback: detect from chunk content
+        if (
+          chunk.includes('"type":"message_delta"') ||
+          chunk.includes('"type":"content_block_delta"')
+        ) {
+          sourceFormatId = 'anthropic-messages'
+        } else if (chunk.includes('"candidates"')) {
+          sourceFormatId = 'google-gemini'
+        }
+      }
+    }
+
     const sourceFormat = getFormat(sourceFormatId)
     const targetFormat = getFormat(toFormat as FormatId)
 
@@ -76,43 +94,34 @@ export function transformStreamChunk(
     const unified = sourceFormat.parseStreamChunk(chunk)
 
     if (!unified) {
-      if (chunk.trim().startsWith('{')) {
-        return ''
+      if (chunk.trim().startsWith('{')) return ''
+      return chunk
+    }
+
+    const chunks = Array.isArray(unified) ? unified : [unified]
+    const results: string[] = []
+
+    for (const c of chunks) {
+      const built = targetFormat.buildStreamChunk(c, {
+        provider: targetProviderName,
+        model: 'unknown',
+      })
+      if (typeof built === 'string') {
+        results.push(built)
+      } else if (Array.isArray(built)) {
+        results.push(...built)
       }
-      return chunk
     }
 
-    if (Array.isArray(unified)) {
-      return unified
-        .flatMap((c) =>
-          targetFormat.buildStreamChunk?.(c, {
-            provider: targetProviderName,
-            model: 'unknown',
-          })
-        )
-        .filter((v): v is string => v !== undefined)
-    }
-
-    if (unified.type === 'error') {
-      return chunk
-    }
-
-    const result = targetFormat.buildStreamChunk(unified, {
-      provider: targetProviderName,
-      model: 'unknown',
-    })
-    return result
+    if (results.length === 0) return ''
+    if (results.length === 1) return results[0] as string
+    return results
   } catch (error) {
-    logger.error(
-      {
-        fromProvider,
-        toFormat,
-        error: error instanceof Error ? error.message : String(error),
-        chunkSample: chunk.slice(0, 200),
-      },
-      'Error transforming stream chunk'
+    logger.warn(
+      { error: String(error), fromProvider, toFormat },
+      'Failed to transform stream chunk'
     )
-    return ''
+    return chunk
   }
 }
 

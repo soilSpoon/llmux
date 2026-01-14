@@ -83,13 +83,20 @@ export class Router {
       const fallbackModel = fallback.model || resolution.targetModel
       const fallbackKey = `${fallback.provider}:${fallbackModel}`
 
+      const available = this.cooldownManager.isAvailable(fallbackKey)
       logger.debugTemp(
-        { fallbackProvider: fallback.provider, fallbackModel, fallbackKey },
+        {
+          requestedModel,
+          fallbackProvider: fallback.provider,
+          fallbackModel,
+          fallbackKey,
+          available,
+        },
         '[DEBUG] Checking fallback availability'
       )
 
-      if (this.cooldownManager.isAvailable(fallbackKey)) {
-        logger.debugTemp({ fallbackKey }, '[DEBUG] Fallback available, using it')
+      if (available) {
+        // logger.debugTemp({ fallbackKey }, '[DEBUG] Fallback available, using it')
         return {
           provider: fallback.provider,
           model: fallbackModel,
@@ -140,17 +147,27 @@ export class Router {
     return this.config.maxRetryAttempts ?? 20
   }
 
+  isAvailable(provider: string, model: string): boolean {
+    const key = `${provider}:${model}`
+    return this.cooldownManager.isAvailable(key)
+  }
+
   handleRateLimit(model: string, retryAfterMs?: number): void {
-    // We need the provider to mark rate limit correctly.
-    // Ideally this method should accept provider.
-    // For now, we try to resolve synchronously to guess the provider?
-    // Or we just mark the model if we can't determine provider.
-    // The previous implementation looked up mapping.
+    logger.warn({ model, retryAfterMs }, '[Router] Marking model as rate-limited')
+
+    // Always mark the raw model name key
+    this.cooldownManager.markRateLimited(model, retryAfterMs)
 
     if (this.config.modelMapping?.[model]) {
       const mapping = this.config.modelMapping[model]
       const key = `${mapping.provider}:${mapping.model}`
+      logger.debugTemp({ model, key }, '[Router] Also marking mapped provider:model key')
       this.cooldownManager.markRateLimited(key, retryAfterMs)
+    }
+
+    // Also handle if model is already in provider:model format
+    if (model.includes(':')) {
+      this.cooldownManager.markRateLimited(model, retryAfterMs)
     }
 
     // Attempt sync resolution

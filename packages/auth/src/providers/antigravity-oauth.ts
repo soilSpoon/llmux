@@ -205,9 +205,9 @@ export async function onboardManagedProject(
 export async function fetchAntigravityProjectIDAndTier(
   accessToken: string
 ): Promise<ProjectIDAndTierResult> {
-  if (projectContextResultCache.has(accessToken)) {
-    // biome-ignore lint/style/noNonNullAssertion: guaranteed by .has() check
-    return projectContextResultCache.get(accessToken)!
+  const cached = projectContextResultCache.get(accessToken)
+  if (cached !== undefined) {
+    return cached
   }
 
   const data = await loadManagedProject(accessToken)

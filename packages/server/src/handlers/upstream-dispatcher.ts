@@ -44,9 +44,10 @@ export interface DispatchInput {
   onBeforeAttempt?: (attempt: number, meta: UpstreamRequestMeta) => void
   onSuccessfulAttempt?: (meta: UpstreamRequestMeta, response: Response) => void
   // new, all optional
-  timeoutMs?: number
   networkErrorBaseDelayMs?: number
   networkErrorMaxDelayMs?: number
+  retryState?: RetryState
+  timeoutMs?: number
 }
 
 export interface DispatchResult {
@@ -59,7 +60,13 @@ export interface DispatchResult {
 export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchResult> {
   const { reqId, builder, initialBody, options, mode, signatureStore } = input
 
-  const retryState = createRetryState()
+  const retryState =
+    input.retryState ||
+    createRetryState(
+      typeof options.router?.getMaxRetryAttempts === 'function'
+        ? options.router.getMaxRetryAttempts()
+        : 20
+    )
   let lastResponse: Response | undefined
   let lastMeta: UpstreamRequestMeta | null = null
   const startTime = Date.now()
@@ -67,6 +74,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
   while (shouldContinueRetry(retryState)) {
     incrementAttempt(retryState)
+    logger.debug({ attempt: retryState.attempt, reqId }, 'Dispatcher loop start')
 
     let request: UpstreamRequest | undefined
     let postTransformRequest: unknown
@@ -219,21 +227,26 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
           // Update options for next iteration with new provider/model
           if (result.newProvider) {
             options.targetProvider = result.newProvider
-          }
-          if (result.newModel) {
-            options.targetModel = result.newModel
+          } else {
+            delete options.targetProvider
           }
 
-          // Reset retry state for new provider/model
+          if (result.newModel) {
+            options.targetModel = result.newModel
+          } else {
+            delete options.targetModel
+          }
+
+          // Reset specific retry indices for new provider/model, but keep total attempts
           retryState.accountIndex = -1
           retryState.antigravityEndpointIndex = 0
-          retryState.attempt = 0
 
           logger.info(
             {
               reqId,
               newProvider: result.newProvider,
               newModel: result.newModel,
+              totalAttempts: retryState.attempt,
             },
             'Switching to fallback provider/model'
           )
@@ -293,18 +306,26 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       }
 
       if (error instanceof AllCooldownError) {
-        if (options.router && error.model) {
+        if (options.router && error.model && shouldContinueRetry(retryState)) {
           logger.warn(
-            { reqId, provider: error.provider, model: error.model },
-            'All accounts rate limited for current choice, triggering router fallback'
+            { reqId, provider: error.provider, model: error.model, attempt: retryState.attempt },
+            'Current choice in cooldown (all accounts limited), triggering router fallback'
           )
+
+          // Notify router to avoid immediate retry of the same model
           options.router.handleRateLimit(error.model)
 
-          // Reset retry state for fallback attempt
+          // CRITICAL: Clear explicit targets so router can re-resolve available alternatives on next loop
+          delete options.targetProvider
+          delete options.targetModel
+
+          // Reset specific retry indices for fallback attempt
           retryState.accountIndex = -1
           retryState.antigravityEndpointIndex = 0
-          // We don't reset retryState.attempt here because we want to count this as an attempt
-          // to avoid infinite loops if something is wrong with router.
+
+          // Safety: Add a small delay to prevent infinite spin loops
+          const delay = process.env.NODE_ENV === 'test' ? 1 : 100
+          await new Promise((r) => setTimeout(r, delay))
           continue
         }
 

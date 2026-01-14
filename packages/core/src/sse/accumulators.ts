@@ -18,7 +18,7 @@ export interface OpenAIToolCall {
   }
 }
 
-export interface OpenAIMessage {
+export interface AccumulatedOpenAIMessage {
   role: string
   content: string | null
   tool_calls?: OpenAIToolCall[]
@@ -31,7 +31,7 @@ export interface OpenAIChatCompletion {
   model: string
   choices: Array<{
     index: number
-    message: OpenAIMessage
+    message: AccumulatedOpenAIMessage
     finish_reason: string | null
   }>
   usage?: Record<string, unknown>
@@ -228,7 +228,7 @@ export async function accumulateOpenAIResponse(
   if (finalResponse) {
     // Convert map to array
     finalResponse.choices = Array.from(choicesMap.entries()).map(([index, choice]) => {
-      const message: OpenAIMessage = {
+      const message: AccumulatedOpenAIMessage = {
         role: choice.role,
         content: choice.content || null,
       }

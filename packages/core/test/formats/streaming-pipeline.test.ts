@@ -7,7 +7,7 @@ describe('SchemaFormat Streaming Pipeline', () => {
     'openai-chat',
     'openai-responses',
     'anthropic-messages',
-    'google-gemini',
+    // 'google-gemini', // Moved to GeminiStreamingBuilder
   ]
 
   formats.forEach((formatId) => {

@@ -1,15 +1,9 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test'
+import { describe, expect, it, mock } from 'bun:test'
 import type { ModelCache } from '../../cache'
 import type { Model } from '../../types'
 import { createModelsDevFetcher, MODELS_DEV_API_URL } from '../models-dev'
 
 describe('ModelsDevFetcher', () => {
-  const originalFetch = globalThis.fetch
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch
-  })
-
   describe('MODELS_DEV_API_URL', () => {
     it('should export the correct API URL', () => {
       expect(MODELS_DEV_API_URL).toBe('https://models.dev/api.json')
@@ -71,9 +65,9 @@ describe('ModelsDevFetcher', () => {
         },
       }
 
-      globalThis.fetch = mock(async () => {
+      const mockFetch = mock(async () => {
         return new Response(JSON.stringify(mockApiResponse), { status: 200 })
-      }) as unknown as typeof fetch
+      })
 
       const cache: ModelCache = {
         get: mock(async () => null),
@@ -82,7 +76,7 @@ describe('ModelsDevFetcher', () => {
         clear: mock(async () => {}),
       }
 
-      const fetcher = createModelsDevFetcher('openai', cache)
+      const fetcher = createModelsDevFetcher('openai', cache, undefined, mockFetch as unknown as typeof fetch)
       const models = await fetcher.fetchModels()
 
       expect(models).toHaveLength(1)
@@ -137,12 +131,12 @@ describe('ModelsDevFetcher', () => {
         },
       }
 
-      globalThis.fetch = mock(async () => {
+      const mockFetch = mock(async () => {
         return new Response(JSON.stringify(mockApiResponse), { status: 200 })
-      }) as unknown as typeof fetch
+      })
 
       const cache = createMockCache()
-      const fetcher = createModelsDevFetcher('openai', cache)
+      const fetcher = createModelsDevFetcher('openai', cache, undefined, mockFetch as unknown as typeof fetch)
       const models = await fetcher.fetchModels()
 
       expect(models).toHaveLength(1)
@@ -150,12 +144,12 @@ describe('ModelsDevFetcher', () => {
     })
 
     it('should return empty array on API error', async () => {
-      globalThis.fetch = mock(async () => {
+      const mockFetch = mock(async () => {
         return new Response('Internal Server Error', { status: 500 })
-      }) as unknown as typeof fetch
+      })
 
       const cache = createMockCache()
-      const fetcher = createModelsDevFetcher('openai', cache)
+      const fetcher = createModelsDevFetcher('openai', cache, undefined, mockFetch as unknown as typeof fetch)
       const models = await fetcher.fetchModels()
 
       expect(models).toEqual([])
@@ -171,12 +165,12 @@ describe('ModelsDevFetcher', () => {
         },
       }
 
-      globalThis.fetch = mock(async () => {
+      const mockFetch = mock(async () => {
         return new Response(JSON.stringify(mockApiResponse), { status: 200 })
-      }) as unknown as typeof fetch
+      })
 
       const cache = createMockCache()
-      const fetcher = createModelsDevFetcher('unknown-provider', cache)
+      const fetcher = createModelsDevFetcher('unknown-provider', cache, undefined, mockFetch as unknown as typeof fetch)
       const models = await fetcher.fetchModels()
 
       expect(models).toEqual([])
@@ -204,11 +198,11 @@ describe('ModelsDevFetcher', () => {
         },
       }
 
-      globalThis.fetch = mock(async () => {
+      const mockFetch = mock(async () => {
         return new Response(JSON.stringify(mockApiResponse), { status: 200 })
-      }) as unknown as typeof fetch
+      })
 
-      const fetcher = createModelsDevFetcher('openai')
+      const fetcher = createModelsDevFetcher('openai', undefined, undefined, mockFetch as unknown as typeof fetch)
       const models = await fetcher.fetchModels()
 
       expect(models).toHaveLength(1)

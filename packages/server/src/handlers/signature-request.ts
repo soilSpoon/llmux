@@ -57,17 +57,6 @@ export function validateAndStripSignatures(
   const isClaudeFresh = strategy === 'claude-fresh'
   const isGeminiCache = strategy === 'gemini-cache'
 
-  logger.debug(
-    {
-      inputMessagesLength: messages?.length || 0,
-      inputContentsLength: contents?.length || 0,
-      strategy,
-      isClaudeFresh,
-      model,
-    },
-    'validateAndStripSignatures: starting'
-  )
-
   const processedContents = contents
     ? processContents(
         contents,
@@ -94,19 +83,6 @@ export function validateAndStripSignatures(
       )
     : undefined
 
-  logger.debug(
-    {
-      outputMessagesLength: processedMessages?.length || 0,
-      outputContentsLength: processedContents?.length || 0,
-      strippedCount,
-    },
-    'validateAndStripSignatures: complete'
-  )
-
-  if (strippedCount > 0 && isClaudeFresh) {
-    logger.debug({ model, strippedCount }, 'Claude Fresh Signature: stripped thinking blocks')
-  }
-
   return {
     contents: processedContents,
     messages: processedMessages,
@@ -120,7 +96,7 @@ function processContents(
   signatureStore: SignatureStore,
   isClaudeFresh: boolean,
   isGeminiCache: boolean,
-  onStrip: (count: number) => void
+  onStrip: (count: number, reason: string) => void
 ): Content[] {
   return contents.map((content) => {
     if (!content || typeof content !== 'object') return content
@@ -136,7 +112,7 @@ function processContents(
         // Gemini Cache: We MUST strip signatures (thoughtSignature, thinkingMetadata) from the body
         // because Gemini API rejects them as invalid arguments (400 Invalid Argument).
         if (isGeminiCache) {
-          onStrip(1)
+          onStrip(1, 'gemini-cache')
           return stripSignatureFromPart(part)
         }
 
@@ -147,7 +123,7 @@ function processContents(
 
         // Claude Fresh Signature: Remove ALL thinking parts
         if (isClaudeFresh && isThinkingPart(part)) {
-          onStrip(1)
+          onStrip(1, 'claude-fresh-thinking')
           return {} // Will be filtered out
         }
 
@@ -155,7 +131,7 @@ function processContents(
         if (isClaudeFresh) {
           const sig = getSignatureFromPart(part)
           if (sig) {
-            onStrip(1)
+            onStrip(1, 'claude-fresh-extra')
             return stripSignatureFromPart(part)
           }
           return part
@@ -165,16 +141,14 @@ function processContents(
         const signature = getSignatureFromPart(part)
         if (!signature) return part
 
-        if (!signatureStore.isValidForProject(signature, targetProjectId)) {
-          const record = signatureStore.getRecord(signature)
-          const storedProjectId = record?.projectId ?? 'unknown'
+        const record = signatureStore.getRecord(signature)
+        if (!record) {
+          onStrip(1, 'unregistered')
+          return stripSignatureFromPart(part)
+        }
 
-          logger.trace(
-            { storedProjectId, targetProjectId, signaturePrefix: signature.slice(0, 20) },
-            'Stripped invalid signature (project mismatch)'
-          )
-
-          onStrip(1)
+        if (record.projectId !== targetProjectId) {
+          onStrip(1, 'project-mismatch')
           return stripSignatureFromPart(part)
         }
 
@@ -195,7 +169,7 @@ function processMessages(
   signatureStore: SignatureStore,
   isClaudeFresh: boolean,
   isGeminiCache: boolean,
-  onStrip: (count: number) => void
+  onStrip: (count: number, reason: string) => void
 ): Message[] {
   logger.debug({ messageCount: messages.length, isClaudeFresh }, 'processMessages: starting')
   return messages.map((message) => {
@@ -212,7 +186,7 @@ function processMessages(
         // Gemini Cache: We MUST strip signatures (thoughtSignature, thinkingMetadata) from the body
         // because Gemini API rejects them as invalid arguments (400 Invalid Argument).
         if (isGeminiCache) {
-          onStrip(1)
+          onStrip(1, 'gemini-cache')
           return stripSignatureFromBlock(block)
         }
 
@@ -223,7 +197,7 @@ function processMessages(
 
         // Claude Fresh Signature: Remove ALL thinking blocks
         if (isClaudeFresh && isThinkingBlock(block)) {
-          onStrip(1)
+          onStrip(1, 'claude-fresh-thinking')
           return {} // Will be filtered out
         }
 
@@ -231,7 +205,7 @@ function processMessages(
         if (isClaudeFresh) {
           const sig = getSignatureFromBlock(block)
           if (sig) {
-            onStrip(1)
+            onStrip(1, 'claude-fresh-extra')
             return stripSignatureFromBlock(block)
           }
           return block
@@ -241,16 +215,14 @@ function processMessages(
         const signature = getSignatureFromBlock(block)
         if (!signature) return block
 
-        if (!signatureStore.isValidForProject(signature, targetProjectId)) {
-          const record = signatureStore.getRecord(signature)
-          const storedProjectId = record?.projectId ?? 'unknown'
+        const record = signatureStore.getRecord(signature)
+        if (!record) {
+          onStrip(1, 'unregistered')
+          return stripSignatureFromBlock(block)
+        }
 
-          logger.trace(
-            { storedProjectId, targetProjectId, signaturePrefix: signature.slice(0, 20) },
-            'Stripped invalid signature (project mismatch)'
-          )
-
-          onStrip(1)
+        if (record.projectId !== targetProjectId) {
+          onStrip(1, 'project-mismatch')
           return stripSignatureFromBlock(block)
         }
 

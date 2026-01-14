@@ -10,7 +10,7 @@ import { buildWireRequest as buildGeminiRequest } from '../../formats/google-gem
 import type { GeminiRequest, GeminiResponse } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
-import type { UnifiedRequest, UnifiedResponse } from '../../types/unified'
+import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
@@ -52,10 +52,30 @@ export class AntigravityProvider extends BaseProvider {
       }
     }
 
+    // Detect raw SSE stream accumulation attempts (candidates array)
+    // This allows AntigravityProvider to handle raw Gemini format chunks during accumulation
+    if (
+      request &&
+      typeof request === 'object' &&
+      'candidates' in request &&
+      Array.isArray((request as Record<string, unknown>).candidates)
+    ) {
+      return true
+    }
+
     return false
   }
 
-  readonly createStreamingPipeline = (model: string) => createAntigravityStreamingPipeline(model)
+  readonly createStreamingPipeline = (model: string): import('../../types').StreamingPipeline =>
+    createAntigravityStreamingPipeline(model)
+
+  /**
+   * Parse an Antigravity/Gemini SSE streaming chunk.
+   */
+  parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
+    const pipeline = this.createStreamingPipeline(this.name)
+    return pipeline.parse(chunk)
+  }
 
   /**
    * Parse an Antigravity request into UnifiedRequest format.

@@ -179,8 +179,7 @@ describe('OpenAI Chat Tools', () => {
     })
 
     it('returns undefined for invalid string input', () => {
-      // @ts-expect-error - testing invalid input
-      expect(transformToolChoice('invalid')).toBeUndefined()
+      expect(transformToolChoice('invalid' as unknown as Parameters<typeof transformToolChoice>[0])).toBeUndefined()
     })
   })
 })

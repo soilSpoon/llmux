@@ -6,6 +6,7 @@ import {
   getFormat,
   getProvider,
   OpenAIChatStreamingBuilder,
+  OpenAIResponsesStreamingBuilder,
   type ProviderName,
   type SignatureCache,
   type StreamingPipeline,
@@ -98,6 +99,8 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     streamingBuilder = new OpenAIChatStreamingBuilder()
   } else if (sourceFormat === 'google-gemini') {
     streamingBuilder = new GeminiStreamingBuilder()
+  } else if (sourceFormat === 'openai-responses') {
+    streamingBuilder = new OpenAIResponsesStreamingBuilder()
   }
 
   if (!streamingBuilder) {
@@ -241,6 +244,17 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
               streamContext.chunkCount++
               controller.enqueue(encoder.encode(output))
             }
+          } else {
+            // No builder/pipeline - Pass through with warning
+            if (streamContext.chunkCount === 0) {
+              logger.warn(
+                { reqId: options.reqId, sourceFormat, targetProvider },
+                'Streaming builder missing - falling back to raw pass-through'
+              )
+            }
+            streamContext.fullResponse += rawEvent
+            streamContext.chunkCount++
+            controller.enqueue(encoder.encode(rawEvent))
           }
         } catch (error) {
           logger.error(
@@ -342,6 +356,11 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 streamContext.chunkCount++
                 controller.enqueue(encoder.encode(output))
               }
+            } else {
+              // Pass through in flush
+              streamContext.fullResponse += event
+              streamContext.chunkCount++
+              controller.enqueue(encoder.encode(event))
             }
           } catch (error) {
             logger.error(

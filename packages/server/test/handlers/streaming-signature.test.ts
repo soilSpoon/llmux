@@ -2,24 +2,16 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { SignatureStore } from "../../src/stores/signature-store";
 import { saveSignaturesFromResponse, type SignatureContext } from "../../src/handlers/signature-response";
 import { validateAndStripSignatures } from "../../src/handlers/signature-request";
-import { unlinkSync, existsSync } from "node:fs";
 
 describe("Streaming Signature Integration", () => {
   let store: SignatureStore;
-  const testDbPath = "/tmp/test-streaming-signature.db";
 
   beforeEach(() => {
-    if (existsSync(testDbPath)) {
-      unlinkSync(testDbPath);
-    }
-    store = new SignatureStore(testDbPath);
+    store = new SignatureStore(); // In-memory DB
   });
 
   afterEach(() => {
     store.close();
-    if (existsSync(testDbPath)) {
-      unlinkSync(testDbPath);
-    }
   });
 
   describe("full flow: response → save → request validation", () => {

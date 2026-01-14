@@ -55,7 +55,8 @@ describe('Provider interface', () => {
         code: 'unknown_error',
         message: String(error),
         retryable: false
-      })
+      }),
+      getStrategy: () => null
     }
 
     expect(mockProvider.name).toBe('openai')
@@ -84,7 +85,8 @@ describe('Provider interface', () => {
         code: 'unknown_error',
         message: String(error),
         retryable: false
-      })
+      }),
+      getStrategy: () => null
     }
 
     // Streaming methods are now on Formats, not Providers
@@ -160,3 +162,44 @@ describe('BaseProvider', () => {
     expect(error.message).toBe('test error')
   })
 })
+
+describe('BaseProvider Strategy Management', () => {
+  class StrategyProvider extends BaseProvider {
+    readonly name = 'openai' as const
+    readonly config = {
+      name: 'openai' as const,
+      supportsStreaming: true,
+      supportsThinking: false,
+      supportsTools: true,
+    }
+    isSupportedRequest() {
+      return true
+    }
+    parse() {
+      return { messages: [] }
+    }
+    transform() {
+      return {}
+    }
+    parseResponse() {
+      return { id: 'test', content: [], stopReason: 'end_turn' } as any
+    }
+    transformResponse() {
+      return {}
+    }
+  }
+
+  it('should register and retrieve strategies', () => {
+    const provider = new StrategyProvider()
+    const strategy = { strategyType: 'upstream', prepare: async () => ({}) } as any
+
+    provider.registerStrategy(strategy)
+    expect(provider.getStrategy('upstream')).toBe(strategy)
+  })
+
+  it('should return null for missing strategy', () => {
+    const provider = new StrategyProvider()
+    expect(provider.getStrategy('thinking')).toBeNull()
+  })
+})
+

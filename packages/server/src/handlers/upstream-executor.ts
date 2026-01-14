@@ -44,12 +44,6 @@ export async function executeUpstream(
   // Implement using dispatchWithRetry logic extracted from streaming.ts/proxy.ts
   const { reqId, body, options, mode, onBeforeAttempt } = opts
 
-  const timeoutMs = opts.timeoutMs ?? (mode === 'streaming' ? 60_000 : 30_000)
-
-  const networkErrorBaseDelayMs = opts.networkErrorBaseDelayMs ?? 1_000
-
-  const networkErrorMaxDelayMs = opts.networkErrorMaxDelayMs ?? 10_000
-
   const dispatchResult = await dispatchWithRetry({
     reqId,
     builder: buildUpstreamRequest,
@@ -58,9 +52,9 @@ export async function executeUpstream(
     mode,
     signatureStore,
     onBeforeAttempt,
-    timeoutMs,
-    networkErrorBaseDelayMs,
-    networkErrorMaxDelayMs,
+    timeoutMs: opts.timeoutMs,
+    networkErrorBaseDelayMs: opts.networkErrorBaseDelayMs,
+    networkErrorMaxDelayMs: opts.networkErrorMaxDelayMs,
   })
 
   if (!dispatchResult.response) {

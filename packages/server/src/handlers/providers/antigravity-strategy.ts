@@ -36,7 +36,6 @@ import type {
   StreamCompleteContext,
   StreamEventContext,
 } from './provider-strategy'
-import { registerProviderStrategy } from './provider-strategy'
 
 const logger = createLogger({ service: 'antigravity-strategy' })
 
@@ -225,6 +224,4 @@ export class AntigravityStrategy implements ProviderRequestStrategy {
 }
 
 const antigravityStrategy = new AntigravityStrategy()
-registerProviderStrategy(antigravityStrategy)
-
 export { antigravityStrategy }

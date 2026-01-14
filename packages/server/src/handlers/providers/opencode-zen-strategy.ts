@@ -98,8 +98,8 @@ export class OpencodeZenStrategy implements ProviderRequestStrategy {
             }
           }
 
-          // If no router or no fallback found, just retry with delay
-          return { action: 'retry', delay: 1000 }
+          // If no router or no fallback found, mark as all cooldown to let dispatcher handle it
+          return { action: 'all-cooldown' }
         }
       } catch (err) {
         logger.error({ reqId, err }, 'Error parsing Opencode Zen error response')

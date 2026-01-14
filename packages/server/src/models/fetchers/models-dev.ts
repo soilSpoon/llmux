@@ -37,7 +37,8 @@ type ModelsDevResponse = Record<string, ModelsDevProvider>
 export function createModelsDevFetcher(
   provider: ModelProvider,
   cache?: ModelCache,
-  outputProvider?: ModelProvider
+  outputProvider?: ModelProvider,
+  fetchImpl: typeof fetch = fetch
 ): ModelFetcher {
   const actualProvider = outputProvider ?? provider
   return {
@@ -53,7 +54,7 @@ export function createModelsDevFetcher(
       }
 
       try {
-        const response = await fetch(MODELS_DEV_API_URL, {
+        const response = await fetchImpl(MODELS_DEV_API_URL, {
           headers: {
             'User-Agent': 'llmux/1.0',
           },

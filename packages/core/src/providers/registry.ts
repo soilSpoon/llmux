@@ -23,6 +23,9 @@ export function getProvider(name: ProviderName): Provider {
  * Register a provider
  */
 export function registerProvider(provider: Provider): void {
+  console.log(
+    `[Registry] Registering provider: ${provider.name} (class: ${provider.constructor.name})`
+  )
   providers.set(provider.name, provider)
 }
 

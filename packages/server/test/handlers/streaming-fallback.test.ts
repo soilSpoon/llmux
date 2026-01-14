@@ -79,6 +79,8 @@ describe('handleStreamingProxy - Signature Fallback', () => {
         return { provider: 'anthropic', model }
       },
       handleRateLimit: () => {},
+      isAvailable: () => true,
+      getMaxRetryAttempts: () => 3,
     }
 
     const options: ProxyOptions = {
@@ -164,6 +166,8 @@ describe('handleStreamingProxy - Signature Fallback', () => {
         return { provider: 'anthropic', model }
       },
       handleRateLimit: () => {},
+      isAvailable: () => true,
+      getMaxRetryAttempts: () => 3,
     }
 
     const options: ProxyOptions = {
@@ -249,6 +253,8 @@ describe('handleStreamingProxy - Signature Fallback', () => {
         return { provider: 'antigravity', model: model || 'gemini-2.0-flash' }
       },
       handleRateLimit: () => {},
+      isAvailable: () => true,
+      getMaxRetryAttempts: () => 3,
     }
 
     const options: ProxyOptions = {

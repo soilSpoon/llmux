@@ -152,6 +152,7 @@ export class AnthropicStreamingBuilder {
 
   /**
    * Finalize the stream (close open blocks, etc.)
+   * CRITICAL: Must guarantee message_stop is emitted for proper stream termination
    */
   flush(): string[] {
     // If already finished, return empty
@@ -160,6 +161,7 @@ export class AnthropicStreamingBuilder {
     }
     const results: string[] = []
 
+    // Close any open block first
     if (this.state.phase === 'block_started') {
       results.push(
         formatSSE('content_block_stop', {
@@ -169,14 +171,28 @@ export class AnthropicStreamingBuilder {
       )
     }
 
-    // Ensure message_stop is emitted if not already done via finish chunk
-    // Note: In typical flow, the 'finish' chunk should handle message_delta and message_stop.
-    // If flush is called without finish, we might want to emit a default finish?
-    // But usually flush implies stream end. Let's assume consumer handled finish or we emit simple stop.
-    // Actually, Anthropic requires message_stop at end.
+    // CRITICAL: If we haven't finished properly (no finish/done chunk received),
+    // we must still emit message_delta and message_stop to prevent client hanging.
+    // This handles cases where upstream terminates without sending a proper finish signal.
+    if (this.state.phase !== 'idle') {
+      // Determine stop reason - if we had tool_use blocks, use 'tool_use'
+      const stopReason = this.state.hasToolUseBlock ? 'tool_use' : 'end_turn'
 
-    // Check if we just emitted a finish event? We don't track that yet.
-    // But usually streams end with a finish/done chunk which emits message_stop.
+      results.push(
+        formatSSE('message_delta', {
+          type: 'message_delta',
+          delta: {
+            stop_reason: stopReason,
+            stop_sequence: null,
+          },
+          usage: { input_tokens: 0, output_tokens: 0 },
+        })
+      )
+
+      results.push(formatSSE('message_stop', { type: 'message_stop' }))
+
+      this.state.phase = 'finished'
+    }
 
     return results
   }

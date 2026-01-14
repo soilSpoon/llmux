@@ -118,6 +118,12 @@ export async function buildRoutingConfig(
             model: resolved.model,
           } satisfies ModelResolvedConfig
         }
+        if (!routingConfig.modelMapping[resolved.model]) {
+          routingConfig.modelMapping[resolved.model] = {
+            provider: resolved.provider,
+            model: resolved.model,
+          } satisfies ModelResolvedConfig
+        }
       }
     }
   }

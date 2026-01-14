@@ -23,6 +23,7 @@ import type { ModelMapping } from './config'
 import { FallbackHandler, type ProviderChecker } from './handlers/fallback'
 import { handleHealth } from './handlers/health'
 import { handleModels } from './handlers/models'
+import { registerLegacyProviderStrategies } from './handlers/providers/register'
 import { handleCountTokens, handleProxy, type ProxyOptions } from './handlers/proxy'
 import { handleResponses, type ResponsesOptions } from './handlers/responses'
 import { handleStatus } from './handlers/status'
@@ -33,6 +34,7 @@ import { createModelLookup } from './models/lookup'
 import { createRouter, type Route } from './router'
 import { Router } from './routing'
 import { buildRoutingConfig } from './routing/config-builder'
+import { registerServerStrategies } from './strategies/register'
 import { createUpstreamProxy, type UpstreamProxy } from './upstream/proxy'
 
 const logger = createLogger({ service: 'server' })
@@ -44,6 +46,9 @@ registerProvider(new AntigravityProvider())
 registerProvider(new AntigravityProvider('gemini-cli'))
 registerProvider(new OpencodeZenProvider())
 registerProvider(new CoreOpenAIWebProvider())
+
+registerServerStrategies()
+registerLegacyProviderStrategies()
 
 AuthProviderRegistry.register(OpencodeZenAuthProvider)
 AuthProviderRegistry.register(OpenAIWebProvider)

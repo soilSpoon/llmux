@@ -46,12 +46,12 @@ describe('prepareRequestContext', () => {
     expect(ctx.effectiveProvider).toBe('openai-web')
   })
 
-  it('should return undefined if no provider found', async () => {
+  it('should return unknown if no provider found', async () => {
     const ctx = await prepareRequestContext({
       body: { model: 'unknown-model' },
       sourceFormat: 'openai-chat'
     })
     
-    expect(ctx.effectiveProvider).toBe('unknown' as any)
+    expect(ctx.effectiveProvider).toBe('unknown')
   })
 })

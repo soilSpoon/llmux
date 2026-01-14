@@ -16,7 +16,7 @@ import type {
   ProviderRequestStrategy,
   RetryState,
 } from './provider-strategy'
-import { getProviderStrategy, registerProviderStrategy } from './provider-strategy'
+import { getProviderStrategy } from './provider-strategy'
 
 const logger = createLogger({ service: 'gemini-cli-strategy' })
 
@@ -79,6 +79,4 @@ export class GeminiCliStrategy implements ProviderRequestStrategy {
 }
 
 const geminiCliStrategy = new GeminiCliStrategy()
-registerProviderStrategy(geminiCliStrategy)
-
 export { geminiCliStrategy }

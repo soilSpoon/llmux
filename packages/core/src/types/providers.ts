@@ -11,6 +11,7 @@ export type ProviderName =
   | 'openai-web'
   | 'github-copilot'
   | 'google'
+  | 'unknown'
 
 const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'openai',
@@ -21,6 +22,7 @@ const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'opencode-zen',
   'openai-web',
   'google',
+  'unknown',
 ] as const
 
 export function isValidProviderName(value: unknown): value is ProviderName {

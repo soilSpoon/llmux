@@ -126,7 +126,8 @@ describe("AntigravityProvider", () => {
         ],
       });
 
-      const result = provider.parseStreamChunk!(chunk) as StreamChunk[];
+      const pipeline = provider.createStreamingPipeline("model");
+      const result = pipeline.parse(chunk) as StreamChunk[];
       
       expect(result).toHaveLength(2); // text-delta + finish
       expect(result[0]!.type).toBe("text-delta");
@@ -146,7 +147,8 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.parseStreamChunk!(chunk) as StreamChunk[];
+      const pipeline = provider.createStreamingPipeline("model");
+      const result = pipeline.parse(chunk) as StreamChunk[];
 
       expect(result).toHaveLength(2);
       expect(result[0]!.type).toBe("text-delta");
@@ -165,7 +167,8 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.parseStreamChunk!(chunk) as StreamChunk;
+      const pipeline = provider.createStreamingPipeline("model");
+      const result = pipeline.parse(chunk) as StreamChunk;
 
       expect(result.type).toBe("tool-call-start");
       expect(result.toolCall?.id).toBe("toolu_123");
@@ -183,7 +186,8 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.parseStreamChunk!(chunk) as StreamChunk;
+      const pipeline = provider.createStreamingPipeline("model");
+      const result = pipeline.parse(chunk) as StreamChunk;
 
       expect(result.type).toBe("text-delta");
       expect(result.delta?.text).toBe("thinking...");
@@ -200,7 +204,8 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.parseStreamChunk!(chunk) as StreamChunk;
+      const pipeline = provider.createStreamingPipeline("model");
+      const result = pipeline.parse(chunk) as StreamChunk;
 
       expect(result.type).toBe("tool-input-delta");
       expect(result.delta?.partialJson).toBe('{"loc":');
@@ -219,13 +224,12 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.parseStreamChunk!(chunk) as StreamChunk[];
+      const pipeline = provider.createStreamingPipeline("model");
+      const result = pipeline.parse(chunk) as StreamChunk;
 
-      expect(result).toHaveLength(2); // usage + finish
-      expect(result[0]!.type).toBe("usage");
-      expect(result[0]!.usage?.outputTokens).toBe(15);
-      expect(result[1]!.type).toBe("finish");
-      expect(result[1]!.finishReason?.unified).toBe("tool_use");
+      expect(result.type).toBe("finish");
+      expect(result.finishReason?.unified).toBe("tool_use");
+      expect(result.usage?.outputTokens).toBe(15);
     });
   });
 
@@ -460,46 +464,8 @@ describe("AntigravityProvider", () => {
     });
   });
 
-  describe("parseStreamChunk()", () => {
-    it("should parse text stream chunk", () => {
-      const chunk =
-        '{"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"Hi"}]}}]}}';
+  // Duplicate block removed
 
-      const result = provider.parseStreamChunk!(chunk);
-      const chunks = Array.isArray(result) ? result : [result];
-
-      expect(chunks[0]?.type).toBe("text-delta");
-      expect((chunks[0] as any)?.delta?.text).toBe("Hi");
-    });
-
-    it("should parse thinking stream chunk", () => {
-      const chunk =
-        '{"response":{"candidates":[{"content":{"role":"model","parts":[{"thought":true,"text":"Thinking...","thoughtSignature":"sig"}]}}]}}';
-
-      const result = provider.parseStreamChunk!(chunk);
-      const chunks = Array.isArray(result) ? result : [result];
-
-      expect(chunks[0]?.type).toBe("thinking-delta");
-      expect((chunks[0] as any)?.delta?.thinking?.text).toBe("Thinking...");
-    });
-
-    it("should parse done chunk", () => {
-      const chunk =
-        '{"response":{"candidates":[{"content":{"role":"model","parts":[]},"finishReason":"STOP"}]}}';
-
-      const result = provider.parseStreamChunk!(chunk);
-      const chunks = Array.isArray(result) ? result : [result];
-
-      expect(chunks[0]?.type).toBe("finish");
-      expect((chunks[0] as any)?.finishReason?.unified).toBe("end_turn");
-    });
-
-    it("should return null for invalid chunk", () => {
-      const result = provider.parseStreamChunk!("[DONE]");
-
-      expect(result).toBeNull();
-    });
-  });
 
   describe("request round-trip", () => {
     it("should maintain text content through round-trip", () => {

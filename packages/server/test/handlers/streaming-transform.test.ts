@@ -79,8 +79,9 @@ describe("transformStreamChunk", () => {
 
       const result = transformStreamChunk(invalidChunk, "openai", "anthropic-messages");
 
-      // When parseStreamChunk returns null, original chunk is returned for safety
-      expect(result).toBe(invalidChunk);
+      // When parseStreamChunk fails, it returns an error SSE event
+      expect(result).toContain("event: error");
+      expect(result).toContain("Failed to parse stream chunk");
     });
 
     test("handles empty lines gracefully", () => {

@@ -150,11 +150,11 @@ export {
   transformToResponsesResponse,
 } from './responses'
 export {
+  type AccumulatedOpenAIMessage,
   accumulateGeminiResponse,
   accumulateOpenAIResponse,
   type GeminiResponseShape,
   type OpenAIChatCompletion,
-  type OpenAIMessage,
   type OpenAIToolCall,
 } from './sse/accumulators'
 export type { TransformOptions, TransformResponseOptions } from './transform'
@@ -179,6 +179,20 @@ export type {
   UnifiedTool,
   UsageInfo,
 } from './types'
+// Provider Strategies
+export type {
+  MetadataInjectionStrategy,
+  PrepareUpstreamOptions,
+  ProviderStrategy,
+  RateLimitContext,
+  RateLimitStrategy,
+  RequestMetadataInjection,
+  StrategyType,
+  ThinkingMode,
+  ThinkingStrategyResolver,
+  UpstreamContext,
+  UpstreamPreparationStrategy,
+} from './types/provider-strategies'
 // Logging
 export { createLogger, logger } from './util/logger'
 // Model Capabilities & Utilities

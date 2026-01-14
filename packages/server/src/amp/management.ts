@@ -86,13 +86,6 @@ function createProxyHandler(config: ManagementRoutesConfig): RouteHandler {
     })
     const response = await proxy.proxyRequest(newRequest)
 
-    if (!response.ok) {
-      logger.warn(
-        { status: response.status, url: request.url },
-        '[management] Proxy returned error response'
-      )
-    }
-
     return response
   }
 }

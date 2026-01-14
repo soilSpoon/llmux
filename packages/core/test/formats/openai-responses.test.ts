@@ -230,6 +230,36 @@ data: ${JSON.stringify({
         }
       })
     })
+
+    test('should parse summary_index and content_index', () => {
+      const thinkingChunk = `event: response.reasoning_summary_text.delta\ndata: ${JSON.stringify({
+        type: 'response.reasoning_summary_text.delta',
+        response_id: 'resp_1',
+        output_index: 0,
+        summary_index: 5,
+        delta: ' thinking'
+      })}\n\n`
+      
+      const resultThinking = parseStreamChunk(thinkingChunk)
+      expect(resultThinking).toMatchObject({
+        type: 'thinking',
+        summaryIndex: 5
+      })
+
+      const contentChunk = `event: response.output_text.delta\ndata: ${JSON.stringify({
+        type: 'response.output_text.delta',
+        response_id: 'resp_1',
+        output_index: 0,
+        content_index: 3,
+        delta: ' content'
+      })}\n\n`
+      
+      const resultContent = parseStreamChunk(contentChunk)
+      expect(resultContent).toMatchObject({
+        type: 'content',
+        contentIndex: 3
+      })
+    })
   })
 
   describe('Round-trip Conversion', () => {
@@ -270,7 +300,7 @@ data: ${JSON.stringify({
       }
       const sse = transformStreamChunk(chunk)
       expect(sse).toContain('event: response.completed')
-      const parsed = JSON.parse(sse.split('data: ')[1].trim())
+      const parsed = JSON.parse(sse.split('data: ')[1]!.trim())
       expect(parsed.response.usage).toMatchObject({
         input_tokens: 100,
         output_tokens: 50,
@@ -282,6 +312,30 @@ data: ${JSON.stringify({
           cached_tokens: 20
         }
       })
+    })
+
+    test('should round-trip summaryIndex and contentIndex', () => {
+      // transformStreamChunk doesn't support summaryIndex/contentIndex directly in the builder yet
+      // The builder handles it in OpenAIResponsesStreamingBuilder.
+      // But we can test that the builder correctly emits events with these indices.
+      
+      const { OpenAIResponsesStreamingBuilder } = require('../../src/formats/openai-responses/streaming-builder')
+      const builder = new OpenAIResponsesStreamingBuilder('gpt-4o')
+      
+      const thinkingChunk: StreamChunk = {
+        type: 'thinking',
+        blockIndex: 0,
+        summaryIndex: 5,
+        delta: { thinking: { text: 'thinking', signature: 'test' } }
+      }
+      
+      const thinkingEvents = builder.build(thinkingChunk)
+      const thinkingEvent = thinkingEvents.find((e: string) => e.includes('response.reasoning_summary_text.delta'))
+      expect(thinkingEvent).toBeDefined()
+      if (thinkingEvent) {
+        const data = JSON.parse(thinkingEvent.split('data: ')[1]!.trim())
+        expect(data.summary_index).toBe(5)
+      }
     })
   })
 })

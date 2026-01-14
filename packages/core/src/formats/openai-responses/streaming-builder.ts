@@ -15,6 +15,7 @@ export class OpenAIResponsesStreamingBuilder {
     createdAt: 0,
     hasEmittedCreated: false,
     hasEmittedInProgress: false,
+    hasCompleted: false,
     currentItemIndex: -1, // Start at -1 so first item gets index 0
     currentItemId: '',
     currentItemType: null as 'text' | 'thinking' | 'tool_call' | null,
@@ -261,7 +262,45 @@ export class OpenAIResponsesStreamingBuilder {
   }
 
   flush(): string[] {
-    return []
+    const results: string[] = []
+
+    if (!this.state.hasEmittedCreated || this.state.hasCompleted) {
+      return results
+    }
+
+    if (this.state.currentItemType) {
+      this.finishItem(results)
+    }
+
+    const usage: Record<string, unknown> = {
+      input_tokens: this.state.usage.inputTokens,
+      output_tokens: this.state.usage.outputTokens,
+      total_tokens: this.state.usage.totalTokens,
+      input_tokens_details:
+        this.state.metadata?.usage?.input_tokens_details ||
+        (this.state.usage.cachedTokens !== undefined
+          ? { cached_tokens: this.state.usage.cachedTokens }
+          : undefined),
+      output_tokens_details:
+        this.state.metadata?.usage?.output_tokens_details ||
+        (this.state.usage.thinkingTokens !== undefined
+          ? { reasoning_tokens: this.state.usage.thinkingTokens }
+          : undefined),
+    }
+
+    results.push(
+      this.formatEvent('response.completed', {
+        type: 'response.completed',
+        response: {
+          ...this.buildResponseObject('completed'),
+          usage,
+        },
+      })
+    )
+
+    this.state.hasCompleted = true
+
+    return results
   }
 
   private buildResponseObject(
@@ -553,7 +592,10 @@ export class OpenAIResponsesStreamingBuilder {
   }
 
   private handleDone(results: string[]): string[] {
-    // Ensure we close any open item
+    if (this.state.hasCompleted) {
+      return results
+    }
+
     if (this.state.currentItemType) {
       this.finishItem(results)
     }
@@ -562,7 +604,6 @@ export class OpenAIResponsesStreamingBuilder {
       input_tokens: this.state.usage.inputTokens,
       output_tokens: this.state.usage.outputTokens,
       total_tokens: this.state.usage.totalTokens,
-      // Map extended usage if available in state or metadata
       input_tokens_details:
         this.state.metadata?.usage?.input_tokens_details ||
         (this.state.usage.cachedTokens !== undefined
@@ -584,6 +625,8 @@ export class OpenAIResponsesStreamingBuilder {
         },
       })
     )
+
+    this.state.hasCompleted = true
 
     return results
   }
