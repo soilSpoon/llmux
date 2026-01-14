@@ -1,9 +1,7 @@
-import type { StreamingPipeline } from '../../types/unified'
 import type { FormatContext, FormatId, SchemaFormat } from '../base'
 import { buildWireRequest, parseRequest } from './request'
 import { buildWireResponse, parseResponse } from './response'
 import { buildStreamChunk, parseStreamChunk } from './streaming'
-import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import { isGeminiRequest, isGeminiResponse, isGeminiStreamChunk } from './types'
 
 export const GoogleGeminiFormat: SchemaFormat = {
@@ -83,13 +81,10 @@ export const GoogleGeminiFormat: SchemaFormat = {
 
     return unifiedError
   },
-
-  getStreamingPipeline(ctx: FormatContext): StreamingPipeline {
-    return createAntigravityStreamingPipeline(ctx.model)
-  },
 }
 
 export * from './request'
 export * from './response'
 export * from './streaming'
+export * from './streaming-builder'
 export * from './types'

@@ -10,9 +10,10 @@ import { buildWireRequest as buildGeminiRequest } from '../../formats/google-gem
 import type { GeminiRequest, GeminiResponse } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
-import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
+import type { UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
+import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import {
   createInnerRequest,
   ensureToolConfig,
@@ -53,6 +54,8 @@ export class AntigravityProvider extends BaseProvider {
 
     return false
   }
+
+  readonly createStreamingPipeline = (model: string) => createAntigravityStreamingPipeline(model)
 
   /**
    * Parse an Antigravity request into UnifiedRequest format.
@@ -179,18 +182,6 @@ export class AntigravityProvider extends BaseProvider {
     return { response: geminiResponse }
   }
 
-  transformStreamChunk(chunk: StreamChunk): string {
-    const format = getFormat('google-gemini')
-    if (!format.buildStreamChunk) return ''
-
-    const result = format.buildStreamChunk(chunk, {
-      provider: 'antigravity',
-      model: 'gemini-2.0-flash',
-    })
-
-    return Array.isArray(result) ? result.join('') : result
-  }
-
   /**
    * Parse a provider error into UnifiedError
    * Handles Antigravity/Gemini error format:
@@ -250,202 +241,5 @@ export class AntigravityProvider extends BaseProvider {
    */
   getFormatForModel(_model: string): 'google-gemini' {
     return 'google-gemini'
-  }
-
-  /**
-   * Parse an Antigravity SSE stream chunk into unified format.
-   * Handles Hybrid Streaming:
-   * 1. Anthropic-style events (for Claude models): Delegate to anthropic-messages
-   * 2. Gemini-style wrapped chunks ({ response: ... }): Unwrap and delegate to google-gemini
-   */
-  parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | null {
-    try {
-      if (!chunk || chunk.trim() === 'data: [DONE]') return null
-
-      const cleaned = chunk.replace(/^data:\s*/, '').trim()
-      if (!cleaned) return null
-      const parsed = JSON.parse(cleaned)
-
-      // 1. Detect Anthropic-style SSE event (chunk comes as "event: ... \n data: ...")
-      if (
-        parsed.type &&
-        (parsed.type === 'message_start' ||
-          parsed.type === 'content_block_start' ||
-          parsed.type === 'content_block_delta' ||
-          parsed.type === 'content_block_stop' ||
-          parsed.type === 'message_delta' ||
-          parsed.type === 'message_stop' ||
-          parsed.type === 'ping')
-      ) {
-        switch (parsed.type) {
-          case 'message_start':
-            return {
-              type: 'usage',
-              usage: {
-                inputTokens: parsed.message.usage.input_tokens,
-                outputTokens: parsed.message.usage.output_tokens,
-              },
-            }
-          case 'content_block_start':
-            if (parsed.content_block.type === 'tool_use') {
-              return {
-                type: 'tool-call-start',
-                toolCall: {
-                  id: parsed.content_block.id,
-                  name: parsed.content_block.name,
-                },
-                blockIndex: parsed.index,
-              }
-            } else if (parsed.content_block.type === 'thinking') {
-              return {
-                type: 'thinking-start',
-                blockIndex: parsed.index,
-              }
-            }
-            return null
-          case 'content_block_delta':
-            if (parsed.delta.type === 'text_delta') {
-              return {
-                type: 'text-delta',
-                delta: { type: 'text', text: parsed.delta.text },
-                blockIndex: parsed.index,
-              }
-            } else if (parsed.delta.type === 'input_json_delta') {
-              return {
-                type: 'tool-input-delta',
-                delta: { partialJson: parsed.delta.partial_json },
-                blockIndex: parsed.index,
-              }
-            } else if (parsed.delta.type === 'thinking_delta') {
-              return {
-                type: 'thinking-delta',
-                delta: {
-                  thinking: {
-                    text: parsed.delta.thinking,
-                    signature: parsed.delta.signature,
-                  },
-                },
-                blockIndex: parsed.index,
-              }
-            }
-            return null
-          case 'content_block_stop':
-            return {
-              type: 'block_stop',
-            } as unknown as StreamChunk
-          case 'message_delta': {
-            const chunks: StreamChunk[] = []
-            if (parsed.usage) {
-              chunks.push({
-                type: 'usage',
-                usage: {
-                  inputTokens: 0,
-                  outputTokens: parsed.usage.output_tokens,
-                },
-              })
-            }
-            if (parsed.delta?.stop_reason) {
-              chunks.push({
-                type: 'finish',
-                finishReason: { unified: parsed.delta.stop_reason, raw: parsed.delta.stop_reason },
-                usage: parsed.usage
-                  ? { inputTokens: 0, outputTokens: parsed.usage.output_tokens }
-                  : undefined,
-              } as unknown as StreamChunk)
-            }
-            return chunks.length > 0 ? chunks : null
-          }
-          case 'message_stop':
-            return {
-              type: 'finish',
-              finishReason: { unified: 'end_turn', raw: 'message_stop' },
-            } as unknown as StreamChunk
-          default:
-            return null
-        }
-      }
-
-      // 2. Check for Antigravity/Gemini format
-      let geminiChunk = parsed
-      if (parsed.response && typeof parsed.response === 'object') {
-        geminiChunk = parsed.response
-      }
-
-      // If it looks like Gemini candidates
-      if (geminiChunk.candidates && Array.isArray(geminiChunk.candidates)) {
-        const candidate = geminiChunk.candidates[0]
-        if (!candidate) return null
-
-        const chunks: StreamChunk[] = []
-        const content = candidate.content
-        if (content?.parts) {
-          for (const part of content.parts) {
-            if (part.text !== undefined) {
-              // If it's thought, it's thinking delta
-              if (part.thought) {
-                chunks.push({
-                  type: 'thinking-delta',
-                  delta: {
-                    thinking: {
-                      text: part.text,
-                      signature: part.thoughtSignature || part.thought_signature,
-                    },
-                  },
-                })
-              } else {
-                chunks.push({
-                  type: 'text-delta',
-                  delta: { type: 'text', text: part.text },
-                })
-              }
-            } else if (part.functionCall) {
-              chunks.push({
-                type: 'tool-call-start',
-                toolCall: {
-                  id: part.functionCall.id || `call_${crypto.randomUUID()}`,
-                  name: part.functionCall.name,
-                },
-              })
-              const argsStr =
-                typeof part.functionCall.args === 'string'
-                  ? part.functionCall.args
-                  : JSON.stringify(part.functionCall.args)
-              chunks.push({
-                type: 'tool-input-delta',
-                delta: { partialJson: argsStr },
-              })
-              chunks.push({ type: 'tool-call-end' })
-            }
-          }
-        }
-
-        if (candidate.finishReason) {
-          chunks.push({
-            type: 'finish',
-            finishReason: { unified: 'end_turn', raw: candidate.finishReason },
-            skipStopDelta: true,
-          } as unknown as StreamChunk)
-        }
-
-        if (geminiChunk.usageMetadata) {
-          chunks.push({
-            type: 'usage',
-            usage: {
-              inputTokens: geminiChunk.usageMetadata.promptTokenCount,
-              outputTokens: geminiChunk.usageMetadata.candidatesTokenCount,
-              totalTokens: geminiChunk.usageMetadata.totalTokenCount,
-            },
-          })
-        }
-
-        return chunks.length > 0 ? chunks : null
-      }
-
-      // If neither, return null (ignore)
-      return null
-    } catch {
-      // JSON parse error or logic error -> ignore chunk
-      return null
-    }
   }
 }

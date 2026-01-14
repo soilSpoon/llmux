@@ -162,30 +162,9 @@ export interface SchemaFormat {
    * @param ctx - Format context with provider and model info
    * @returns Wire-format SSE data string(s) (without "data: " prefix)
    *
-   * @deprecated Use getStreamingPipeline().build() instead for stateful transformations
+   * @deprecated Prefer provider-specific streaming helpers for stateful transformations
    */
   buildStreamChunk?(chunk: StreamChunk, ctx: FormatContext): string | string[]
-
-  /**
-   * Get the streaming pipeline for stateful SSE transformations.
-   *
-   * Stateful streaming requires maintaining state across multiple SSE events:
-   * - Auto-emitting message_start on first content block (Anthropic)
-   * - Filtering duplicate events from transformations
-   * - Emitting final cleanup events (e.g., block_stop)
-   *
-   * @param ctx - Format context with provider and model info
-   * @returns StreamingPipeline instance for handling streaming transformations
-   *
-   * Optional - implement if format requires stateful streaming logic.
-   *
-   * Example (Anthropic Messages):
-   *   - Parses Anthropic SSE events → Unified StreamChunk
-   *   - Builds Unified StreamChunk → Anthropic SSE with auto-generated message_start
-   *   - Filters out duplicate message_start events
-   *   - Flushes final block_stop when stream ends
-   */
-  getStreamingPipeline?(ctx: FormatContext): StreamingPipeline
 
   // ═══════════════════════════════════════════════════════════════════════════════
   // ERROR PARSING

@@ -613,4 +613,15 @@ export interface StreamingPipeline {
    * @returns Final SSE string(s) to emit, or null if nothing to send
    */
   flush(): string | null
+
+  /**
+   * Accumulate SSE stream into a complete JSON response.
+   *
+   * Used for endpoints that need to consume an SSE stream and return a single JSON object.
+   * (e.g. converting streaming responses to non-streaming JSON for compatibility)
+   *
+   * @param reader - Readable stream reader for the raw response body
+   * @returns Promise resolving to the accumulated JSON object (provider-specific format)
+   */
+  accumulateToJson?(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<unknown>
 }

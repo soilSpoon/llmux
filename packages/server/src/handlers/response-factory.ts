@@ -7,26 +7,8 @@ import {
   type ProviderName,
   transformResponse,
 } from '@llmux/core'
-import { accumulateGeminiResponse } from './gemini-response'
-import { accumulateOpenAIResponse } from './openai-response'
 
 const logger = createLogger({ service: 'response-factory' })
-
-function isGeminiSseProvider(provider: string, model: string): boolean {
-  if (provider === 'antigravity' || provider === 'gemini-cli') return true
-  if (provider === 'opencode-zen' && model.startsWith('gemini-')) return true
-  return false
-}
-
-function isOpenAISseProvider(provider: string, model: string): boolean {
-  if (provider === 'openai' || provider === 'openai-web') return true
-  if (provider === 'opencode-zen') {
-    if (model.includes('claude')) return false
-    if (model.startsWith('gemini-')) return false
-    return true
-  }
-  return false
-}
 
 /**
  * Context for response transformation
@@ -63,37 +45,31 @@ export function createJsonResponseTransformer(ctx: TransformContext): JsonRespon
       if (contentType.includes('text/event-stream')) {
         logger.debug(
           { reqId, provider: targetProvider },
-          '[response-factory] Converting SSE to JSON'
+          '[response-factory] Converting SSE to JSON via provider pipeline'
         )
         const reader = upstreamResponse.body?.getReader() as
           | ReadableStreamDefaultReader<Uint8Array>
           | undefined
         if (!reader) throw new Error('No body available for SSE accumulation')
 
-        let rawAggregated: unknown | null = null
-        if (isGeminiSseProvider(targetProvider, model)) {
-          rawAggregated = await accumulateGeminiResponse(reader)
-        } else if (isOpenAISseProvider(targetProvider, model)) {
-          rawAggregated = await accumulateOpenAIResponse(reader)
-        } else {
+        const provider = getProvider(targetProvider)
+        const pipeline = provider.createStreamingPipeline?.(model)
+
+        if (!pipeline || typeof pipeline.accumulateToJson !== 'function') {
           logger.warn(
             { reqId, provider: targetProvider },
-            'Unknown SSE provider, attempting Gemini accumulation'
+            '[response-factory] Provider pipeline missing accumulateToJson, passing through'
           )
-          rawAggregated = await accumulateGeminiResponse(reader)
+          return upstreamResponse
         }
 
+        const rawAggregated = await pipeline.accumulateToJson(reader)
         if (!rawAggregated) {
           throw new Error('Failed to accumulate SSE response')
         }
 
-        // Special handling for Gemini accumulation if it's already wrapped in { response: ... }
-        // or needs to be. (Based on proxy.ts current logic)
-        if (isGeminiSseProvider(targetProvider, model)) {
-          responseBody = { response: rawAggregated }
-        } else {
-          responseBody = rawAggregated
-        }
+        // Response body is now provider-specific JSON (handled by pipeline)
+        responseBody = rawAggregated
       } else if (contentType.includes('application/json')) {
         responseBody = await upstreamResponse.json()
       } else {

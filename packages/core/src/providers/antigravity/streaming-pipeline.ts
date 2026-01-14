@@ -1,4 +1,4 @@
-import crypto from 'node:crypto'
+import { accumulateGeminiResponse } from '../../sse/accumulators'
 import type { StopReason, StreamChunk, StreamingPipeline } from '../../types/unified'
 
 // SSE event format helper
@@ -457,6 +457,13 @@ export function createAntigravityStreamingPipeline(model: string): StreamingPipe
       }
 
       return results.length > 0 ? results.join('') : null
+    },
+
+    accumulateToJson: async (reader: ReadableStreamDefaultReader<Uint8Array>): Promise<unknown> => {
+      const rawAggregated = await accumulateGeminiResponse(reader)
+      // Gemini SSE accumulation logic from response-factory:
+      // Wrap in { response: ... } as Antigravity/Gemini expects
+      return { response: rawAggregated }
     },
   }
 }

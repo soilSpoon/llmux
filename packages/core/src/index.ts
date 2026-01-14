@@ -39,6 +39,7 @@ export type { FormatContext, FormatId, SchemaFormat } from './formats/base'
 // Format utilities
 export { detectFormatFromUrl, formatIdToProviderName } from './formats/format-utils'
 export { GoogleGeminiFormat } from './formats/google-gemini'
+export { GeminiStreamingBuilder } from './formats/google-gemini/streaming-builder'
 export { OpenAIChatFormat } from './formats/openai-chat'
 export { OpenAIChatStreamingBuilder } from './formats/openai-chat/openai-streaming-builder'
 export { OpenAIResponsesFormat } from './formats/openai-responses'
@@ -148,6 +149,14 @@ export {
   transformResponsesRequest,
   transformToResponsesResponse,
 } from './responses'
+export {
+  accumulateGeminiResponse,
+  accumulateOpenAIResponse,
+  type GeminiResponseShape,
+  type OpenAIChatCompletion,
+  type OpenAIMessage,
+  type OpenAIToolCall,
+} from './sse/accumulators'
 export type { TransformOptions, TransformResponseOptions } from './transform'
 export { transformRequest, transformResponse } from './transform'
 export type {

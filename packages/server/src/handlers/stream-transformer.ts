@@ -2,6 +2,7 @@
 import {
   AnthropicStreamingBuilder,
   createLogger,
+  GeminiStreamingBuilder,
   getFormat,
   getProvider,
   OpenAIChatStreamingBuilder,
@@ -95,17 +96,14 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     streamingBuilder = new AnthropicStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'openai-chat') {
     streamingBuilder = new OpenAIChatStreamingBuilder()
+  } else if (sourceFormat === 'google-gemini') {
+    streamingBuilder = new GeminiStreamingBuilder()
   }
 
-  // 3. LEGACY: If no builder is available for sourceFormat, use the legacy StreamingPipeline
   if (!streamingBuilder) {
-    streamingPipeline = getFormat(sourceFormat).getStreamingPipeline?.(formatContext)
-  }
-
-  if (!streamingPipeline && !streamingBuilder) {
     logger.warn(
       { sourceFormat, targetProvider },
-      'No streaming components available - falling back to pass-through'
+      'No streaming builder available - falling back to pass-through'
     )
   }
 

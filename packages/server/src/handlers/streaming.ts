@@ -44,7 +44,8 @@ export async function handleStreamingProxy(
       options,
       mode: 'streaming',
       onBeforeAttempt: (attempt, requestMeta) => {
-        if (requestMeta.provider === 'antigravity' && requestMeta.isClaudeFresh) {
+        // Generic debug log for Fresh requests
+        if (requestMeta.isClaudeFresh) {
           logger.trace(
             {
               reqId,
@@ -52,7 +53,7 @@ export async function handleStreamingProxy(
               model: requestMeta.model,
               provider: requestMeta.provider,
             },
-            'DEBUG: Antigravity request for Claude (Fresh)'
+            'DEBUG: Claude (Fresh) request'
           )
         }
       },
