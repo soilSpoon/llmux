@@ -68,11 +68,13 @@ export async function handleUpstreamError(
       const strategyResult = await strategy.handleError({
         provider,
         model,
+        originalModel: context.originalModel,
         status,
         errorText,
         retryAfterMs: context.retryAfterMs,
         currentProjectId,
         // @ts-expect-error - strategies may expect extended context
+        router,
         retryState,
         reqId,
       })

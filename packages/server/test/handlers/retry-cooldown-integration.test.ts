@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, afterEach } from 'bun:test'
+import { describe, expect, it, mock, afterEach, spyOn } from 'bun:test'
 import * as requestHandlerModule from '../../src/handlers/request-handler'
 import { dispatchWithRetry } from '../../src/handlers/upstream-dispatcher'
 import { AllCooldownError } from '../../src/handlers/error-utils'
@@ -6,19 +6,20 @@ import { SignatureStore } from '../../src/stores'
 
 
 
-describe.skip('Retry & Cooldown Integration', () => {
+describe('Retry & Cooldown Integration', () => {
   const signatureStore = new SignatureStore()
   const originalFetch = global.fetch
 
   afterEach(() => {
     global.fetch = originalFetch
+    mock.restore()
   })
 
   it('preserves attempt count when switching models', async () => {
-    const { handleUpstreamError, createRetryState } = requestHandlerModule as any
-    const retryState = createRetryState(5)
+    const handleUpstreamErrorSpy = spyOn(requestHandlerModule, 'handleUpstreamError')
+    const retryState = requestHandlerModule.createRetryState(5)
     
-    handleUpstreamError.mockImplementation(async (ctx: any) => {
+    handleUpstreamErrorSpy.mockImplementation(async (ctx: any) => {
       if (ctx.retryState.attempt === 1) {
         return { action: 'switch-model', newModel: 'fallback-model', newProvider: 'openai' }
       }

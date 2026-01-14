@@ -13,26 +13,27 @@ export interface SignatureContext {
 export function extractSignaturesFromSSE(sseData: string): string[] {
   const signatures: string[] = []
 
-  if (!sseData.trim() || sseData.trim() === 'data: [DONE]') {
-    return signatures
-  }
-
-  try {
-    const dataMatch = sseData.match(/^data:\s*(.+)$/m)
-    if (!dataMatch || !dataMatch[1]) {
-      return signatures
+  const lines = sseData.split('\n')
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    if (!trimmedLine || trimmedLine === 'data: [DONE]') {
+      continue
     }
 
-    const jsonStr = dataMatch[1].trim()
-    if (jsonStr === '[DONE]') {
-      return signatures
-    }
+    try {
+      const dataMatch = trimmedLine.match(/^data:\s*(.+)$/)
+      if (!dataMatch || !dataMatch[1]) {
+        continue
+      }
 
-    const data = JSON.parse(jsonStr)
+      const jsonStr = dataMatch[1].trim()
+      if (jsonStr === '[DONE]') {
+        continue
+      }
 
-    extractSignaturesFromObject(data, signatures)
-  } catch {
-    // Malformed JSON, return empty array
+      const data = JSON.parse(jsonStr)
+      extractSignaturesFromObject(data, signatures)
+    } catch {}
   }
 
   return [...new Set(signatures)]

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, mock, spyOn } from 'bun:test'
+import '../../../test/setup'
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS, TokenRefresh } from '@llmux/auth'
 import { accountRotationManager } from '../account-rotation'
 import { rateLimitStore } from '../rate-limit-store'
@@ -10,6 +11,8 @@ import {
 } from '../request-handler'
 import { AntigravityErrorStrategy } from '../../strategies/antigravity'
 import { ANTIGRAVITY_DEFAULT_PROJECT_ID } from '../../providers/antigravity'
+import { registerServerStrategies } from '../../strategies/register'
+import type { Router } from '../../routing'
 
 function createMockRetryState(overrides: Partial<RetryState> = {}): RetryState {
   return {
@@ -345,6 +348,42 @@ describe('handleUpstreamError - Antigravity provider (System B)', () => {
       const result = await handleUpstreamError(ctx)
 
       expect(result.action).toBe('all-cooldown')
+    })
+  })
+
+  describe('Opencode Zen error handling integration', () => {
+    beforeEach(() => {
+      registerServerStrategies()
+    })
+
+    it('should trigger switch-model on prompt_tokens error', async () => {
+      const mockRouter = {
+        handleRateLimit: mock(),
+        resolveModel: mock().mockResolvedValue({
+          provider: 'openai',
+          model: 'gpt-4',
+        }),
+      } as unknown as Router
+
+      const errorBody = JSON.stringify({
+        error: { message: "Cannot read properties of undefined (reading 'prompt_tokens')" },
+      })
+
+      const retryState = createMockRetryState()
+      const ctx = createMockErrorContext({
+        provider: 'opencode-zen',
+        model: 'big-pickle',
+        status: 500,
+        errorText: errorBody,
+        router: mockRouter,
+        retryState,
+      })
+
+      const result = await handleUpstreamError(ctx)
+
+      expect(result.action).toBe('switch-model')
+      expect(result.newProvider).toBe('openai')
+      expect(mockRouter.handleRateLimit).toHaveBeenCalled()
     })
   })
 

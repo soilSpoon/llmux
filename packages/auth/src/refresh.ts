@@ -5,6 +5,8 @@ import { isApiKeyCredential, isOAuthCredential } from './types'
 
 const DEFAULT_BUFFER_MS = 5 * 60 * 1000
 
+const pendingRefreshes = new Map<string, Promise<Credential[]>>()
+
 export namespace TokenRefresh {
   export function isExpired(credential: OAuthCredential): boolean {
     return credential.expiresAt <= Date.now()
@@ -18,66 +20,64 @@ export namespace TokenRefresh {
   }
 
   export async function ensureFresh(providerId: string): Promise<Credential[]> {
-    // Handle aliases: gemini-cli uses antigravity credentials
     const effectiveProviderId = providerId === 'gemini-cli' ? 'antigravity' : providerId
 
-    // console.log(`[TokenRefresh] ensureFresh called for ${providerId} (effective: ${effectiveProviderId})`)
-
-    const credentials = await CredentialStorage.get(effectiveProviderId)
-    if (!credentials || credentials.length === 0) {
-      // console.error(`[TokenRefresh] No credentials found for effective provider: ${effectiveProviderId} (original: ${providerId})`)
-      throw new Error(`No credentials found for provider: ${providerId}`)
+    const existing = pendingRefreshes.get(effectiveProviderId)
+    if (existing) {
+      return existing
     }
 
-    const updatedCredentials: Credential[] = []
-    let hasUpdates = false
-
-    for (const credential of credentials) {
-      if (isApiKeyCredential(credential)) {
-        updatedCredentials.push(credential)
-        continue
+    const refreshPromise = (async () => {
+      const credentials = await CredentialStorage.get(effectiveProviderId)
+      if (!credentials || credentials.length === 0) {
+        throw new Error(`No credentials found for provider: ${providerId}`)
       }
 
-      if (isOAuthCredential(credential)) {
-        if (!shouldRefresh(credential)) {
+      const updatedCredentials: Credential[] = []
+      let hasUpdates = false
+
+      for (const credential of credentials) {
+        if (isApiKeyCredential(credential)) {
           updatedCredentials.push(credential)
           continue
         }
 
-        const provider = AuthProviderRegistry.get(effectiveProviderId)
+        if (isOAuthCredential(credential)) {
+          if (!shouldRefresh(credential)) {
+            updatedCredentials.push(credential)
+            continue
+          }
 
-        if (provider?.refresh) {
-          try {
-            const refreshed = await provider.refresh(credential)
-            updatedCredentials.push(refreshed)
-            hasUpdates = true
-          } catch {
-            // If refresh fails, keep old one? Or remove?
-            // Keeping old allows retry or manual intervention.
+          const provider = AuthProviderRegistry.get(effectiveProviderId)
+
+          if (provider?.refresh) {
+            try {
+              const refreshed = await provider.refresh(credential)
+              updatedCredentials.push(refreshed)
+              hasUpdates = true
+            } catch {
+              updatedCredentials.push(credential)
+            }
+          } else {
             updatedCredentials.push(credential)
           }
         } else {
           updatedCredentials.push(credential)
         }
-      } else {
-        updatedCredentials.push(credential)
       }
-    }
 
-    if (hasUpdates) {
-      // We need to save all back.
-      // CredentialStorage.set/add works per item or list?
-      // Storage set is deprecated/removed in favor of add/update.
-      // I need a way to replace the list.
-      // I added setAll? No, I implemented set/add/update which are singular.
-      // I need `setAll` in storage.ts or loop update.
-
-      // I will loop update for now as `add` handles update by key matching.
-      for (const cred of updatedCredentials) {
-        await CredentialStorage.update(effectiveProviderId, cred)
+      if (hasUpdates) {
+        await CredentialStorage.setAll(effectiveProviderId, updatedCredentials)
       }
-    }
 
-    return updatedCredentials
+      return updatedCredentials
+    })()
+
+    pendingRefreshes.set(effectiveProviderId, refreshPromise)
+    try {
+      return await refreshPromise
+    } finally {
+      pendingRefreshes.delete(effectiveProviderId)
+    }
   }
 }

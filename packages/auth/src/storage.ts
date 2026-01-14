@@ -73,6 +73,12 @@ export namespace CredentialStorage {
     return add(provider, credential)
   }
 
+  export async function setAll(provider: ProviderID, credentialsList: Credential[]): Promise<void> {
+    const credentials = await readCredentials()
+    credentials[provider] = credentialsList
+    await writeCredentials(credentials)
+  }
+
   export async function set(provider: ProviderID, credential: Credential): Promise<void> {
     return add(provider, credential)
   }

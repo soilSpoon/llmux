@@ -1,4 +1,4 @@
-import { CredentialStorage } from '../storage'
+import { TokenRefresh } from '../refresh'
 import { isOAuthCredential } from '../types'
 import {
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
@@ -6,7 +6,7 @@ import {
   GEMINI_CLI_API_PATH_STREAM,
   GEMINI_CLI_HEADERS,
 } from './antigravity-constants'
-import { fetchAntigravityProjectID, refreshAntigravityToken } from './antigravity-oauth'
+import { fetchAntigravityProjectID } from './antigravity-oauth'
 
 const PROVIDER_ID = 'antigravity'
 
@@ -35,26 +35,17 @@ export async function prepareGeminiCliRequest(options: {
   endpointIndex?: number
   streaming?: boolean
 }): Promise<GeminiCliRequestContext | null> {
-  const credentials = await CredentialStorage.get(PROVIDER_ID)
+  const credentials = await TokenRefresh.ensureFresh(PROVIDER_ID)
   if (credentials.length === 0) return null
 
   const accountIndex = options.accountIndex ?? 0
   const endpointIndex = options.endpointIndex ?? 0
-  const credentialOrUndefined = credentials[accountIndex % credentials.length]
+  const credential = credentials[accountIndex % credentials.length]
 
-  if (!credentialOrUndefined || !isOAuthCredential(credentialOrUndefined)) return null
+  if (!credential || !isOAuthCredential(credential)) return null
 
-  let credential = credentialOrUndefined
-  let accessToken = credential.accessToken
+  const accessToken = credential.accessToken
   let projectId = credential.projectId || ''
-
-  if (credential.expiresAt && Date.now() >= credential.expiresAt - 60000) {
-    const refreshed = await refreshAntigravityToken(credential)
-    accessToken = refreshed.accessToken
-    projectId = refreshed.projectId || ''
-    credential = refreshed
-    await CredentialStorage.update(PROVIDER_ID, refreshed)
-  }
 
   if (!projectId) {
     projectId = await fetchAntigravityProjectID(accessToken)

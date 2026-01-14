@@ -40,16 +40,81 @@ describe("handleResponses - HTTP Header Forwarding", () => {
   };
 
   describe("Header Forwarding", () => {
-    it.skip("should forward x-codex-plan-type header from upstream response", async () => {
-      // Skipped: Header forwarding is currently disabled
+    it("should forward x-codex-plan-type header from upstream response", async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response("data: [DONE]\n\n", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "x-codex-plan-type": "pro",
+            },
+          });
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch;
+
+      const request = createStreamingRequest({
+        model: "gpt-4o",
+        input: "Test",
+        stream: true,
+      });
+
+      const response = await handleResponses(request, baseOptions);
+
+      expect(response.headers.get("x-codex-plan-type")).toBe("pro");
     });
 
-    it.skip("should forward x-oai-request-id header from upstream response", async () => {
-      // Skipped: Header forwarding is currently disabled
+    it("should forward x-oai-request-id header from upstream response", async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response("data: [DONE]\n\n", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "x-oai-request-id": "req_123",
+            },
+          });
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch;
+
+      const request = createStreamingRequest({
+        model: "gpt-4o",
+        input: "Test",
+        stream: true,
+      });
+
+      const response = await handleResponses(request, baseOptions);
+
+      expect(response.headers.get("x-oai-request-id")).toBe("req_123");
     });
 
-    it.skip("should forward both headers simultaneously", async () => {
-      // Skipped: Header forwarding is currently disabled
+    it("should forward both headers simultaneously", async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response("data: [DONE]\n\n", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "x-codex-plan-type": "pro",
+              "x-oai-request-id": "req_123",
+            },
+          });
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch;
+
+      const request = createStreamingRequest({
+        model: "gpt-4o",
+        input: "Test",
+        stream: true,
+      });
+
+      const response = await handleResponses(request, baseOptions);
+
+      expect(response.headers.get("x-codex-plan-type")).toBe("pro");
+      expect(response.headers.get("x-oai-request-id")).toBe("req_123");
     });
 
     it("should not include headers when not present in upstream response", async () => {
@@ -77,8 +142,33 @@ describe("handleResponses - HTTP Header Forwarding", () => {
       expect(response.headers.get("x-oai-request-id")).toBeNull();
     });
 
-    it.skip("should forward headers with streaming response body", async () => {
-      // Skipped: Header forwarding is currently disabled
+    it("should forward headers with streaming response body", async () => {
+      globalThis.fetch = Object.assign(
+        mock(async () => {
+          return new Response("data: [DONE]\n\n", {
+            status: 200,
+            headers: {
+              "Content-Type": "text/event-stream",
+              "x-codex-plan-type": "pro",
+            },
+          });
+        }),
+        { preconnect: () => {} }
+      ) as typeof fetch;
+
+      const request = createStreamingRequest({
+        model: "gpt-4o",
+        input: "Test",
+        stream: true,
+      });
+
+      const response = await handleResponses(request, baseOptions);
+
+      expect(response.headers.get("x-codex-plan-type")).toBe("pro");
+      expect(response.status).toBe(200);
+      
+      const text = await response.text();
+      expect(text).toContain("response.completed");
     });
   });
 });

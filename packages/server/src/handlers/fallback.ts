@@ -44,22 +44,6 @@ export class FallbackHandler {
       // whereas ArrayBuffer-based Requests can have issues with stream locking in Bun.
       const bodyText = await request.text()
 
-      // Log original AMP request for debugging
-      try {
-        const bodyJson = JSON.parse(bodyText)
-        logger.debug(
-          {
-            url: request.url,
-            model: bodyJson.model,
-            messageCount: bodyJson.messages?.length || 0,
-            bodyPreview: bodyText.slice(0, 500),
-          },
-          'Original AMP request received'
-        )
-      } catch {
-        logger.debug({ url: request.url }, 'Original AMP request received (non-JSON body)')
-      }
-
       const bodyForExtraction = new Request(request.url, {
         method: request.method,
         headers: request.headers,
