@@ -71,3 +71,113 @@ export function extractThinkingTier(modelName: string): string | undefined {
   if (modelName.endsWith('-low')) return 'low'
   return undefined
 }
+
+/**
+ * Reasoning effort values supported across providers.
+ * Different models support different subsets of these values.
+ */
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+
+/**
+ * Model-specific reasoning effort configuration
+ */
+interface ModelReasoningConfig {
+  supportedEfforts: ReasoningEffort[]
+  defaultEffort: ReasoningEffort | undefined
+}
+
+/**
+ * Model-specific reasoning effort support.
+ * Patterns are checked in order; first match wins.
+ */
+const MODEL_REASONING_CONFIGS: Array<{ pattern: RegExp; config: ModelReasoningConfig }> = [
+  // gpt-5.1-codex-max and variants support all effort levels
+  {
+    pattern: /^gpt-5\.1-codex-max/,
+    config: {
+      supportedEfforts: ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+      defaultEffort: undefined,
+    },
+  },
+  // gpt-5-pro only supports high
+  {
+    pattern: /^gpt-5-pro/,
+    config: {
+      supportedEfforts: ['high'],
+      defaultEffort: 'high',
+    },
+  },
+  // gpt-5.1 supports none (default), low, medium, high
+  {
+    pattern: /^gpt-5\.1/,
+    config: {
+      supportedEfforts: ['none', 'low', 'medium', 'high'],
+      defaultEffort: undefined,
+    },
+  },
+]
+
+/**
+ * Default reasoning config for unknown models.
+ * Allows standard effort levels with no default.
+ */
+const DEFAULT_REASONING_CONFIG: ModelReasoningConfig = {
+  supportedEfforts: ['low', 'medium', 'high'],
+  defaultEffort: undefined,
+}
+
+/**
+ * Get reasoning configuration for a specific model.
+ *
+ * @param model - Model name
+ * @returns ModelReasoningConfig with supported efforts and default
+ */
+function getModelReasoningConfig(model: string): ModelReasoningConfig {
+  for (const { pattern, config } of MODEL_REASONING_CONFIGS) {
+    if (pattern.test(model)) {
+      return config
+    }
+  }
+  return DEFAULT_REASONING_CONFIG
+}
+
+/**
+ * Normalize reasoning effort value for a specific model.
+ *
+ * Different models support different reasoning effort levels:
+ * - gpt-5.1: none (default), low, medium, high
+ * - gpt-5-pro: high only
+ * - gpt-5.1-codex-max+: all values (none, minimal, low, medium, high, xhigh)
+ *
+ * If the requested effort is not supported by the model, falls back to the model's default.
+ *
+ * @param model - Model name
+ * @param effort - Requested reasoning effort value
+ * @returns Normalized effort value, or undefined to use model default
+ */
+export function normalizeReasoningEffort(
+  model: string,
+  effort?: string
+): ReasoningEffort | undefined {
+  if (effort === undefined) {
+    return undefined
+  }
+
+  const config = getModelReasoningConfig(model)
+
+  // Check if the effort value is valid
+  const validEfforts: ReasoningEffort[] = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh']
+  if (!validEfforts.includes(effort as ReasoningEffort)) {
+    return config.defaultEffort
+  }
+
+  const requestedEffort = effort as ReasoningEffort
+
+  // Check if the model supports this effort level
+  if (config.supportedEfforts.includes(requestedEffort)) {
+    return requestedEffort
+  }
+
+  // Fall back to model default
+  return config.defaultEffort
+}

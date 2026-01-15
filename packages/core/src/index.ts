@@ -199,11 +199,13 @@ export type {
 export { getHomeDir } from './util/home'
 // Logging
 export { createLogger, logger } from './util/logger'
+export type { ReasoningEffort } from './util/model-capabilities'
 // Model Capabilities & Utilities
 export {
   extractThinkingTier,
   hasThinkingTierSuffix,
   isGemini3WithTierSuffix,
+  normalizeReasoningEffort,
   supportsThinking,
 } from './util/model-capabilities'
 export { SSEParser } from './util/sse-parser'

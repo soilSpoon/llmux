@@ -1,0 +1,230 @@
+{
+  "project": "llmux",
+  "branchName": "ralph/reasoning-reliability-upgrade",
+  "description": "llmux Reasoning & Reliability Upgrade - Improve reasoning/thinking support, reliability, and provider compatibility",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Implement normalizeReasoningEffort helper",
+      "description": "As a developer, I want reasoning_effort values to be normalized per model so that invalid values don't cause 400 errors from OpenAI API.",
+      "acceptanceCriteria": [
+        "Create normalizeReasoningEffort(model: string, effort?: string) function in packages/core/src/util/model-capabilities.ts",
+        "Support values: none | minimal | low | medium | high | xhigh",
+        "Model-specific support: gpt-5.1 (none default, low/medium/high), gpt-5-pro (high only), gpt-5.1-codex-max+ (all values)",
+        "Unsupported values fallback to model default",
+        "Export function from packages/core/src/index.ts",
+        "Add unit tests in packages/core/src/util/__tests__/model-capabilities.test.ts",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Integrate reasoning effort clamping into applyThinkingConfig",
+      "description": "As a developer, I want OpenAI provider transformations to automatically clamp reasoning effort so that API calls succeed.",
+      "acceptanceCriteria": [
+        "Modify OpenAI case in packages/core/src/transform/thinking.ts",
+        "Extract model name from unified request metadata or config",
+        "Call normalizeReasoningEffort before setting reasoning_effort",
+        "Handle case where model name is not available (use original value)",
+        "Existing tests still pass",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Depends on US-001"
+    },
+    {
+      "id": "US-003",
+      "title": "Define RetryPolicy type and getRetryPolicy helper",
+      "description": "As a developer, I want per-provider/model retry policies so that different endpoints can have different retry behavior.",
+      "acceptanceCriteria": [
+        "Create packages/core/src/providers/retry-policy.ts",
+        "Define RetryPolicy interface: { maxAttempts: number; budgetCheckRequired: boolean }",
+        "Implement getRetryPolicy(provider: ProviderName, model?: string, deploymentId?: string) function",
+        "Default policy: 3 attempts, budgetCheckRequired: true",
+        "Export from packages/core/src/index.ts",
+        "Add unit tests",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Implement zero-cost model detection",
+      "description": "As a developer, I want to identify zero-cost models so that budget checks can be bypassed for free/internal models.",
+      "acceptanceCriteria": [
+        "Add isZeroCostModel(model: string): boolean function in packages/core/src/util/model-capabilities.ts",
+        "Add ZERO_COST_MODELS allowlist (initially empty, can be extended)",
+        "Update getRetryPolicy to set budgetCheckRequired = false for zero-cost models",
+        "Export function from packages/core/src/index.ts",
+        "Add unit tests",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Depends on US-003"
+    },
+    {
+      "id": "US-005",
+      "title": "Strip thinking blocks from UnifiedRequest messages",
+      "description": "As a developer, I want thinking blocks stripped from conversation history so that multi-turn requests don't leak previous turn's thinking.",
+      "acceptanceCriteria": [
+        "Create stripThinkingFromMessages(messages: UnifiedMessage[]) helper in packages/core/src/util/thinking-utils.ts",
+        "Remove ContentPart with type: 'thinking' from all messages",
+        "Preserve all other content parts",
+        "Export from packages/core/src/index.ts",
+        "Add unit tests with multi-turn conversation scenarios",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Reference: opencode-antigravity-auth Strip ALL thinking blocks strategy"
+    },
+    {
+      "id": "US-006",
+      "title": "Apply thinking strip in Anthropic request transformation",
+      "description": "As a developer, I want Anthropic requests to automatically strip thinking blocks so that signature errors are prevented.",
+      "acceptanceCriteria": [
+        "Modify packages/core/src/providers/anthropic/request.ts to call stripThinkingFromMessages",
+        "Apply before building Anthropic messages array",
+        "Ensure UnifiedResponse.thinking only contains current response thinking",
+        "Add multi-turn test case verifying thinking isolation",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Depends on US-005"
+    },
+    {
+      "id": "US-007",
+      "title": "Reset thinking state in AnthropicStreamingBuilder",
+      "description": "As a developer, I want streaming thinking state to be per-response so that thinking doesn't carry over between streams.",
+      "acceptanceCriteria": [
+        "Add currentThinkingBlocks: ThinkingBlock[] state to AnthropicStreamingBuilder",
+        "Reset state on message_start event",
+        "Only include currentThinkingBlocks in final accumulated result",
+        "Add streaming multi-turn test",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Normalize thoughtSignature in Gemini response parsing",
+      "description": "As a developer, I want thoughtSignature mapped to unified types so that signatures are consistently handled across providers.",
+      "acceptanceCriteria": [
+        "Modify Gemini response parsing in packages/core/src/providers/gemini/response.ts",
+        "Map thoughtSignature from Gemini parts to ContentPart.thoughtSignature",
+        "Copy to ThinkingBlock.signature when part is thinking type",
+        "Add unit tests with Gemini response containing thoughtSignature",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "Reference: Antigravity API spec Thinking Response section"
+    },
+    {
+      "id": "US-009",
+      "title": "Normalize thoughtSignature in Antigravity response parsing",
+      "description": "As a developer, I want Antigravity (Claude via Google) thoughtSignature handled correctly for unified types.",
+      "acceptanceCriteria": [
+        "Modify Antigravity response parsing in packages/core/src/providers/antigravity/response.ts",
+        "Handle thought: true + thoughtSignature combination",
+        "Map to ContentPart.thoughtSignature and ThinkingBlock.signature",
+        "Add unit tests with Antigravity Claude response",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": "Reference: Antigravity API spec Claude thinking response format"
+    },
+    {
+      "id": "US-010",
+      "title": "Enforce signature stripping in logging",
+      "description": "As a developer, I want thoughtSignature stripped from all logs so that sensitive signatures are never exposed.",
+      "acceptanceCriteria": [
+        "Identify all logging entry points in packages/server that log UnifiedResponse or StreamChunk",
+        "Apply stripThoughtSignatures before logging (function already exists in @llmux/core)",
+        "Add test verifying log output contains no thoughtSignature strings",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": "Security requirement"
+    },
+    {
+      "id": "US-011",
+      "title": "Implement streaming order normalizer",
+      "description": "As a developer, I want reasoning-end events to occur before text-start so that streaming order is consistent.",
+      "acceptanceCriteria": [
+        "Create normalizeStreamingOrder helper in packages/core/src/util/stream-normalizer.ts",
+        "Maintain per-block state: hasThinkingStarted, hasThinkingEnded, hasTextStarted",
+        "Insert synthetic thinking-end before first text-delta if thinking started but not ended",
+        "Export from packages/core/src/index.ts",
+        "Add event sequence tests",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Integrate streaming normalizer into streaming builders",
+      "description": "As a developer, I want all streaming builders to use the order normalizer so that event order is consistent.",
+      "acceptanceCriteria": [
+        "Integrate normalizeStreamingOrder into OpenAIChatStreamingBuilder",
+        "Integrate into OpenAIResponsesStreamingBuilder",
+        "Integrate into AnthropicStreamingBuilder",
+        "Integrate into GeminiStreamingBuilder",
+        "Add integration tests verifying correct order across providers",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": "Depends on US-011"
+    },
+    {
+      "id": "US-013",
+      "title": "Define BackoffStrategy interface and implementations",
+      "description": "As a developer, I want provider-specific backoff strategies so that retry delays are optimized per provider.",
+      "acceptanceCriteria": [
+        "Create packages/core/src/providers/backoff.ts",
+        "Define BackoffStrategy interface: getDelayMs(context: { attempt, error?, headers? }): number",
+        "Implement AnthropicBackoffStrategy: exponential + jitter, respect Retry-After header",
+        "Implement GeminiBackoffStrategy: exponential, lower max delay",
+        "Implement DefaultBackoffStrategy: simple exponential",
+        "Add getBackoffStrategy(provider: ProviderName) function",
+        "Export from packages/core/src/index.ts",
+        "Add unit tests for each strategy",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": "Depends on US-003"
+    },
+    {
+      "id": "US-014",
+      "title": "Implement Gemini image token estimation",
+      "description": "As a developer, I want image tokens included in Gemini token counts so that usage is accurately tracked.",
+      "acceptanceCriteria": [
+        "Create estimateGeminiImageTokens(imageData: ImageData): number in packages/core/src/util/token-estimation.ts",
+        "Base token count: 256 per image (or documented Gemini value)",
+        "Integrate into accumulateGeminiResponse for inputTokens calculation",
+        "Export from packages/core/src/index.ts",
+        "Add tests: text only, text+1 image, text+2 images",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
