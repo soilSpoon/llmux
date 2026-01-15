@@ -36,7 +36,7 @@ export class AntigravityProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
-      defaultStreamParser: 'sse-standard',
+      defaultStreamParser: 'sse-line-delimited',
     }
   }
 
