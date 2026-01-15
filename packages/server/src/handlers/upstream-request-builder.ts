@@ -171,7 +171,7 @@ export async function buildUpstreamRequest(
     options,
     reqId,
     currentProjectId,
-    isThinkingEnabled,
+    thinkingPolicy,
     signatureStore,
     mode,
   })

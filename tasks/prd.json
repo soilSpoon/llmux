@@ -111,8 +111,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated PrepareUpstreamOptions to include thinkingPolicy. Updated upstream-request-builder to compute and pass policy. All tests passed."
     },
     {
       "id": "US-008",
@@ -125,8 +125,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated TransformPipelineInput to use thinkingPolicy. Integrated effective policy check combining thinkingPolicy and isClaudeFresh."
     },
     {
       "id": "US-009",

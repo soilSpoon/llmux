@@ -9,6 +9,8 @@
 - ThinkingPolicy interface is in `@llmux/core/src/thinking/thinking-policy.ts` - central source of truth for thinking decisions
 - Use `isThinkingModel()` from `@llmux/core/src/thinking/model-capabilities.ts` for table-driven model capability detection
 - Use `computeThinkingPolicy()` from `@llmux/core/src/thinking/thinking-policy.ts` to compute thinking policy from request inputs
+- `ThinkingPolicy` is the central source of truth for thinking/reasoning behavior (enabled, mode, includes)
+
 
 ## Current Status
 - Project: llmux
@@ -114,4 +116,38 @@ Thread: http://100.64.0.2:8743/threads/T-019bc3ff-329b-72ef-ad87-17c25a180a62
   - Uses `require()` for local import of `isThinkingModel` to avoid circular dependencies
   - Streaming mode maps to 'interleaved', non-streaming/count_tokens maps to 'standard'
   - Client `includeThoughts` defaults to true if not specified
+---
+
+## [2026-01-16] - US-007
+Thread: http://100.64.0.2:8743/threads/T-019bc402-2211-742f-9ab3-835def5bd77c
+- Updated `PrepareUpstreamOptions` interface in `@llmux/core` to include `thinkingPolicy`
+- Removed `isThinkingEnabled` from `PrepareUpstreamOptions`
+- Updated `upstream-request-builder.ts` to compute `ThinkingPolicy` and pass it to upstream strategy
+- Added `thinkingPolicy` to `UpstreamRequestMeta` in `upstream-request-builder.ts`
+- Exported `computeThinkingPolicy` from `@llmux/core` index
+- Verified typecheck and tests pass
+- Files changed:
+  - packages/core/src/types/provider-strategies.ts (modified)
+  - packages/server/src/handlers/upstream-request-builder.ts (modified)
+  - packages/core/src/index.ts (modified)
+- **Learnings for future iterations:**
+  - `ThinkingPolicy` is now computed early in the request pipeline (in builder)
+  - `isClaudeFresh` is determined by `getThinkingStrategy` and used for policy computation
+  - Interface changes in core propagate to all strategy implementations (though optional fields don't break them immediately)
+  
+## [2026-01-16] - US-008
+Thread: http://100.64.0.2:8743/threads/T-019bc406-c114-72c7-9b9b-049adb7a8fc8
+- Updated `TransformPipelineInput` in `transform-pipeline.ts` to use `thinkingPolicy?: ThinkingPolicy`
+- Removed `isThinkingEnabled?: boolean`
+- Integrated `thinkingPolicy` into `executeTransformPipeline` logic
+- Updated `shouldDisableThinking` check to combine `policyEnabled`, `isClaudeFresh`, and `sendThinkingToUpstream`
+- Updated `removeThinkingFromBody` check to use `policyEnabled === false`
+- Updated call site in `upstream-request-builder.ts`
+- Files changed:
+  - packages/server/src/handlers/upstream/transform-pipeline.ts (modified)
+  - packages/server/src/handlers/upstream-request-builder.ts (modified)
+- **Learnings for future iterations:**
+  - `isClaudeFresh` is computed inside the pipeline (via `sanitizeRequestSignatures`) and also passed into policy computation in builder.
+  - The pipeline uses a combined check: `policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false`.
+  - This ensures that if the pipeline discovers we are in "Claude Fresh" mode (signature stripping), we force disable thinking even if the policy was initially enabled.
 ---
