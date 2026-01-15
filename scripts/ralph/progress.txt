@@ -1,4 +1,6 @@
 ## Codebase Patterns
+- **Pattern:** When testing mutable exported arrays (like `ZERO_COST_MODELS`), save state in `const original = [...ARRAY]`, clear in `beforeEach`, and restore in `afterAll`.
+- **Pattern:** `packages/core/test/providers` contains tests for providers logic, while `packages/core/src/util/__tests__` contains tests for util logic.
 - **Pattern:** When adding new fields to `UnifiedRequest`, ensure they are correctly mapped in ALL provider request transformers (`packages/core/src/providers/*/request.ts`) AND format transformers (`packages/core/src/formats/*/request.ts`).
 - **Pattern:** Use `createLogger({ service: '...', module: '...' })` for structured logging.
 - **Pattern:** For Antigravity auth, always iterate through `ANTIGRAVITY_ENDPOINT_FALLBACKS` and handle failures gracefully.
@@ -62,4 +64,75 @@ Thread: http://100.64.0.2:8743/threads/T-019bc225-ab0b-72cc-937f-6381cff4e4d2
 - **Learnings for future iterations:**
   - `packages/core/src/providers` tests are located in `packages/core/test/providers`, unlike `util` which has colocated `__tests__`
   - Use `_` prefix for unused parameters to satisfy biome/typescript checks
+---
+
+## 2026-01-16 - US-004
+Thread: http://100.64.0.2:8743/threads/T-019bc229-5f5f-70a3-8b33-63a43a55d957
+- Implemented `isZeroCostModel(model: string): boolean` in `packages/core/src/util/model-capabilities.ts`
+- Added `ZERO_COST_MODELS` allowlist (initially empty)
+- Updated `getRetryPolicy` in `packages/core/src/providers/retry-policy.ts` to disable budget checks for zero-cost models
+- Exported new utilities from `packages/core/src/index.ts`
+- Added unit tests in `packages/core/src/util/__tests__/model-capabilities.test.ts` and `packages/core/test/providers/retry-policy.test.ts`
+- Files changed:
+  - `packages/core/src/util/model-capabilities.ts`
+  - `packages/core/src/providers/retry-policy.ts`
+  - `packages/core/src/index.ts`
+  - `packages/core/src/util/__tests__/model-capabilities.test.ts`
+  - `packages/core/test/providers/retry-policy.test.ts`
+- **Learnings for future iterations:**
+  - `ZERO_COST_MODELS` is a mutable array exported as const, so tests must manage state (save/clear/restore)
+  - `packages/core/test/providers` contains tests for providers logic, while `packages/core/src/util/__tests__` contains tests for util logic.
+---
+
+
+## 2026-01-16 - US-005
+Thread: http://100.64.0.2:8743/threads/T-019bc22c-db7a-7758-a6e3-931a92ff0a9e
+- Implemented `stripThinkingFromMessages(messages: UnifiedMessage[])` in `packages/core/src/util/thinking-utils.ts`
+- Added unit tests in `packages/core/src/util/__tests__/thinking-utils.test.ts`
+- Exported from `packages/core/src/index.ts`
+- Files changed:
+  - `packages/core/src/util/thinking-utils.ts` (new)
+  - `packages/core/src/util/__tests__/thinking-utils.test.ts` (new)
+  - `packages/core/src/index.ts`
+- **Learnings for future iterations:**
+  - `ContentPart` is defined in `types/unified.ts`.
+  - TypeScript non-null assertions (`!`) are useful in tests when you've already asserted existence (e.g. `toHaveLength`).
+---
+
+## 2026-01-16 - US-006
+Thread: http://100.64.0.2:8743/threads/T-019bc231-c102-747c-a901-7e0a2c8bd1ee
+- Modified `packages/core/src/providers/anthropic/request.ts` to call `stripThinkingFromMessages` before building Anthropic messages array.
+- Added multi-turn test case in `packages/core/test/providers/anthropic/request-thinking.test.ts` verifying thinking isolation.
+- Files changed:
+  - `packages/core/src/providers/anthropic/request.ts`
+  - `packages/core/test/providers/anthropic/request-thinking.test.ts` (new)
+- **Learnings for future iterations:**
+  - `stripThinkingFromMessages` effectively removes thinking blocks from the conversation history, preventing leakage.
+  - TypeScript non-null assertions (`!`) are useful in tests when you've already asserted existence (e.g., `toHaveLength`).
+---
+
+## 2026-01-16 - US-007
+Thread: http://100.64.0.2:8743/threads/T-019bc231-c102-747c-a901-7e0a2c8bd1ee
+- Integrated `currentThinkingBlocks` state in `AnthropicStreamingBuilder`.
+- Reset thinking state on `message_start` events to prevent thinking leakage between streams.
+- Added `packages/core/test/formats/anthropic-streaming-builder-thinking.test.ts` to verify state reset behavior.
+- Files changed:
+  - `packages/core/src/formats/anthropic-messages/anthropic-streaming-builder.ts`
+  - `packages/core/test/formats/anthropic-streaming-builder-thinking.test.ts` (new)
+- **Learnings for future iterations:**
+  - Private state in classes is hard to test directly; verify behavior through public methods or side effects (like event output).
+  - TypeScript `noNonNullAssertion` rule is strict; check for null/undefined explicitly instead of using `!` when possible.
+---
+
+## 2026-01-16 - US-008
+Thread: http://100.64.0.2:8743/threads/T-019bc237-c1b9-711d-a635-fbfc66dc4229
+- Modified Gemini response parsing in `packages/core/src/providers/gemini/response.ts` to support both `thoughtSignature` (camelCase) and `thought_signature` (snake_case)
+- Added fallback logic to use whichever signature field is available (preferring camelCase)
+- Added unit tests in `packages/core/test/providers/gemini/response.test.ts` verifying correct mapping from both fields
+- Files changed:
+  - `packages/core/src/providers/gemini/response.ts`
+  - `packages/core/test/providers/gemini/response.test.ts`
+- **Learnings for future iterations:**
+  - Gemini parts can have both `thoughtSignature` and `thought_signature` fields depending on the API version or context
+  - Always provide fallbacks for snake_case vs camelCase fields when dealing with raw API responses
 ---

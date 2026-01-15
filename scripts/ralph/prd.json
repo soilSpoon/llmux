@@ -66,7 +66,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-003"
     },
     {
@@ -82,10 +82,10 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Reference: opencode-antigravity-auth Strip ALL thinking blocks strategy"
-    },
-    {
+      },
+      {
       "id": "US-006",
       "title": "Apply thinking strip in Anthropic request transformation",
       "description": "As a developer, I want Anthropic requests to automatically strip thinking blocks so that signature errors are prevented.",
@@ -97,10 +97,10 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Depends on US-005"
-    },
-    {
+      },
+      {
       "id": "US-007",
       "title": "Reset thinking state in AnthropicStreamingBuilder",
       "description": "As a developer, I want streaming thinking state to be per-response so that thinking doesn't carry over between streams.",
@@ -112,10 +112,10 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": ""
-    },
-    {
+      },
+      {
       "id": "US-008",
       "title": "Normalize thoughtSignature in Gemini response parsing",
       "description": "As a developer, I want thoughtSignature mapped to unified types so that signatures are consistently handled across providers.",
@@ -127,7 +127,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "Reference: Antigravity API spec Thinking Response section"
     },
     {
