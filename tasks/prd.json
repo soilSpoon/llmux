@@ -30,8 +30,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented robust fallback mechanism iterating through Sandbox, Daily, and Prod endpoints for both project ID resolution and user onboarding. Added structured logging for better observability."
     },
     {
       "id": "US-003",
@@ -45,8 +45,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented MAX_STREAM_BUFFER_SIZE (100MB) logic in stream-transformer.ts to prevent OOM errors during large streams."
     }
   ]
 }

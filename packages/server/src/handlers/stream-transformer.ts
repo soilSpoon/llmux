@@ -21,6 +21,9 @@ import { getParserType, splitSSEEvents } from './stream-processor'
 
 const logger = createLogger({ service: 'stream-transformer' })
 
+const MAX_STREAM_BUFFER_SIZE = 100 * 1024 * 1024 // 100MB
+let loggedTruncationWarning = false
+
 export interface StreamContext extends StreamMetrics {
   fromFormat: RequestFormat
   targetProvider: string
@@ -129,7 +132,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     transform(chunk, controller) {
       const text = decoder.decode(chunk, { stream: true })
       streamContext.totalBytes += text.length
-      streamContext.accumulatedUpstream += text
+      if (streamContext.accumulatedUpstream.length < MAX_STREAM_BUFFER_SIZE) {
+        streamContext.accumulatedUpstream += text
+      }
       buffer += text
 
       // 디버깅: 업스트림에서 받은 청크 기록
@@ -217,7 +222,17 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
                 // No filter needed for Builder yet (Logic moved to Builder)
 
-                streamContext.fullResponse += output
+                // Stop buffering if limit reached, but continue streaming
+                if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                  streamContext.fullResponse += output
+                } else if (!loggedTruncationWarning) {
+                  logger.warn(
+                    { reqId: options.reqId, bufferSize: streamContext.fullResponse.length },
+                    'Stream buffer limit reached, truncation enabled'
+                  )
+                  loggedTruncationWarning = true
+                }
+
                 streamContext.chunkCount++
                 controller.enqueue(encoder.encode(output))
               }
@@ -285,7 +300,17 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 continue
               }
 
-              streamContext.fullResponse += output
+              // Stop buffering if limit reached, but continue streaming
+              if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                streamContext.fullResponse += output
+              } else if (!loggedTruncationWarning) {
+                logger.warn(
+                  { reqId: options.reqId, bufferSize: streamContext.fullResponse.length },
+                  'Stream buffer limit reached, truncation enabled'
+                )
+                loggedTruncationWarning = true
+              }
+
               streamContext.chunkCount++
               controller.enqueue(encoder.encode(output))
             }
@@ -297,7 +322,17 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 'Streaming builder missing - falling back to raw pass-through'
               )
             }
-            streamContext.fullResponse += rawEvent
+            // Stop buffering if limit reached, but continue streaming
+            if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+              streamContext.fullResponse += rawEvent
+            } else if (!loggedTruncationWarning) {
+              logger.warn(
+                { reqId: options.reqId, bufferSize: streamContext.fullResponse.length },
+                'Stream buffer limit reached, truncation enabled'
+              )
+              loggedTruncationWarning = true
+            }
+
             streamContext.chunkCount++
             controller.enqueue(encoder.encode(rawEvent))
           }
@@ -344,7 +379,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   (chunk.type === 'text-delta' || chunk.type === 'content') &&
                   chunk.delta?.text
                 ) {
-                  streamContext.accumulatedText += chunk.delta.text
+                  if (streamContext.accumulatedText.length < MAX_STREAM_BUFFER_SIZE) {
+                    streamContext.accumulatedText += chunk.delta.text
+                  }
                 } else if (
                   (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
                   chunk.delta?.thinking?.text
@@ -367,7 +404,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 const builtEvents = streamingBuilder.build(chunk)
                 for (const output of builtEvents) {
                   if (!output.trim()) continue
-                  streamContext.fullResponse += output
+                  if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                    streamContext.fullResponse += output
+                  }
                   streamContext.chunkCount++
                   controller.enqueue(encoder.encode(output))
                 }
@@ -387,7 +426,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   (chunk.type === 'text-delta' || chunk.type === 'content') &&
                   chunk.delta?.text
                 ) {
-                  streamContext.accumulatedText += chunk.delta.text
+                  if (streamContext.accumulatedText.length < MAX_STREAM_BUFFER_SIZE) {
+                    streamContext.accumulatedText += chunk.delta.text
+                  }
                 } else if (
                   (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
                   chunk.delta?.thinking?.text
@@ -424,13 +465,17 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   continue
                 }
 
-                streamContext.fullResponse += output
+                if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                  streamContext.fullResponse += output
+                }
                 streamContext.chunkCount++
                 controller.enqueue(encoder.encode(output))
               }
             } else {
               // Pass through in flush
-              streamContext.fullResponse += event
+              if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                streamContext.fullResponse += event
+              }
               streamContext.chunkCount++
               controller.enqueue(encoder.encode(event))
             }
@@ -450,7 +495,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
         if (finalOutputs && finalOutputs.length > 0) {
           const finalStr = finalOutputs.join('')
 
-          streamContext.fullResponse += finalStr
+          if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+            streamContext.fullResponse += finalStr
+          }
           streamContext.chunkCount += finalOutputs.length
           controller.enqueue(encoder.encode(finalStr))
         } else {
@@ -461,7 +508,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           const finalOutputs = Array.isArray(final) ? final : [final]
 
           const finalStr = typeof final === 'string' ? final : finalOutputs.join('')
-          streamContext.fullResponse += finalStr
+          if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+            streamContext.fullResponse += finalStr
+          }
           streamContext.chunkCount += finalOutputs.length
           controller.enqueue(encoder.encode(finalStr))
         } else {
