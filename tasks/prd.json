@@ -15,8 +15,8 @@
         "Tests pass"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Changed isThinkingEnabled !== true to isThinkingEnabled === false to respect user intent"
     },
     {
       "id": "US-002",
