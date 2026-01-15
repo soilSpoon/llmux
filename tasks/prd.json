@@ -1,0 +1,204 @@
+{
+  "project": "llmux",
+  "branchName": "ralph/thinking-casing-refactor",
+  "description": "Thinking & Casing Refactor - Centralize case conversion and thinking logic, remove forced thinking, and enforce snake_case serialization only at provider boundaries.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Rollback forced thinking logic",
+      "description": "As a developer, I want to remove the forced thinking budget/includeThoughts logic so that user intent is respected.",
+      "acceptanceCriteria": [
+        "Remove forced `budget: 1024` setting in `transform-pipeline.ts`",
+        "Remove forced `includeThoughts: true` setting in `transform-pipeline.ts`",
+        "Retain only disable logic for `isThinkingEnabled === false || isClaudeFresh`",
+        "Typecheck passes",
+        "Tests pass"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Create casing utilities",
+      "description": "As a developer, I want reusable case conversion utilities so that I don't duplicate conversion logic across providers.",
+      "acceptanceCriteria": [
+        "Create `@llmux/core/src/utils/casing.ts`",
+        "Implement `camelToSnakeKey(key: string): string`",
+        "Implement `snakeToCamelKey(key: string): string`",
+        "Test basic conversion (thinkingBudget -> thinking_budget)",
+        "Test consecutive uppercase (XMLParser -> xml_parser)",
+        "Export from `@llmux/core` index",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Verified with tests"
+    },
+    {
+      "id": "US-003",
+      "title": "Create deep key conversion utility",
+      "description": "As a developer, I want a deep key conversion utility so that I can transform entire request objects at provider boundaries.",
+      "acceptanceCriteria": [
+        "Implement `convertKeysDeep<T>(value: T, converter: KeyConverter, options?): T`",
+        "Test nested object conversion",
+        "Test object inside array conversion",
+        "Test preservation of null, undefined, primitive values",
+        "Test `preserveKeys` option to exclude specific keys",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-004",
+      "title": "Define ThinkingPolicy type",
+      "description": "As a developer, I want a single ThinkingPolicy type so that thinking decisions are centralized and explicit.",
+      "acceptanceCriteria": [
+        "Create `@llmux/core/src/thinking/thinking-policy.ts`",
+        "Define `ThinkingPolicy` type (enabled, mode, includeThoughtsInResponse, sendThinkingToUpstream, reason)",
+        "Export type from `@llmux/core`",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-005",
+      "title": "Implement isThinkingModel helper",
+      "description": "As a developer, I want model capability detection to be table-driven so that string matching heuristics are not scattered.",
+      "acceptanceCriteria": [
+        "Create `@llmux/core/src/thinking/model-capabilities.ts`",
+        "Implement `isThinkingModel(model: string, provider: string): boolean`",
+        "Define capabilities table (regex/prefix based)",
+        "Replace existing `includes('thinking')` calls with new helper",
+        "Test claude-3-7-sonnet-thinking -> true",
+        "Test gemini-3-pro -> true",
+        "Test gpt-4o -> false",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Reordered US-006 before US-005 because computeThinkingPolicy depends on it."
+    },
+    {
+      "id": "US-006",
+      "title": "Implement computeThinkingPolicy function",
+      "description": "As a developer, I want a function that computes thinking policy from inputs so that I don't scatter thinking logic across layers.",
+      "acceptanceCriteria": [
+        "Implement `computeThinkingPolicy()` function",
+        "Inputs: model, mode, clientThinking, optionsThinking, isClaudeFresh, sourceFormat, targetProvider",
+        "Test Claude Fresh -> enabled: false",
+        "Test thinking model + streaming -> interleaved mode",
+        "Test explicit client thinking config priority",
+        "Test non-thinking model -> enabled: false",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Depends on model-capabilities."
+    },
+    {
+      "id": "US-007",
+      "title": "Update PrepareUpstreamOptions to use ThinkingPolicy",
+      "description": "As a developer, I want upstream options to use ThinkingPolicy so that providers receive structured decisions.",
+      "acceptanceCriteria": [
+        "Remove `PrepareUpstreamOptions.isThinkingEnabled`",
+        "Add `PrepareUpstreamOptions.thinkingPolicy?: ThinkingPolicy`",
+        "Update call sites (upstream-request-builder, strategies)",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-008",
+      "title": "Use ThinkingPolicy in transform-pipeline",
+      "description": "As a developer, I want the transform pipeline to use ThinkingPolicy so that thinking overrides are policy-driven.",
+      "acceptanceCriteria": [
+        "Update `executeTransformPipeline` signature: `isThinkingEnabled` -> `thinkingPolicy`",
+        "Implement policy-based thinking disable/enable logic",
+        "Change `removeThinkingFromBody` calls to be policy-based",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Serialize snake_case in Antigravity provider",
+      "description": "As a developer, I want Antigravity provider to serialize to snake_case at the boundary so that conversion is not scattered.",
+      "acceptanceCriteria": [
+        "Remove `convertToSnakeCaseThinkingConfig()` call in `transform-utils.ts`",
+        "Use `convertKeysDeep()` in Antigravity transform for final serialization",
+        "Ensure `thinking_config`, `include_thoughts`, `thinking_budget` exist only in wire format",
+        "Verify request format matches opencode-antigravity-auth library",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Update anthropic-beta header logic",
+      "description": "As a developer, I want anthropic-beta header logic to use ThinkingPolicy so that header decisions are centralized.",
+      "acceptanceCriteria": [
+        "Remove `model.includes('thinking')` logic in `antigravity.ts`",
+        "Add anthropic-beta header when `thinkingPolicy.mode === 'interleaved'`",
+        "Ensure header logic is only in upstream strategy",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Maintain thoughtSignature compatibility",
+      "description": "As a developer, I want streaming parser to handle both camelCase and snake_case thoughtSignature so that responses are correctly parsed.",
+      "acceptanceCriteria": [
+        "Maintain `thoughtSignature || thought_signature` logic in `streaming.ts`",
+        "Test streaming response parsing",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "E2E Test - Antigravity thinking requests",
+      "description": "As a developer, I want E2E tests verifying Antigravity thinking requests so that the refactor doesn't break production.",
+      "acceptanceCriteria": [
+        "E2E test: thinking model + streaming -> correct headers/body",
+        "E2E test: non-thinking model -> no thinking config",
+        "E2E test: Claude Fresh -> thinking disabled",
+        "Verify request format matches opencode-antigravity-auth",
+        "Tests pass"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "E2E Test - Format Compatibility",
+      "description": "As a developer, I want E2E tests verifying format compatibility so that existing clients continue to work.",
+      "acceptanceCriteria": [
+        "E2E test: OpenAI format -> Antigravity conversion",
+        "E2E test: Anthropic format -> Antigravity conversion",
+        "E2E test: Gemini CLI format conversion",
+        "Verify compatibility with patterns from ai, litellm, opencode",
+        "Tests pass"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}
