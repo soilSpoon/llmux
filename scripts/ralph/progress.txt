@@ -6,6 +6,8 @@
 - **Pattern:** Thinking blocks should be stripped from conversation history in multi-turn scenarios (reference: opencode-antigravity-auth "Strip ALL thinking blocks" strategy).
 - **Pattern:** thoughtSignature must be stripped before logging for security.
 - **Pattern:** Model capability configs in `model-capabilities.ts` use regex patterns checked in order (first match wins). More specific patterns must come before general ones.
+- **Pattern:** OpenAI Chat format `reasoning_effort` only supports `none|low|medium|high`; filter `minimal|xhigh` when mapping from `ReasoningEffort`.
+- **Pattern:** Unit tests for `packages/core/src/providers/*` are located in `packages/core/test/providers/`, not colocated.
 
 # Ralph Progress Log
 Started: Thu Jan 16 2026
@@ -27,4 +29,37 @@ Thread: http://100.64.0.2:8743/threads/T-019bc214-c340-747c-98e7-b3700af852bc
   - Model-specific configs use regex patterns checked in order (first match wins)
   - gpt-5.1-codex-max must be checked before gpt-5.1 to avoid false matches
   - `ReasoningEffort` type is the superset of all valid values; individual models support subsets
+---
+
+## 2026-01-15 - US-002
+Thread: http://100.64.0.2:8743/threads/T-019bc220-3533-76f1-b98b-847799b612c5
+- Integrated `normalizeReasoningEffort` into `applyThinkingConfig` for OpenAI provider
+- Modified `packages/core/src/transform/thinking.ts` to extract model from `unified.metadata?.model`
+- Modified `packages/core/src/formats/openai-chat/config.ts` to normalize and filter effort values
+- Added type guard to filter out `minimal|xhigh` (unsupported in OpenAI Chat format)
+- Added comprehensive tests for transform/thinking.ts and openai-chat/config.ts
+- Files changed:
+  - `packages/core/src/transform/thinking.ts`
+  - `packages/core/src/formats/openai-chat/config.ts`
+  - `packages/core/test/transform/thinking.test.ts` (new)
+  - `packages/core/test/formats/openai-chat/config.test.ts` (updated)
+- **Learnings for future iterations:**
+  - OpenAI Chat format `reasoning_effort` only supports `none|low|medium|high`
+  - When normalizing across types with different value sets, use type guards to filter
+  - `unified.metadata?.model` is the source for model name in transforms
+---
+
+## 2026-01-15 - US-003
+Thread: http://100.64.0.2:8743/threads/T-019bc225-ab0b-72cc-937f-6381cff4e4d2
+- Implemented `RetryPolicy` interface and `getRetryPolicy` helper in `packages/core/src/providers/retry-policy.ts`
+- Default policy: 3 attempts, budgetCheckRequired: true
+- Exported from `packages/core/src/index.ts`
+- Added unit tests in `packages/core/test/providers/retry-policy.test.ts` (9 tests)
+- Files changed:
+  - `packages/core/src/providers/retry-policy.ts` (new)
+  - `packages/core/src/index.ts`
+  - `packages/core/test/providers/retry-policy.test.ts` (new)
+- **Learnings for future iterations:**
+  - `packages/core/src/providers` tests are located in `packages/core/test/providers`, unlike `util` which has colocated `__tests__`
+  - Use `_` prefix for unused parameters to satisfy biome/typescript checks
 ---

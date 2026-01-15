@@ -122,6 +122,8 @@ export {
   hasProvider,
   registerProvider,
 } from './providers/registry'
+export type { RetryPolicy } from './providers/retry-policy'
+export { getRetryPolicy } from './providers/retry-policy'
 // Responses API (OpenAI Responses API support)
 export type {
   ChatCompletionChunk,
