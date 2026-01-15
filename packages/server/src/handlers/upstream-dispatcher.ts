@@ -152,15 +152,6 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         clearTimeout(timeoutId)
       }
 
-      logger.debug(
-        {
-          attempt: retryState.attempt,
-          status: lastResponse.status,
-          contentLength: lastResponse.headers.get('content-length'),
-        },
-        'Upstream response received'
-      )
-
       if (!lastResponse.ok) {
         const errorText = await lastResponse
           .clone()

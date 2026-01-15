@@ -166,7 +166,6 @@ export class RequestLogStore {
         safeStringify(input.postTransformRequest),
         input.isStreaming ? 1 : 0
       )
-      logger.debug({ requestId: input.requestId }, 'Request logged')
 
       // Retention: 최근 1000개만 유지
       this.db.run(`
@@ -192,7 +191,6 @@ export class RequestLogStore {
         input.errorMessage ?? null,
         input.requestId
       )
-      logger.debug({ requestId: input.requestId, statusCode: input.statusCode }, 'Response logged')
     } catch (error) {
       logger.error({ error, requestId: input.requestId }, 'Failed to log response')
     }
