@@ -1,3 +1,27 @@
 # Ralph Progress Log
 Started: Thu Jan 15 12:54:36 AM KST 2026
 ---
+## [2026-01-15] - US-001
+Thread: http://100.64.0.2:8743/threads/T-019bbf46-56a9-773f-9243-138a1b0d5018
+- Implemented `responseFormat` transformation in `UnifiedRequest`.
+- Google Gemini: Maps `json_schema` to `responseMimeType: "application/json"` and `responseSchema`.
+- Anthropic: Maps `json_schema` to forced tool use (`tool_choice: { type: 'tool', name: ... }`) with a dedicated tool.
+- OpenAI: Maps `json_schema` to native `response_format` (passed through).
+- Updated types to support `responseFormat` in `GenerationConfig` and provider-specific types.
+- Fixed type errors related to `noExplicitAny` by using `biome-ignore` where necessary for flexibility.
+- Files changed:
+  - `packages/core/src/types/unified.ts`
+  - `packages/core/src/formats/google-gemini/request.ts`
+  - `packages/core/src/formats/anthropic-messages/request.ts`
+  - `packages/core/src/formats/openai-chat/request.ts`
+  - `packages/core/src/formats/openai-chat/config.ts`
+  - `packages/core/src/formats/openai-chat/types.ts`
+  - `packages/core/src/providers/gemini/request.ts`
+  - `packages/core/src/providers/gemini/types.ts`
+  - `packages/core/src/providers/anthropic/request.ts`
+  - `packages/core/src/transform/request.ts`
+- **Learnings for future iterations:**
+  - **Pattern:** When adding new fields to `UnifiedRequest`, ensure they are correctly mapped in ALL provider request transformers (`packages/core/src/providers/*/request.ts`) AND format transformers (`packages/core/src/formats/*/request.ts`).
+  - **Gotcha:** `biome` linting is strict about `any`. Use `// biome-ignore lint/suspicious/noExplicitAny: <reason>` when you genuinely need flexible types for protocol bridging or Discriminated Union workarounds.
+  - **Context:** Gemini requires both `responseMimeType` AND `responseSchema` for structured output. Anthropic doesn't support native JSON schema mode yet, so we must use the "Tool Use Enforcement" pattern.
+---

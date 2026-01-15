@@ -16,8 +16,8 @@
         "Verify with a test request requesting specific JSON schema output"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented provider-specific transformations for Google (MIME type + schema) and Anthropic (tool use enforcement)"
     },
     {
       "id": "US-002",
