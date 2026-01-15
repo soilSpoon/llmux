@@ -546,7 +546,7 @@ describe("Antigravity Response Transformations", () => {
     });
 
     describe("thinking blocks transformation", () => {
-      it("should transform thinking blocks with signatures", () => {
+        it("should transform thinking blocks with signatures", () => {
         const response = createUnifiedResponse({
           content: [{ type: "text", text: "Here is my answer." }],
           thinking: [{ text: "Let me analyze...", signature: "sig123" }],
@@ -558,6 +558,7 @@ describe("Antigravity Response Transformations", () => {
         expect(parts[0]!.thought).toBe(true);
         expect(parts[0]!.text).toBe("Let me analyze...");
         expect(parts[0]!.thoughtSignature).toBe("sig123");
+        expect(parts[0]!.thought_signature).toBe("sig123");
         expect(parts[1]!.text).toBe("Here is my answer.");
       });
 
@@ -610,6 +611,7 @@ describe("Antigravity Response Transformations", () => {
                 id: "call-123",
                 name: "get_weather",
                 arguments: { location: "NYC" },
+                thoughtSignature: "sig789",
               },
             },
           ],
@@ -621,6 +623,8 @@ describe("Antigravity Response Transformations", () => {
         const part = result.response.candidates[0]!.content.parts[0];
         // Implementation may add 'skip_thought_signature_validator'
         expect(part!.functionCall).toBeDefined();
+        expect(part!.thoughtSignature).toBe("sig789");
+        expect(part!.thought_signature).toBe("sig789");
       });
     });
 

@@ -136,7 +136,9 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
         parts.push({ text: part.text || '' })
         break
 
-      case 'tool_call':
+      case 'tool_call': {
+        // Add thoughtSignature for Claude compatibility
+        const signature = part.toolCall?.thoughtSignature || 'skip_thought_signature_validator'
         parts.push({
           functionCall: {
             name: encodeAntigravityToolName(part.toolCall?.name ?? ''),
@@ -146,11 +148,11 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
                 : (part.toolCall?.arguments ?? {}),
             id: part.toolCall?.id,
           },
-          // Add thoughtSignature for Claude compatibility
-          thoughtSignature: 'skip_thought_signature_validator',
-          thought_signature: 'skip_thought_signature_validator',
+          thoughtSignature: signature,
+          thought_signature: signature,
         })
         break
+      }
 
       case 'thinking':
         // Already handled above, but handle inline thinking too
