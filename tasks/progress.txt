@@ -5,6 +5,10 @@
 - Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
 - Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
 - Use `convertKeysDeep()` from `@llmux/core` for recursive key transformation at provider boundaries
+- ThinkingMode type is in `types/provider-strategies.ts` - reuse it for mode definitions
+- ThinkingPolicy interface is in `@llmux/core/src/thinking/thinking-policy.ts` - central source of truth for thinking decisions
+- Use `isThinkingModel()` from `@llmux/core/src/thinking/model-capabilities.ts` for table-driven model capability detection
+- Use `computeThinkingPolicy()` from `@llmux/core/src/thinking/thinking-policy.ts` to compute thinking policy from request inputs
 
 ## Current Status
 - Project: llmux
@@ -56,4 +60,58 @@ Thread: http://100.64.0.2:8743/threads/T-019bc3f5-f705-7318-a07e-5b89c7056573
   - TypeScript type inference with `toEqual` is strict - use `as unknown` when asserting converted keys
   - `preserveKeys` only preserves the key name, not its nested values (values are still recursively converted)
   - The function handles null, undefined, primitives, arrays, and nested objects correctly
+---
+
+## [2026-01-16] - US-004
+Thread: http://100.64.0.2:8743/threads/T-019bc3f8-fae3-738d-8b9a-748686332dcb
+- Created `@llmux/core/src/thinking/thinking-policy.ts` with ThinkingPolicy interface
+- Added `enabled`, `mode`, `includeThoughtsInResponse`, `sendThinkingToUpstream`, `reason` fields
+- Extended mode to include `'interleaved'` in addition to existing ThinkingMode values
+- Added factory functions: `createDisabledThinkingPolicy()` and `createEnabledThinkingPolicy()`
+- Created `@llmux/core/src/thinking/index.ts` for module exports
+- Exported from `@llmux/core` index
+- Files changed:
+  - packages/core/src/thinking/thinking-policy.ts (new)
+  - packages/core/src/thinking/index.ts (new)
+  - packages/core/src/index.ts (modified)
+- **Learnings for future iterations:**
+  - ThinkingMode is already defined in `types/provider-strategies.ts` - reused it
+  - Extended mode type with `'interleaved'` using union type for streaming support
+  - Factory functions help ensure consistent policy creation patterns
+---
+
+## [2026-01-16] - US-005
+Thread: http://100.64.0.2:8743/threads/T-019bc3fb-243b-7518-b0bf-ccb791c054f0
+- Created `@llmux/core/src/thinking/model-capabilities.ts` with table-driven `isThinkingModel()` function
+- Supports Claude thinking models (claude.*thinking), Gemini 3/2.5, and OpenAI o1/o3 reasoning models
+- Replaced `includes('thinking')` calls in `transform-utils.ts` and `request.ts` with centralized helper
+- Added 28 unit tests covering all model patterns
+- Files changed:
+  - packages/core/src/thinking/model-capabilities.ts (new)
+  - packages/core/src/thinking/index.ts (modified)
+  - packages/core/src/providers/antigravity/transform-utils.ts (modified)
+  - packages/core/src/providers/antigravity/request.ts (modified)
+  - packages/core/test/thinking/model-capabilities.test.ts (new)
+- **Learnings for future iterations:**
+  - Model detection uses regex patterns in a capabilities table for flexibility
+  - `isThinkingModel` takes optional provider param to restrict certain rules (e.g., o1/o3 only for openai)
+  - The existing `isThinkingModel` in transform-utils.ts now delegates to the centralized module
+  - Claude thinking models need both `isClaudeModel()` AND `isThinkingModel()` checks for snake_case config format
+---
+
+## [2026-01-16] - US-006
+Thread: http://100.64.0.2:8743/threads/T-019bc3ff-329b-72ef-ad87-17c25a180a62
+- Implemented `computeThinkingPolicy()` function in `@llmux/core/src/thinking/thinking-policy.ts`
+- Added `ClientThinkingConfig` and `ComputeThinkingPolicyOptions` interfaces
+- Exported from `@llmux/core` index via thinking module
+- Added 20 comprehensive unit tests covering all scenarios
+- Files changed:
+  - packages/core/src/thinking/thinking-policy.ts (modified)
+  - packages/core/src/thinking/index.ts (modified)
+  - packages/core/test/thinking/compute-thinking-policy.test.ts (new)
+- **Learnings for future iterations:**
+  - Priority order: Claude Fresh > client enabled > options > model capability
+  - Uses `require()` for local import of `isThinkingModel` to avoid circular dependencies
+  - Streaming mode maps to 'interleaved', non-streaming/count_tokens maps to 'standard'
+  - Client `includeThoughts` defaults to true if not specified
 ---

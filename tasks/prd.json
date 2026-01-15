@@ -62,8 +62,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created ThinkingPolicy type with enabled, mode, includeThoughtsInResponse, sendThinkingToUpstream, reason fields. Added factory functions for convenience."
     },
     {
       "id": "US-005",
@@ -80,8 +80,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": "Reordered US-006 before US-005 because computeThinkingPolicy depends on it."
+      "passes": true,
+      "notes": "Created table-driven model-capabilities.ts with 28 tests. Updated transform-utils.ts and request.ts to use centralized helper."
     },
     {
       "id": "US-006",
@@ -97,8 +97,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": "Depends on model-capabilities."
+      "passes": true,
+      "notes": "Implemented computeThinkingPolicy with 20 tests covering all scenarios"
     },
     {
       "id": "US-007",

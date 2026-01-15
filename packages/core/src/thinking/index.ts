@@ -6,5 +6,13 @@
 
 export type { ProviderType } from './model-capabilities'
 export { isThinkingModel } from './model-capabilities'
-export type { ThinkingPolicy } from './thinking-policy'
-export { createDisabledThinkingPolicy, createEnabledThinkingPolicy } from './thinking-policy'
+export type {
+  ClientThinkingConfig,
+  ComputeThinkingPolicyOptions,
+  ThinkingPolicy,
+} from './thinking-policy'
+export {
+  computeThinkingPolicy,
+  createDisabledThinkingPolicy,
+  createEnabledThinkingPolicy,
+} from './thinking-policy'
