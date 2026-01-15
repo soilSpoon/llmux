@@ -1,10 +1,12 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, beforeEach, afterAll } from "bun:test";
 import {
   extractThinkingTier,
   hasThinkingTierSuffix,
   isGemini3WithTierSuffix,
+  isZeroCostModel,
   normalizeReasoningEffort,
   supportsThinking,
+  ZERO_COST_MODELS,
 } from "../model-capabilities";
 
 describe("model-capabilities", () => {
@@ -143,6 +145,38 @@ describe("model-capabilities", () => {
         expect(normalizeReasoningEffort("unknown-model", "minimal")).toBeUndefined();
         expect(normalizeReasoningEffort("unknown-model", "xhigh")).toBeUndefined();
       });
+    });
+  });
+
+  describe("isZeroCostModel", () => {
+    // Save original state
+    const originalModels = [...ZERO_COST_MODELS];
+
+    beforeEach(() => {
+      ZERO_COST_MODELS.length = 0;
+    });
+
+    afterAll(() => {
+      // Restore original state
+      ZERO_COST_MODELS.length = 0;
+      ZERO_COST_MODELS.push(...originalModels);
+    });
+
+    it("should return false for non-zero cost models", () => {
+      expect(isZeroCostModel("gpt-4")).toBe(false);
+      expect(isZeroCostModel("claude-3")).toBe(false);
+    });
+
+    it("should return true for zero cost models", () => {
+      ZERO_COST_MODELS.push("internal-model-free");
+      expect(isZeroCostModel("internal-model-free")).toBe(true);
+    });
+
+    it("should handle multiple zero cost models", () => {
+      ZERO_COST_MODELS.push("model-a", "model-b");
+      expect(isZeroCostModel("model-a")).toBe(true);
+      expect(isZeroCostModel("model-b")).toBe(true);
+      expect(isZeroCostModel("model-c")).toBe(false);
     });
   });
 });

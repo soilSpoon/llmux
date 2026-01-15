@@ -207,8 +207,10 @@ export {
   extractThinkingTier,
   hasThinkingTierSuffix,
   isGemini3WithTierSuffix,
+  isZeroCostModel,
   normalizeReasoningEffort,
   supportsThinking,
+  ZERO_COST_MODELS,
 } from './util/model-capabilities'
 export { SSEParser } from './util/sse-parser'
 // Utilities

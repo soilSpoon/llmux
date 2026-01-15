@@ -181,3 +181,19 @@ export function normalizeReasoningEffort(
   // Fall back to model default
   return config.defaultEffort
 }
+
+/**
+ * List of zero-cost models (e.g. internal or free tier models).
+ * These models are exempt from budget checks.
+ */
+export const ZERO_COST_MODELS: string[] = []
+
+/**
+ * Check if a model is zero-cost.
+ *
+ * @param modelName - The model name to check
+ * @returns true if the model is zero-cost
+ */
+export function isZeroCostModel(modelName: string): boolean {
+  return ZERO_COST_MODELS.includes(modelName)
+}

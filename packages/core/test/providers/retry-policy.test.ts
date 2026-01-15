@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, beforeEach, afterAll } from 'bun:test'
 import { getRetryPolicy } from '../../src/providers/retry-policy'
 import type { RetryPolicy } from '../../src/providers/retry-policy'
+import { ZERO_COST_MODELS } from '../../src/util/model-capabilities'
 
 describe('retry-policy', () => {
   describe('getRetryPolicy', () => {
@@ -62,6 +63,45 @@ describe('retry-policy', () => {
       }
       expect(policy.maxAttempts).toBe(5)
       expect(policy.budgetCheckRequired).toBe(false)
+    })
+  })
+
+  describe('zero-cost model integration', () => {
+    const originalModels = [...ZERO_COST_MODELS]
+
+    beforeEach(() => {
+      ZERO_COST_MODELS.length = 0
+    })
+
+    afterAll(() => {
+      ZERO_COST_MODELS.length = 0
+      ZERO_COST_MODELS.push(...originalModels)
+    })
+
+    it('should set budgetCheckRequired to false for zero-cost models', () => {
+      ZERO_COST_MODELS.push('free-tier-model')
+      const policy = getRetryPolicy('openai', 'free-tier-model')
+      expect(policy.maxAttempts).toBe(3)
+      expect(policy.budgetCheckRequired).toBe(false)
+    })
+
+    it('should keep budgetCheckRequired true for non-zero-cost models', () => {
+      ZERO_COST_MODELS.push('free-tier-model')
+      const policy = getRetryPolicy('openai', 'gpt-4')
+      expect(policy.budgetCheckRequired).toBe(true)
+    })
+
+    it('should work with any provider', () => {
+      ZERO_COST_MODELS.push('internal-model')
+      expect(getRetryPolicy('openai', 'internal-model').budgetCheckRequired).toBe(false)
+      expect(getRetryPolicy('anthropic', 'internal-model').budgetCheckRequired).toBe(false)
+      expect(getRetryPolicy('gemini', 'internal-model').budgetCheckRequired).toBe(false)
+    })
+
+    it('should keep budgetCheckRequired true when no model is provided', () => {
+      ZERO_COST_MODELS.push('free-model')
+      const policy = getRetryPolicy('openai')
+      expect(policy.budgetCheckRequired).toBe(true)
     })
   })
 })

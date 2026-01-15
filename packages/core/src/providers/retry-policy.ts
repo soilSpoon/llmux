@@ -1,4 +1,5 @@
 import type { ProviderName } from '../types/providers'
+import { isZeroCostModel } from '../util/model-capabilities'
 
 /**
  * Retry policy configuration
@@ -33,10 +34,16 @@ const DEFAULT_RETRY_POLICY: RetryPolicy = {
  */
 export function getRetryPolicy(
   _provider: ProviderName,
-  _model?: string,
+  model?: string,
   _deploymentId?: string
 ): RetryPolicy {
-  // Default policy for all providers for now
-  // This can be extended with provider/model specific logic in the future
-  return { ...DEFAULT_RETRY_POLICY }
+  // Start with default policy
+  const policy = { ...DEFAULT_RETRY_POLICY }
+
+  // Zero-cost models don't need budget checks
+  if (model && isZeroCostModel(model)) {
+    policy.budgetCheckRequired = false
+  }
+
+  return policy
 }
