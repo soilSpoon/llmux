@@ -27,7 +27,8 @@ export function isGemini3Model(model: string): boolean {
 }
 
 export function isThinkingModel(model: string): boolean {
-  return model.toLowerCase().includes('thinking')
+  const m = model.toLowerCase()
+  return m.includes('thinking') || m.includes('gemini-3')
 }
 
 /**

@@ -139,6 +139,46 @@ export function transformRequest(request: UnifiedRequest, model?: string): Anthr
     result.stop_sequences = request.config.stopSequences
   }
 
+  // Handle response_format
+  if (request.config?.responseFormat) {
+    const format = request.config.responseFormat
+    if (format.type === 'json_object') {
+      // Force tool use to guarantee JSON output
+      // Note: Anthropic doesn't have a native "JSON mode" like OpenAI,
+      // so we use tool enforcement if strict JSON is required.
+      // However, for generic "json_object" mode, we usually just prompt engineering.
+      // But if user asks for specific schema via json_schema, we MUST use tool use.
+    } else if (format.type === 'json_schema' && 'json_schema' in format && format.json_schema) {
+      // Structured output via tool use enforcement
+      const jsonSchema = format.json_schema as {
+        name: string
+        strict?: boolean
+        schema?: Record<string, unknown>
+        description?: string
+      }
+      const schema = jsonSchema.schema as Record<string, unknown>
+      const name = jsonSchema.name || 'print_json'
+      const description = jsonSchema.description || 'Print JSON response'
+
+      if (schema) {
+        // Add a dedicated tool for structure enforcement
+        if (!result.tools) result.tools = []
+        result.tools.push({
+          name,
+          description,
+          input_schema: {
+            type: 'object',
+            properties: schema.properties as Record<string, unknown>,
+            required: schema.required as string[],
+          },
+        })
+
+        // Force use of this tool
+        result.tool_choice = { type: 'tool', name }
+      }
+    }
+  }
+
   // Add thinking config
   applyThinkingConfigLocal(request, result)
 

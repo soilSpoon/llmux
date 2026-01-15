@@ -154,6 +154,8 @@ export interface GeminiGenerationConfig {
   frequencyPenalty?: number
   responseMimeType?: 'text/plain' | 'application/json'
   responseSchema?: GeminiSchema
+  // biome-ignore lint/suspicious/noExplicitAny: Allow unified response format for discriminated union matching
+  responseFormat?: any
   seed?: number
   responseLogprobs?: boolean
   logprobs?: number

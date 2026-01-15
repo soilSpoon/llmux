@@ -53,7 +53,7 @@ describe('OpenAI Chat Config', () => {
 
       const config = parseConfig(request)
 
-      expect(config.responseFormat).toBe('json')
+      expect(config.responseFormat).toEqual({ type: 'json_object' })
     })
 
     it('parses array of stop sequences', () => {

@@ -204,12 +204,31 @@ export function transformRequest(
       result.parallel_tool_calls = request.config.parallelToolCalls
     }
     if (request.config.responseFormat) {
-      if (request.config.responseFormat === 'json') {
+      // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
+      const format = request.config.responseFormat as any
+      if (format === 'json') {
         result.response_format = { type: 'json_object' }
       } else if (typeof request.config.responseFormat === 'object') {
         const format = request.config.responseFormat
-        if ('type' in format && (format.type === 'text' || format.type === 'json_object')) {
-          result.response_format = { type: format.type }
+        if ('type' in format) {
+          if (format.type === 'text' || format.type === 'json_object') {
+            result.response_format = { type: format.type }
+          } else if (format.type === 'json_schema' && 'json_schema' in format) {
+            // Pass through JSON schema
+            result.response_format = format as unknown as {
+              type: 'json_schema'
+              json_schema: {
+                name: string
+                strict?: boolean
+                schema?: Record<string, unknown>
+                description?: string
+              }
+            }
+          }
+        } else {
+          // Fallback for Record<string, unknown>
+          // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
+          result.response_format = format as any
         }
       }
     }

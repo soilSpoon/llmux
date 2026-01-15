@@ -587,17 +587,43 @@ function transformGenerationConfig(
     if (config.stopSequences !== undefined) {
       result.stopSequences = config.stopSequences
     }
+    if (config.responseFormat !== undefined) {
+      // Handle response_format
+      if (
+        config.responseFormat.type === 'json_object' ||
+        (config.responseFormat.type === 'json_schema' && !config.responseFormat.json_schema)
+      ) {
+        // Plain JSON mode
+        result.responseMimeType = 'application/json'
+      } else if (
+        config.responseFormat.type === 'json_schema' &&
+        'json_schema' in config.responseFormat &&
+        config.responseFormat.json_schema
+      ) {
+        // Structured output with schema
+        result.responseMimeType = 'application/json'
+        const jsonSchema = config.responseFormat.json_schema as {
+          name: string
+          strict?: boolean
+          schema?: Record<string, unknown>
+          description?: string
+        }
+        if (jsonSchema.schema) {
+          result.responseSchema = transformSchema(jsonSchema.schema as JSONSchema)
+        }
+      }
+    }
   }
 
   // Transform thinking config
-  if (thinking?.enabled) {
+  if (thinking) {
     // Detect Gemini 3+ models to use thinkingLevel instead of budget
     // Model names like: gemini-3.0-flash, gemini-3-pro, etc.
     // NOTE: -preview models (like gemini-3-pro-preview) often don't support thinkingLevel yet
     const isGemini3 = ctx?.model?.includes('gemini-3') && !ctx?.model?.includes('-preview')
 
     result.thinkingConfig = {
-      includeThoughts: thinking.includeThoughts ?? true,
+      includeThoughts: thinking.includeThoughts ?? thinking.enabled,
     }
 
     if (isGemini3) {

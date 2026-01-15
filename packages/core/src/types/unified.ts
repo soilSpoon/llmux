@@ -118,7 +118,21 @@ export interface GenerationConfig {
 
   // Extended OpenAI-compatible fields
   logprobs?: number | boolean
-  responseFormat?: 'json' | 'json_schema' | Record<string, unknown>
+  // Use a simplified union type to avoid circular dependency issues
+  responseFormat?:
+    | { type: 'text' }
+    | { type: 'json_object' }
+    | {
+        type: 'json_schema'
+        json_schema: {
+          name: string
+          strict?: boolean
+          schema?: Record<string, unknown>
+          description?: string
+        }
+      }
+    // Relaxed type to allow unknown properties during migration/expansion
+    | (Record<string, unknown> & { type?: string; json_schema?: unknown })
   serviceTier?: 'auto' | 'flex' | 'priority'
   parallelToolCalls?: boolean
   maxToolCalls?: number

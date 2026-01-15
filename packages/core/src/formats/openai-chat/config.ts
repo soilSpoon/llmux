@@ -30,12 +30,19 @@ export function parseConfig(request: OpenAIChatRequest): NonNullable<UnifiedRequ
   }
   if (request.response_format) {
     // Basic mapping - expand if needed for strictJsonSchema
-    config.responseFormat = request.response_format.type === 'json_object' ? 'json' : undefined
-    if (request.response_format.type === 'json_object') {
-      config.responseFormat = 'json'
-    } else if (request.response_format.type !== 'text') {
-      // Keep raw if it's complex schema
-      config.responseFormat = request.response_format
+    const format = request.response_format
+
+    // Explicit type checks to satisfy TypeScript discriminated unions
+    if (format.type === 'json_object') {
+      config.responseFormat = { type: 'json_object' }
+    } else if (format.type === 'text') {
+      config.responseFormat = { type: 'text' }
+    } else if (format.type === 'json_schema') {
+      config.responseFormat = format
+    } else {
+      // Fallback for unknown types (Record<string, unknown>)
+      // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
+      config.responseFormat = format as any
     }
   }
   if (request.service_tier) {

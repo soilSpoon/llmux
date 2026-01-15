@@ -27,6 +27,8 @@ export interface StreamContext extends StreamMetrics {
   targetModel: string
   originalModel: string
   finalModel: string
+  lastThinkingSignature?: string
+  lastThinkingText?: string
 }
 
 export interface StreamTransformerOptions {
@@ -171,21 +173,43 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
             // 누적 텍스트 업데이트 (파싱된 청크에서 텍스트 추출)
             const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
+            const filteredChunks = []
+
             for (const chunk of parsedChunks) {
-              if ((chunk.type === 'text-delta' || chunk.type === 'content') && chunk.delta?.text) {
-                streamContext.accumulatedText += chunk.delta.text
-              } else if (
+              // Deduplicate thinking chunks
+              if (
                 (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
-                chunk.delta?.thinking?.text
+                chunk.delta?.thinking
               ) {
-                streamContext.accumulatedThinking += chunk.delta.thinking.text
+                const thinking = chunk.delta.thinking
+                const signature = thinking.signature
+                const text = thinking.text
+
+                // If signature matches last one, check if text is duplicate
+                // Gemini 3 sometimes sends exact duplicates of thinking blocks
+                if (signature && signature === streamContext.lastThinkingSignature) {
+                  if (text === streamContext.lastThinkingText) {
+                    continue // Skip duplicate
+                  }
+                }
+
+                streamContext.lastThinkingSignature = signature
+                streamContext.lastThinkingText = text
+                streamContext.accumulatedThinking += text || ''
+              } else if (
+                (chunk.type === 'text-delta' || chunk.type === 'content') &&
+                chunk.delta?.text
+              ) {
+                streamContext.accumulatedText += chunk.delta.text
               }
+
+              filteredChunks.push(chunk)
             }
 
             // 2. Build: Unified StreamChunk -> Anthropic SSE
             // Note: streamingBuilder.build returns string[]
             // Use type assertion or check type if needed. But we defined it above.
-            for (const chunk of parsedChunks) {
+            for (const chunk of filteredChunks) {
               const builtEvents = streamingBuilder.build(chunk)
 
               for (const output of builtEvents) {
@@ -212,19 +236,40 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
             // 누적 텍스트 업데이트 (파싱된 청크에서 텍스트 추출)
             const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
+            const filteredChunks = []
+
             for (const chunk of parsedChunks) {
-              if ((chunk.type === 'text-delta' || chunk.type === 'content') && chunk.delta?.text) {
-                streamContext.accumulatedText += chunk.delta.text
-              } else if (
+              // Deduplicate thinking chunks
+              if (
                 (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
-                chunk.delta?.thinking?.text
+                chunk.delta?.thinking
               ) {
-                streamContext.accumulatedThinking += chunk.delta.thinking.text
+                const thinking = chunk.delta.thinking
+                const signature = thinking.signature
+                const text = thinking.text
+
+                // If signature matches last one, check if text is duplicate
+                if (signature && signature === streamContext.lastThinkingSignature) {
+                  if (text === streamContext.lastThinkingText) {
+                    continue // Skip duplicate
+                  }
+                }
+
+                streamContext.lastThinkingSignature = signature
+                streamContext.lastThinkingText = text
+                streamContext.accumulatedThinking += text || ''
+              } else if (
+                (chunk.type === 'text-delta' || chunk.type === 'content') &&
+                chunk.delta?.text
+              ) {
+                streamContext.accumulatedText += chunk.delta.text
               }
+
+              filteredChunks.push(chunk)
             }
 
             // 2. Build: Unified StreamChunk → Target format SSE
-            const built = streamingPipeline.build(parsedChunks)
+            const built = streamingPipeline.build(filteredChunks)
 
             if (!built) {
               continue
@@ -304,6 +349,18 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
                   chunk.delta?.thinking?.text
                 ) {
+                  const thinking = chunk.delta.thinking
+                  const signature = thinking.signature
+                  const text = thinking.text
+
+                  if (signature && signature === streamContext.lastThinkingSignature) {
+                    if (text === streamContext.lastThinkingText) {
+                      continue // Skip duplicate
+                    }
+                  }
+
+                  streamContext.lastThinkingSignature = signature
+                  streamContext.lastThinkingText = text
                   streamContext.accumulatedThinking += chunk.delta.thinking.text
                 }
 
@@ -322,8 +379,9 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 continue
               }
 
-              // 누적 텍스트 업데이트 (flush 단계에서도)
               const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
+              const filteredChunks = []
+
               for (const chunk of parsedChunks) {
                 if (
                   (chunk.type === 'text-delta' || chunk.type === 'content') &&
@@ -334,11 +392,25 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
                   chunk.delta?.thinking?.text
                 ) {
+                  const thinking = chunk.delta.thinking
+                  const signature = thinking.signature
+                  const text = thinking.text
+
+                  if (signature && signature === streamContext.lastThinkingSignature) {
+                    if (text === streamContext.lastThinkingText) {
+                      continue // Skip duplicate
+                    }
+                  }
+
+                  streamContext.lastThinkingSignature = signature
+                  streamContext.lastThinkingText = text
                   streamContext.accumulatedThinking += chunk.delta.thinking.text
                 }
+
+                filteredChunks.push(chunk)
               }
 
-              const built = streamingPipeline.build(parsedChunks)
+              const built = streamingPipeline.build(filteredChunks)
 
               if (!built) {
                 continue

@@ -78,8 +78,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
   // Handle thinking config mapping
   let thinkingEnabled = false
-  if (request.thinking?.enabled) {
-    thinkingEnabled = true
+  if (request.thinking) {
+    thinkingEnabled = request.thinking.enabled
     // Ensure generationConfig exists
     if (!innerRequest.generationConfig) {
       innerRequest.generationConfig = {}
@@ -94,12 +94,12 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
       }
 
       genConfig.thinkingConfig = {
-        include_thoughts: request.thinking.includeThoughts,
+        include_thoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
         thinking_budget: request.thinking.budget,
       } as ClaudeThinkingConfig
     } else if (model.toLowerCase().includes('gemini')) {
       genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts,
+        includeThoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
         thinkingBudget: request.thinking.budget,
       } as GeminiThinkingConfig
     }

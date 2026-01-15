@@ -1,0 +1,52 @@
+{
+  "project": "llmux",
+  "branchName": "ralph/external-library-analysis-improvements",
+  "description": "External Library Analysis Improvements - Structured Output, Auth Hardening, and Stream Safety",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Native \"Structured Output\" Support",
+      "description": "As a developer, I want to request JSON-structured responses from Google and Anthropic models using a standardized response_format parameter so that I can reliably extract data without parsing raw text.",
+      "acceptanceCriteria": [
+        "@llmux/core transforms response_format: { type: \"json_schema\", ... } into provider-specific parameters",
+        "Google: Maps to responseMimeType: \"application/json\" and responseSchema",
+        "Anthropic: Maps to tool use enforcement or native JSON mode (if available)",
+        "Validates schema structure before sending to provider",
+        "Typecheck passes",
+        "Verify with a test request requesting specific JSON schema output"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-002",
+      "title": "Google Antigravity Auth API Hardening",
+      "description": "As a system administrator, I want the system to handle potential Google API changes gracefully so that service interruption is minimized if endpoints or auth flows change.",
+      "acceptanceCriteria": [
+        "Add specific error handling for 404/403 errors in fetchAntigravityProjectID",
+        "Implement a configurable fallback URL mechanism for Antigravity auth endpoints",
+        "Add detailed logging for auth-related failures to aid rapid debugging",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-003",
+      "title": "Large Stream Memory Protection (Soft Limits)",
+      "description": "As an operator, I want the system to stop accumulating logs or cache for extremely large streams so that the server doesn't crash with OOM errors during infinite loops or massive generations.",
+      "acceptanceCriteria": [
+        "Define a configurable MAX_STREAM_BUFFER_SIZE (default ~100MB)",
+        "In stream-transformer.ts, stop appending to fullResponse and accumulatedText once limit is reached",
+        "Log a warning when the limit is hit (\"Stream buffer limit reached, truncation enabled\")",
+        "Ensure the actual stream to the client continues uninterrupted (only internal buffering stops)",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": ""
+    }
+  ]
+}

@@ -37,7 +37,17 @@ export interface OpenAIChatRequest {
   top_logprobs?: number
   n?: number
   seed?: number
-  response_format?: { type: 'text' | 'json_object' }
+  response_format?:
+    | { type: 'text' | 'json_object' }
+    | {
+        type: 'json_schema'
+        json_schema: {
+          name: string
+          strict?: boolean
+          schema?: Record<string, unknown>
+          description?: string
+        }
+      }
   service_tier?: string
   user?: string
 
