@@ -175,8 +175,8 @@ describe("Antigravity Request Transformations", () => {
             contents: [{ role: "user", parts: [{ text: "Hello" }] }],
             generationConfig: {
               thinkingConfig: {
-                include_thoughts: true,
-                thinking_budget: 16384,
+                includeThoughts: true,
+                thinkingBudget: 16384,
               },
             },
           },

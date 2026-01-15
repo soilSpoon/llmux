@@ -15,6 +15,7 @@ import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import {
+  convertToWireFormat,
   createInnerRequest,
   ensureToolConfig,
   extractMetadata,
@@ -155,6 +156,9 @@ export class AntigravityProvider extends BaseProvider {
     ensureToolConfig(innerRequest, model)
     normalizeGenerationConfig(innerRequest, model)
 
+    // Convert to snake_case wire format at the boundary
+    const wireRequest = convertToWireFormat(innerRequest)
+
     // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
     // Fallback values are used if metadata is missing entirely.
     return {
@@ -164,7 +168,7 @@ export class AntigravityProvider extends BaseProvider {
       userAgent: 'antigravity',
       requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
       userRole: request.userRole,
-      request: innerRequest,
+      request: wireRequest,
       metadata: extractMetadata(request.metadata),
     }
   }

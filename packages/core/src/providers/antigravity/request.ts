@@ -48,13 +48,13 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
   // Handle thinking config parsing
   const genConfig = request.request.generationConfig
   if (genConfig?.thinkingConfig) {
-    const geminiThinking = genConfig.thinkingConfig as GeminiThinkingConfig
-    const claudeThinking = genConfig.thinkingConfig as ClaudeThinkingConfig
+    // Both are now camelCase in internal representation
+    const thinking = genConfig.thinkingConfig
 
     unified.thinking = {
       enabled: true,
-      budget: geminiThinking.thinkingBudget ?? claudeThinking.thinking_budget,
-      includeThoughts: geminiThinking.includeThoughts ?? claudeThinking.include_thoughts,
+      budget: thinking.thinkingBudget,
+      includeThoughts: thinking.includeThoughts,
     }
   }
 
@@ -96,8 +96,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
       }
 
       genConfig.thinkingConfig = {
-        include_thoughts: request.thinking.includeThoughts,
-        thinking_budget: request.thinking.budget,
+        includeThoughts: request.thinking.includeThoughts,
+        thinkingBudget: request.thinking.budget,
       } as ClaudeThinkingConfig
     } else if (model.toLowerCase().includes('gemini')) {
       genConfig.thinkingConfig = {
