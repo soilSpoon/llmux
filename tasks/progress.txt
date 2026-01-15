@@ -4,6 +4,7 @@
 - Thinking logic in `transform-pipeline.ts` uses `isThinkingEnabled === false` (explicit disable) rather than `!== true`
 - Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
 - Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
+- Use `convertKeysDeep()` from `@llmux/core` for recursive key transformation at provider boundaries
 
 ## Current Status
 - Project: llmux
@@ -39,4 +40,20 @@ Thread: http://100.64.0.2:8743/threads/T-019bc3f1-6efa-7199-b22f-ed31e1ace795
   - The PRD mentioned removing forced `budget: 1024` and `includeThoughts: true`, but these are default fallbacks in `thinking.ts`, not forced settings
   - The actual forced behavior was in the condition check: `!== true` meant undefined was treated as disabled
   - Changing to `=== false` means only explicit disable will disable thinking, respecting user intent
+---
+
+## [2026-01-16] - US-003
+Thread: http://100.64.0.2:8743/threads/T-019bc3f5-f705-7318-a07e-5b89c7056573
+- Implemented `convertKeysDeep<T>()` function in `@llmux/core/src/utils/casing.ts`
+- Added `KeyConverter` type and `ConvertKeysDeepOptions` interface
+- Exported from `@llmux/core` index
+- Added comprehensive unit tests (10 test cases)
+- Files changed:
+  - packages/core/src/utils/casing.ts (modified)
+  - packages/core/src/utils/index.ts (modified)
+  - packages/core/test/utils/casing.test.ts (modified)
+- **Learnings for future iterations:**
+  - TypeScript type inference with `toEqual` is strict - use `as unknown` when asserting converted keys
+  - `preserveKeys` only preserves the key name, not its nested values (values are still recursively converted)
+  - The function handles null, undefined, primitives, arrays, and nested objects correctly
 ---
