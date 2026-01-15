@@ -1,7 +1,14 @@
-import { getProvider, type ProviderName, type UpstreamPreparationStrategy } from '@llmux/core'
+import {
+  computeThinkingPolicy,
+  getProvider,
+  type ProviderName,
+  type ThinkingPolicy,
+  type UpstreamPreparationStrategy,
+} from '@llmux/core'
 import type { SignatureStore } from '../stores'
 import { AllCooldownError } from './error-utils'
 import { prepareRequestContext, type RequestContext, type RetryState } from './request-handler'
+import { getThinkingStrategy } from './thinking-utils'
 import type { ProxyOptions } from './types'
 import { resolveGenericContext, resolveSpecialProviderContext } from './upstream/provider-context'
 import { executeTransformPipeline } from './upstream/transform-pipeline'
@@ -22,6 +29,7 @@ export interface UpstreamRequestMeta {
   originalModel: string
   currentProjectId?: string
   isThinkingEnabled?: boolean
+  thinkingPolicy?: ThinkingPolicy
   isClaudeFresh?: boolean
   streaming: boolean
 }
@@ -69,6 +77,26 @@ export async function buildUpstreamRequest(
 
   const { isThinkingEnabled, currentModel, effectiveProvider, originalModel } = ctx
 
+  // Compute Thinking Policy
+  const typedBody = body as { thinking?: { budget?: number }; include_thoughts?: boolean }
+  const clientThinking = {
+    enabled: isThinkingEnabled,
+    budget: typedBody.thinking?.budget,
+    includeThoughts: typedBody.include_thoughts,
+  }
+
+  const isClaudeFreshStrategy = getThinkingStrategy(currentModel) === 'claude-fresh'
+
+  const thinkingPolicy = computeThinkingPolicy({
+    model: currentModel || '',
+    mode,
+    clientThinking,
+    optionsThinking: options.thinking,
+    isClaudeFresh: isClaudeFreshStrategy,
+    sourceFormat: options.sourceFormat,
+    targetProvider: effectiveProvider,
+  })
+
   let currentProjectId: string | undefined
   let headers: Record<string, string> = {}
   let endpoint: string | undefined
@@ -95,6 +123,7 @@ export async function buildUpstreamRequest(
         reqId,
         provider: effectiveProvider,
         retryEndpointIndex: retryState.antigravityEndpointIndex,
+        thinkingPolicy,
       })
 
       retryState.accountIndex = context.accountIndex
@@ -182,6 +211,7 @@ export async function buildUpstreamRequest(
         originalModel,
         currentProjectId,
         isThinkingEnabled,
+        thinkingPolicy,
         isClaudeFresh,
         streaming: mode === 'streaming',
       },
