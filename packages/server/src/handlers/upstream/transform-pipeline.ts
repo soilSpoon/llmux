@@ -46,8 +46,8 @@ export async function executeTransformPipeline(
     mode,
   } = input
 
-  // 1. Thinking Handling
-  if (mode === 'streaming' && isThinkingEnabled !== true) {
+  // 1. Thinking Handling - Only remove when explicitly disabled
+  if (mode === 'streaming' && isThinkingEnabled === false) {
     removeThinkingFromBody(body)
   }
 
@@ -74,9 +74,13 @@ export async function executeTransformPipeline(
 
   const unifiedRequest = sourceProvider.parse(body)
 
-  // Apply Thinking Override
-  if (isThinkingEnabled !== true || isClaudeFresh) {
-    unifiedRequest.thinking = { enabled: false }
+  // Apply Thinking Override - Only disable when explicitly disabled or Claude Fresh
+  if (isThinkingEnabled === false || isClaudeFresh) {
+    if (unifiedRequest.thinking) {
+      unifiedRequest.thinking.enabled = false
+    } else {
+      unifiedRequest.thinking = { enabled: false }
+    }
   }
 
   // Apply Prompt Caching
