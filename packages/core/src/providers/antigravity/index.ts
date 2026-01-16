@@ -99,6 +99,10 @@ export class AntigravityProvider extends BaseProvider {
       geminiRequest = request as Record<string, unknown>
     }
 
+    // Normalize snake_case keys to camelCase for Gemini parser compatibility
+    // We only target specific structural keys to avoid corrupting data/schema keys
+    this.normalizeRequestKeys(geminiRequest)
+
     // Antigravity's inner request is exactly GeminiRequest
     const unified = getFormat('google-gemini').parseRequest(
       geminiRequest as unknown as GeminiRequest
@@ -131,6 +135,60 @@ export class AntigravityProvider extends BaseProvider {
 
     unified.metadata = metadata
     return unified
+  }
+
+  /**
+   * Normalizes snake_case keys in Gemini request to camelCase in-place
+   */
+  private normalizeRequestKeys(request: Record<string, unknown>): void {
+    const mapKey = (oldKey: string, newKey: string, target: Record<string, unknown>) => {
+      if (oldKey in target && !(newKey in target)) {
+        target[newKey] = target[oldKey]
+        delete target[oldKey]
+      }
+    }
+
+    // Top-level keys
+    mapKey('system_instruction', 'systemInstruction', request)
+    mapKey('generation_config', 'generationConfig', request)
+    mapKey('tool_config', 'toolConfig', request)
+    mapKey('safety_settings', 'safetySettings', request)
+
+    // generationConfig
+    if (request.generationConfig && typeof request.generationConfig === 'object') {
+      const gc = request.generationConfig as Record<string, unknown>
+      mapKey('stop_sequences', 'stopSequences', gc)
+      mapKey('max_output_tokens', 'maxOutputTokens', gc)
+      mapKey('response_mime_type', 'responseMimeType', gc)
+      mapKey('response_schema', 'responseSchema', gc)
+      mapKey('thinking_config', 'thinkingConfig', gc)
+
+      if (gc.thinkingConfig && typeof gc.thinkingConfig === 'object') {
+        const tc = gc.thinkingConfig as Record<string, unknown>
+        mapKey('include_thoughts', 'includeThoughts', tc)
+        mapKey('thinking_budget', 'thinkingBudget', tc)
+      }
+    }
+
+    // tools
+    if (Array.isArray(request.tools)) {
+      for (const tool of request.tools) {
+        if (tool && typeof tool === 'object') {
+          mapKey('function_declarations', 'functionDeclarations', tool as Record<string, unknown>)
+        }
+      }
+    }
+
+    // toolConfig
+    if (request.toolConfig && typeof request.toolConfig === 'object') {
+      const tc = request.toolConfig as Record<string, unknown>
+      mapKey('function_calling_config', 'functionCallingConfig', tc)
+
+      if (tc.functionCallingConfig && typeof tc.functionCallingConfig === 'object') {
+        const fcc = tc.functionCallingConfig as Record<string, unknown>
+        mapKey('allowed_function_names', 'allowedFunctionNames', fcc)
+      }
+    }
   }
 
   /**

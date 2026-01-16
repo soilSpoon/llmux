@@ -1,4 +1,5 @@
 import type { ResponseMetadata, StreamChunk } from '../../types/unified'
+import { normalizeStreamingOrder } from '../../util/stream-normalizer'
 import type { ResponsesOutputItem, ResponsesResponse } from './types'
 
 /**
@@ -35,6 +36,12 @@ export class OpenAIResponsesStreamingBuilder {
     metadata: undefined as ResponseMetadata | undefined,
     // Sequence number tracking
     nextSequenceNumber: 0,
+    // Stream normalization state
+    normalization: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    },
   }
 
   constructor(model?: string) {
@@ -59,6 +66,19 @@ export class OpenAIResponsesStreamingBuilder {
    * Build OpenAI Responses SSE events from a unified StreamChunk
    */
   build(chunk: StreamChunk): string[] {
+    const results: string[] = []
+
+    // Normalize chunks
+    const normalizedChunks = normalizeStreamingOrder(chunk, this.state.normalization)
+
+    for (const normalizedChunk of normalizedChunks) {
+      results.push(...this.processChunk(normalizedChunk))
+    }
+
+    return results
+  }
+
+  private processChunk(chunk: StreamChunk): string[] {
     const results: string[] = []
 
     // Handle metadata updates from upstream

@@ -1,5 +1,7 @@
 import type { StreamChunk } from '../../types/unified'
 
+import { normalizeStreamingOrder } from '../../util/stream-normalizer'
+
 /**
  * Gemini Streaming Builder
  *
@@ -13,11 +15,12 @@ export class GeminiStreamingBuilder {
     finishReason: null as string | null,
     usage: null as { inputTokens: number; outputTokens: number } | null,
     currentToolCallPart: null as Record<string, unknown> | null,
-    model: 'unknown',
-  }
-
-  constructor(model?: string) {
-    this.state.model = model ?? 'unknown'
+    // Stream normalization state
+    normalization: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    },
   }
 
   /**
@@ -28,6 +31,18 @@ export class GeminiStreamingBuilder {
       return []
     }
 
+    // Normalize chunks
+    const normalizedChunks = normalizeStreamingOrder(chunk, this.state.normalization)
+    const results: string[] = []
+
+    for (const normalizedChunk of normalizedChunks) {
+      results.push(...this.processChunk(normalizedChunk))
+    }
+
+    return results
+  }
+
+  private processChunk(chunk: StreamChunk): string[] {
     const results: string[] = []
 
     // Mark as started
@@ -115,10 +130,6 @@ export class GeminiStreamingBuilder {
         ],
       }
 
-      if (this.state.model && this.state.model !== 'unknown') {
-        geminiChunk.modelVersion = this.state.model
-      }
-
       results.push(`data: ${JSON.stringify(geminiChunk)}\n\n`)
 
       // Clear accumulated parts after emission (streaming mode)
@@ -146,10 +157,6 @@ export class GeminiStreamingBuilder {
             finishReason: this.state.finishReason || 'STOP',
           },
         ],
-      }
-
-      if (this.state.model && this.state.model !== 'unknown') {
-        finalChunk.modelVersion = this.state.model
       }
 
       if (this.state.usage) {

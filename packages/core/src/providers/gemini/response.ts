@@ -117,7 +117,8 @@ export function transformResponse(response: UnifiedResponse): GeminiResponse {
 // =============================================================================
 
 function parseContentPart(part: GeminiPart): ContentPart {
-  const thoughtSignature = part.thoughtSignature
+  // Use thoughtSignature if available, otherwise fallback to thought_signature
+  const thoughtSignature = part.thoughtSignature ?? part.thought_signature
 
   // Text content
   if (part.text !== undefined) {
@@ -162,9 +163,11 @@ function parseContentPart(part: GeminiPart): ContentPart {
 }
 
 function parseThinkingPart(part: GeminiPart): ThinkingBlock {
+  // Use thoughtSignature if available, otherwise fallback to thought_signature
+  const signature = part.thoughtSignature ?? part.thought_signature
   return {
     text: part.text ?? '',
-    signature: part.thoughtSignature,
+    signature,
   }
 }
 
@@ -310,10 +313,14 @@ export function extractSignatureFromResponse(response: GeminiResponse): string |
   if (!candidate?.content?.parts) return null
 
   // Prefer parts with thoughtSignature (regardless of thought property)
-  const partWithSignature = candidate.content.parts.find((part) => part.thoughtSignature)
-  if (partWithSignature?.thoughtSignature) return partWithSignature.thoughtSignature
+  const partWithSignature = candidate.content.parts.find(
+    (part) => part.thoughtSignature || part.thought_signature
+  )
+  if (partWithSignature) {
+    return partWithSignature.thoughtSignature ?? partWithSignature.thought_signature ?? null
+  }
 
   // Fallback to legacy thought property check
   const thinkingPart = candidate.content.parts.find((part) => part.thought === true)
-  return thinkingPart?.thoughtSignature ?? null
+  return thinkingPart?.thoughtSignature ?? thinkingPart?.thought_signature ?? null
 }

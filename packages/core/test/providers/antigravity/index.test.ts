@@ -298,7 +298,7 @@ describe("AntigravityProvider", () => {
       }
     });
 
-    it("should use snake_case thinking config for Claude models", () => {
+    it("should use camelCase thinking config for Claude models", () => {
       const request = createUnifiedRequest({
         messages: [createUnifiedMessage("user", "Hello")],
         thinking: { enabled: true, budget: 16384, includeThoughts: true },
@@ -307,10 +307,10 @@ describe("AntigravityProvider", () => {
 
       const result = provider.transform(request, 'claude-sonnet-4-5-thinking') as AntigravityRequest;
 
-      // Thinking config fields are now in snake_case as per google-gemini format
+      // Thinking config fields use camelCase (snake_case conversion was rolled back)
       const thinkingConfig = (result.request.generationConfig as any)?.thinkingConfig;
-      expect(thinkingConfig?.include_thoughts).toBe(true);
-      expect(thinkingConfig?.thinking_budget).toBe(16384);
+      expect(thinkingConfig?.includeThoughts).toBe(true);
+      expect(thinkingConfig?.thinkingBudget).toBe(16384);
     });
   });
 

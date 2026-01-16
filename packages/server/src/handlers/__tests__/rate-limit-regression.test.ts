@@ -16,7 +16,6 @@ describe('Rate Limit Regression Tests', () => {
     it('should expire hard limits when expiresAt has passed', () => {
       const now = Date.now()
       store.markLimit('provider', 'account', 'family', {
-        type: 'hard',
         expiresAt: now - 1000 // 1 second ago
       })
 
@@ -27,19 +26,16 @@ describe('Rate Limit Regression Tests', () => {
     it('should NOT expire hard limits when expiresAt is in the future', () => {
       const now = Date.now()
       store.markLimit('provider', 'account', 'family', {
-        type: 'hard',
         expiresAt: now + 10000 // 10 seconds in future
       })
 
       const limit = store.getLimit('provider', 'account', 'family')
       expect(limit).not.toBeNull()
-      expect(limit?.type).toBe('hard')
     })
 
     it('should NOT expire soft limits when expiresAt is in the future', () => {
       const now = Date.now()
       store.markLimit('provider', 'account', 'family', {
-        type: 'soft',
         expiresAt: now + 10000
       })
 

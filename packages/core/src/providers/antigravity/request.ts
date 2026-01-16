@@ -12,6 +12,8 @@ import {
   ensureToolConfig,
   extractMetadata,
   injectSystemInstruction,
+  isClaudeModel,
+  isThinkingModel,
   normalizeGenerationConfig,
   preprocessTools,
 } from './transform-utils'
@@ -46,13 +48,13 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
   // Handle thinking config parsing
   const genConfig = request.request.generationConfig
   if (genConfig?.thinkingConfig) {
-    const geminiThinking = genConfig.thinkingConfig as GeminiThinkingConfig
-    const claudeThinking = genConfig.thinkingConfig as ClaudeThinkingConfig
+    // Both are now camelCase in internal representation
+    const thinking = genConfig.thinkingConfig
 
     unified.thinking = {
       enabled: true,
-      budget: geminiThinking.thinkingBudget ?? claudeThinking.thinkingBudget,
-      includeThoughts: geminiThinking.includeThoughts ?? claudeThinking.includeThoughts,
+      budget: thinking.thinkingBudget,
+      includeThoughts: thinking.includeThoughts,
     }
   }
 
@@ -86,8 +88,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     }
     const genConfig = innerRequest.generationConfig
 
-    // Claude style snake_case for thinking models
-    if (model.toLowerCase().includes('thinking') || model.toLowerCase().includes('claude')) {
+    // Claude thinking models use camelCase config format
+    if (isClaudeModel(model) && isThinkingModel(model)) {
       // Min output tokens for Claude thinking
       if ((request.config?.maxTokens || 0) < 64000) {
         genConfig.maxOutputTokens = 64000
@@ -126,8 +128,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
       }
 
       genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
-        thinkingBudget: budget ?? 16000, // Default to 16k if undetermined
+        includeThoughts: request.thinking.includeThoughts,
+        thinkingBudget: request.thinking.budget,
       } as ClaudeThinkingConfig
     } else if (model.toLowerCase().includes('gemini')) {
       // Map reasoning_effort to thinkingLevel for Gemini 3

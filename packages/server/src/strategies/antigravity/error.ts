@@ -116,7 +116,7 @@ export class AntigravityErrorStrategy implements ErrorHandlingStrategy {
         { reqId, newEndpointIndex: retryState.antigravityEndpointIndex, reason },
         `${reason}, rotating endpoint`
       )
-      return { action: 'retry' }
+      return { action: 'retry', suppressIncrement: true }
     }
     return null
   }

@@ -4,6 +4,7 @@ import {
   getProvider,
   type MetadataInjectionStrategy,
   type ProviderName,
+  type ThinkingPolicy,
 } from '@llmux/core'
 import { buildCodexBody, type CodexBodyOptions, fixOpencodeZenBody } from '../../providers'
 import type { SignatureStore } from '../../stores'
@@ -21,7 +22,7 @@ export interface TransformPipelineInput {
   options: ProxyOptions
   reqId: string
   currentProjectId?: string
-  isThinkingEnabled?: boolean
+  thinkingPolicy?: ThinkingPolicy
   signatureStore: SignatureStore
   mode: 'streaming' | 'non-streaming' | 'count_tokens'
 }
@@ -41,13 +42,19 @@ export async function executeTransformPipeline(
     options,
     reqId,
     currentProjectId,
-    isThinkingEnabled,
+    thinkingPolicy,
     signatureStore,
     mode,
   } = input
 
   // 1. Thinking Handling
-  if (mode === 'streaming' && isThinkingEnabled !== true) {
+  // Use thinking policy if available, otherwise fallback to permissive behavior
+  // NOTE: isClaudeFresh is computed later, so we will combine them for the effective policy
+  const policyEnabled = thinkingPolicy?.enabled
+  const sendThinkingToUpstream = thinkingPolicy?.sendThinkingToUpstream
+
+  // Only remove when explicitly disabled by policy (and policy is present)
+  if (mode === 'streaming' && policyEnabled === false) {
     removeThinkingFromBody(body)
   }
 
@@ -75,8 +82,19 @@ export async function executeTransformPipeline(
   const unifiedRequest = sourceProvider.parse(body)
 
   // Apply Thinking Override
-  if (isThinkingEnabled !== true || isClaudeFresh) {
-    unifiedRequest.thinking = { enabled: false }
+  // Disable thinking if:
+  // 1. Policy explicitly disables it (policyEnabled === false)
+  // 2. We are in Claude Fresh mode (stripping signatures means we can't send thinking config securely/compatibly)
+  // 3. Policy says don't send to upstream (sendThinkingToUpstream === false)
+  const shouldDisableThinking =
+    policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false
+
+  if (shouldDisableThinking) {
+    if (unifiedRequest.thinking) {
+      unifiedRequest.thinking.enabled = false
+    } else {
+      unifiedRequest.thinking = { enabled: false }
+    }
   }
 
   // Apply Prompt Caching
@@ -147,7 +165,7 @@ export async function executeTransformPipeline(
     }
     transformedRequest = await buildCodexBody(codexOptions)
   } else if (effectiveProvider === 'opencode-zen') {
-    fixOpencodeZenBody(transformedRequest, { thinkingEnabled: isThinkingEnabled })
+    fixOpencodeZenBody(transformedRequest, { thinkingEnabled: policyEnabled })
   }
 
   return { transformedRequest, isClaudeFresh }

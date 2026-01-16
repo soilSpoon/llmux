@@ -1,5 +1,6 @@
 import type { ProviderName } from '../providers/base'
 import type { UnifiedRequest } from '../types/unified'
+import { normalizeReasoningEffort } from '../util/model-capabilities'
 
 /**
  * Apply thinking configuration to provider-specific request structures.
@@ -47,7 +48,18 @@ export function applyThinkingConfig<T extends object>(
   switch (provider) {
     case 'openai': {
       if (config.effort) {
-        target.reasoning_effort = config.effort
+        // Extract model name from unified request metadata
+        const model = unified.metadata?.model
+        if (model) {
+          // Normalize effort for model-specific constraints
+          const normalizedEffort = normalizeReasoningEffort(model, config.effort)
+          if (normalizedEffort !== undefined) {
+            target.reasoning_effort = normalizedEffort
+          }
+        } else {
+          // No model available, use original value
+          target.reasoning_effort = config.effort
+        }
       }
       if (config.includeThoughts) {
         const include = (target.include as string[]) || []

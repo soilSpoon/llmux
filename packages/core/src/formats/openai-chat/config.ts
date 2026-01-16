@@ -1,4 +1,5 @@
 import type { UnifiedRequest } from '../../types/unified'
+import { normalizeReasoningEffort } from '../../util/model-capabilities'
 import type { OpenAIChatRequest, OpenAIChatThinkingConfig } from './types'
 
 // =============================================================================
@@ -112,10 +113,11 @@ export function transformToGLMThinking(
 
 /**
  * Apply thinking config for OpenAI format (localized version, no external dependency)
+ * Normalizes reasoning effort for model-specific constraints.
  */
 export function applyThinkingConfig(
   unified: UnifiedRequest,
-  _model: string,
+  model: string,
   targetRequest: OpenAIChatRequest
 ): void {
   const config = unified.thinking
@@ -124,7 +126,18 @@ export function applyThinkingConfig(
   }
 
   if (config.effort) {
-    targetRequest.reasoning_effort = config.effort
+    // Normalize effort for model-specific constraints
+    const normalizedEffort = normalizeReasoningEffort(model, config.effort)
+    // OpenAI Chat only supports none/low/medium/high - filter out minimal/xhigh
+    if (
+      normalizedEffort !== undefined &&
+      (normalizedEffort === 'none' ||
+        normalizedEffort === 'low' ||
+        normalizedEffort === 'medium' ||
+        normalizedEffort === 'high')
+    ) {
+      targetRequest.reasoning_effort = normalizedEffort
+    }
   }
   if (config.includeThoughts) {
     // For OpenAI, include reasoning.encrypted_content in the include array

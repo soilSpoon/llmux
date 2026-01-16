@@ -6,14 +6,14 @@ import {
   type ProviderName,
 } from '@llmux/core'
 import { accountRotationManager } from './account-rotation'
-import { getModelFamily, isClaudeWeeklyLimit } from './family-rate-limiting'
+import { getModelFamily } from './family-rate-limiting'
 import type { ErrorHandlingContext, ErrorHandlingResult, RetryState } from './types'
 
 const logger = createLogger({ service: 'rate-limit-handler' })
 
-export const MAX_RETRY_ATTEMPTS = 20
+export const MAX_RETRY_ATTEMPTS = 40
 
-export function createRetryState(maxRetryAttempts: number = 20): RetryState {
+export function createRetryState(maxRetryAttempts: number = MAX_RETRY_ATTEMPTS): RetryState {
   return {
     attempt: 0,
     accountIndex: -1,
@@ -40,18 +40,18 @@ function computeRateLimitDelayMs(
     return 1
   }
 
-  const MAX_DELAY_MS = 30_000 // cap at 30 seconds
+  const MAX_DELAY_MS = 300_000 // cap at 5 minutes
 
   // If upstream gave us a Retry-After, respect it (with a cap)
   if (retryAfterMs !== undefined && retryAfterMs > 0) {
     return Math.min(retryAfterMs, MAX_DELAY_MS)
   }
 
-  const BASE_DELAY_MS = 1000
-  const attempt = Math.max(0, retryState.attempt ?? 0)
+  const BASE_DELAY_MS = 5000
+  const attemptIndex = Math.max(0, (retryState.attempt ?? 1) - 1)
 
-  // Exponential backoff: 1s, 2s, 4s, 8s, ... up to MAX_DELAY_MS
-  const delay = BASE_DELAY_MS * 2 ** attempt
+  // Exponential backoff: 5s, 10s, 20s, 40s, ... up to MAX_DELAY_MS
+  const delay = BASE_DELAY_MS * 2 ** attemptIndex
   return Math.min(delay, MAX_DELAY_MS)
 }
 
@@ -114,19 +114,21 @@ export async function handleUpstreamError(
 
   // Rate limit handling (Generic logic that applies after or instead of strategy)
   if (status === 429) {
-    const retryAfter = context.retryAfterMs !== undefined ? context.retryAfterMs : 30000
     const family = context.family || getModelFamily(model, provider)
-    const isClaudeWeekly =
-      provider === 'antigravity' && family === 'claude' && isClaudeWeeklyLimit(model)
+
+    // 1. Determine the effective duration for this rate limit
+    // Use explicit time from upstream if available, otherwise use exponential backoff
+    const backoffDelay = computeRateLimitDelayMs(retryState, undefined) || 5000
+    const effectiveRetryAfter =
+      context.retryAfterMs !== undefined ? context.retryAfterMs : backoffDelay
 
     // Construct detailed log data
     const logData: Record<string, unknown> = {
       reqId,
       status,
-      retryAfter,
+      retryAfter: effectiveRetryAfter,
       originalRetryAfter: context.retryAfterMs,
       family,
-      isClaudeWeekly,
       provider,
       model,
       accountIndex: retryState.accountIndex,
@@ -149,7 +151,7 @@ export async function handleUpstreamError(
     if (apiKey) {
       if (router) {
         // Notify router of rate limit to avoid immediate retry of the same model
-        router.handleRateLimit(model, retryAfter)
+        router.handleRateLimit(model, effectiveRetryAfter)
 
         const targetModel =
           context.originalModel && context.originalModel !== 'unknown'
@@ -169,7 +171,7 @@ export async function handleUpstreamError(
           logger.warn({ reqId, targetModel, err }, 'Failed to resolve fallback with API key')
         }
       }
-      return { action: 'retry', delay: computeRateLimitDelayMs(retryState, retryAfter) }
+      return { action: 'retry', delay: computeRateLimitDelayMs(retryState, effectiveRetryAfter) }
     }
 
     // Mark current as rate limited with explicit Hard/Soft type
@@ -184,9 +186,12 @@ export async function handleUpstreamError(
           provider,
           model,
           retryState.accountIndex,
-          retryAfter,
-          isClaudeWeekly ? 'hard' : 'soft',
-          isClaudeWeekly ? 'Claude Weekly Limit' : 'Transient 429'
+          effectiveRetryAfter,
+          effectiveRetryAfter > 24 * 3600 * 1000
+            ? 'Long-term Limit'
+            : effectiveRetryAfter > 3600_000
+              ? 'Hard Limit'
+              : 'Transient 429'
         )
         .catch((err) =>
           logger.debug({ err, provider, model }, 'Failed to mark rate limit (non-critical)')
@@ -220,7 +225,7 @@ export async function handleUpstreamError(
       // Router handling: Only mark the model as globally limited if ALL accounts are limited
       // OR if we are using a generic provider (index -1) where we can't rotate accounts
       if (router && model) {
-        router.handleRateLimit(model, retryAfter)
+        router.handleRateLimit(model, effectiveRetryAfter)
       }
 
       // 2. Try Router Smart Fallback
@@ -259,7 +264,7 @@ export async function handleUpstreamError(
       }
 
       // If all limited and no fallback found, return 429 to client
-      return { action: 'all-cooldown' }
+      return { action: 'all-cooldown', reason: context.errorText }
     }
 
     // Only attempt account rotation if we know which account failed (index != -1)
@@ -273,7 +278,7 @@ export async function handleUpstreamError(
     }
 
     // Fallback behavior: just retry with delay if nothing else works
-    return { action: 'retry', delay: computeRateLimitDelayMs(retryState, retryAfter) }
+    return { action: 'retry', delay: computeRateLimitDelayMs(retryState, effectiveRetryAfter) }
   }
 
   return { action: 'throw' }

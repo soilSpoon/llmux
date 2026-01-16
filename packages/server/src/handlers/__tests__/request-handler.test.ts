@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { prepareRequestContext } from '../request-handler'
+import { NonRetriableError } from '../error-utils'
 
 describe('prepareRequestContext', () => {
   it('should respect explicit target provider in options', async () => {
@@ -27,7 +28,8 @@ describe('prepareRequestContext', () => {
   it('should detect thinking from body', async () => {
     const ctx = await prepareRequestContext({
       body: { model: 'gpt-4', thinking: { type: 'enabled' } },
-      sourceFormat: 'openai-chat'
+      sourceFormat: 'openai-chat',
+      targetProvider: 'openai'
     })
     
     expect(ctx.isThinkingEnabled).toBe(true)
@@ -47,11 +49,11 @@ describe('prepareRequestContext', () => {
   })
 
   it('should return unknown if no provider found', async () => {
-    const ctx = await prepareRequestContext({
+    const promise = prepareRequestContext({
       body: { model: 'unknown-model' },
       sourceFormat: 'openai-chat'
     })
     
-    expect(ctx.effectiveProvider).toBe('unknown')
+    expect(promise).rejects.toThrow(NonRetriableError)
   })
 })

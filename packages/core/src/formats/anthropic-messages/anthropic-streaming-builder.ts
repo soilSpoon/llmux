@@ -2,6 +2,13 @@ import crypto from 'node:crypto'
 import type { StreamChunk } from '../../types/unified'
 import { formatSSE } from './streaming'
 
+interface ThinkingBlock {
+  text: string
+  signature?: string
+}
+
+import { normalizeStreamingOrder } from '../../util/stream-normalizer'
+
 /**
  * Anthropic Streaming Builder
  *
@@ -19,6 +26,13 @@ export class AnthropicStreamingBuilder {
     hasToolUseBlock: false, // Track if any tool_use block was emitted
     currentToolName: '', // Track current tool name to detect changes
     currentToolId: '', // Track current tool id to detect changes
+    currentThinkingBlocks: [] as ThinkingBlock[], // Track thinking blocks for message_start reset
+    // Stream normalization state
+    normalization: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    },
   }
 
   constructor(private model: string) {
@@ -33,17 +47,32 @@ export class AnthropicStreamingBuilder {
       return []
     }
 
+    // Normalize chunks (e.g., ensure thinking ends before text starts)
+    const normalizedChunks = normalizeStreamingOrder(chunk, this.state.normalization)
+    const results: string[] = []
+
+    for (const normalizedChunk of normalizedChunks) {
+      results.push(...this.processChunk(normalizedChunk))
+    }
+
+    return results
+  }
+
+  private processChunk(chunk: StreamChunk): string[] {
     const results: string[] = []
 
     // 1. Auto-emit message_start on first chunk
     if (this.state.phase === 'idle') {
+      // Reset thinking state on message start
+      this.state.currentThinkingBlocks = []
+
       const msgStart = {
         type: 'message_start',
         message: {
           id: this.state.messageId,
           type: 'message',
           role: 'assistant',
-          content: [],
+          content: [], // Should only contain currentThinkingBlocks if we had any (but we reset it)
           model: this.model,
           stop_reason: null,
           stop_sequence: null,
@@ -52,6 +81,24 @@ export class AnthropicStreamingBuilder {
       }
       results.push(formatSSE('message_start', msgStart))
       this.state.phase = 'message_started'
+    }
+
+    // Accumulate thinking content
+    if (
+      (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
+      chunk.delta?.thinking?.text
+    ) {
+      if (this.state.currentThinkingBlocks.length === 0) {
+        this.state.currentThinkingBlocks.push({ text: '' })
+      }
+      const currentBlock =
+        this.state.currentThinkingBlocks[this.state.currentThinkingBlocks.length - 1]
+
+      if (currentBlock) {
+        currentBlock.text += chunk.delta.thinking.text
+      }
+    } else if (chunk.type === 'thinking-start') {
+      this.state.currentThinkingBlocks.push({ text: '' })
     }
 
     // Handle finish/done chunks

@@ -3,6 +3,7 @@ import { createLogger, isValidProviderName } from '@llmux/core'
 import type { ModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
 import type { Router } from '../routing'
+import { NonRetriableError } from './error-utils'
 import { applyModelMappingV2 } from './model-mapping'
 
 const logger = createLogger({ service: 'request-handler' })
@@ -128,10 +129,17 @@ export async function prepareRequestContext(
     effectiveProvider = optionsDefaultProvider
   }
 
+  if (!effectiveProvider || effectiveProvider === 'unknown') {
+    throw new NonRetriableError(
+      `Could not resolve provider for model "${currentModel}" (original: "${originalModel}"). Please check your routing configuration or provide a default provider.`,
+      400
+    )
+  }
+
   return {
     originalModel,
     currentModel,
-    effectiveProvider: effectiveProvider ?? ('unknown' as ProviderName),
+    effectiveProvider,
     isThinkingEnabled,
     sourceFormat,
   }
