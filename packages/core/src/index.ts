@@ -222,6 +222,11 @@ export {
 export { SSEParser } from './util/sse-parser'
 export { normalizeStreamingOrder, type StreamingState } from './util/stream-normalizer'
 export { stripThinkingFromMessages } from './util/thinking-utils'
+export {
+  calculateGeminiTotalInputTokens,
+  estimateGeminiImageTokens,
+  type ImageData as GeminiImageData,
+} from './util/token-estimation'
 // Utilities
 export {
   stripSignaturesFromContents,

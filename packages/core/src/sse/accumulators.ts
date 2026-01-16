@@ -1,3 +1,6 @@
+import type { GeminiContent } from '../providers/gemini/types'
+import { calculateGeminiTotalInputTokens } from '../util/token-estimation'
+
 // Gemini Response Types
 export interface GeminiResponseShape {
   candidates?: Array<{
@@ -72,9 +75,13 @@ interface Chunk {
 
 /**
  * Accumulates a Gemini-style SSE stream into a single JSON response object.
+ *
+ * @param reader Readable stream reader
+ * @param inputContents Optional input contents for calculating image tokens (US-014)
  */
 export async function accumulateGeminiResponse(
-  reader: ReadableStreamDefaultReader<Uint8Array>
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  inputContents?: unknown[] // GeminiContent[] but avoiding circular deps if possible
 ): Promise<GeminiResponseShape | null> {
   const decoder = new TextDecoder()
   let buffer = ''
@@ -109,6 +116,27 @@ export async function accumulateGeminiResponse(
 
     if (finalResponse && accumulatedParts.length && finalResponse.candidates?.[0]?.content) {
       finalResponse.candidates[0].content.parts = accumulatedParts
+    }
+
+    // US-014: If usage metadata is present and we have input contents, update input token count
+    if (finalResponse?.usageMetadata && inputContents) {
+      const currentInputTokens = (finalResponse.usageMetadata.promptTokenCount as number) || 0
+
+      // Calculate total with images
+      // We assume inputContents are GeminiContent[]
+      const totalInputTokens = calculateGeminiTotalInputTokens(
+        inputContents as GeminiContent[],
+        currentInputTokens
+      )
+
+      if (totalInputTokens > currentInputTokens) {
+        finalResponse.usageMetadata.promptTokenCount = totalInputTokens
+        // Also update total if present
+        if (typeof finalResponse.usageMetadata.totalTokenCount === 'number') {
+          finalResponse.usageMetadata.totalTokenCount =
+            totalInputTokens + ((finalResponse.usageMetadata.candidatesTokenCount as number) || 0)
+        }
+      }
     }
   } catch (error) {
     // Return partial result if possible, or null
