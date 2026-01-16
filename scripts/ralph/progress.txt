@@ -165,3 +165,28 @@ Thread: http://100.64.0.2:8743/threads/T-019bc420-6ac2-70d9-bc40-f121c4513d87
   - Antigravity API responses can sometimes omit the `text` field for thinking parts if they only contain a signature. Always handle optional text fields gracefully.
   - When modifying response parsing logic, ensure both `thoughtSignature` (camelCase) and `thought_signature` (snake_case) are checked, as different providers/versions may use either.
 ---
+## 2026-01-16 - US-012
+Thread: http://100.64.0.2:8743/threads/T-019bc436-477a-7607-b115-b0303b05c316
+- Integrated `normalizeStreamingOrder` into all streaming builders:
+  - `AnthropicStreamingBuilder`
+  - `OpenAIChatStreamingBuilder`
+  - `OpenAIResponsesStreamingBuilder`
+  - `GeminiStreamingBuilder`
+  - `AntigravityStreamingBuilder` (via `streaming-pipeline.ts`)
+- Added comprehensive integration tests in `packages/core/test/formats/streaming-normalization-integration.test.ts`
+- Verified that builders now maintain internal normalization state and correct event sequences
+- Files changed:
+  - `packages/core/src/formats/anthropic-messages/anthropic-streaming-builder.ts`
+  - `packages/core/src/formats/openai-chat/openai-streaming-builder.ts`
+  - `packages/core/src/formats/openai-responses/streaming-builder.ts`
+  - `packages/core/src/formats/google-gemini/streaming-builder.ts`
+  - `packages/core/src/providers/antigravity/streaming-builder.ts`
+  - `packages/core/src/providers/antigravity/streaming-pipeline.ts`
+  - `packages/core/src/index.ts` (exported StreamingState type)
+  - `packages/core/src/util/stream-normalizer.ts` (exported StreamingState type)
+  - `packages/core/test/formats/streaming-normalization-integration.test.ts` (new)
+- **Learnings for future iterations:**
+  - When modifying builders that are initialized elsewhere (like Antigravity), ensure the state interface is updated and propagated correctly (e.g. `AntigravityParserState & AntigravityBuilderState`).
+  - Private state can be accessed in tests via casting to `any` for verification when public methods don't expose it directly.
+  - Consistent type exports (`type StreamingState`) are crucial when sharing state interfaces across modules.
+---
