@@ -11,7 +11,7 @@
 
 import { Database } from 'bun:sqlite'
 import type { ProviderName } from '@llmux/core'
-import { createLogger } from '@llmux/core'
+import { createLogger, recursiveStripSignatures } from '@llmux/core'
 
 const logger = createLogger({ service: 'request-log-store' })
 
@@ -162,8 +162,8 @@ export class RequestLogStore {
         input.targetProvider,
         input.targetModel,
         input.targetEndpoint,
-        safeStringify(stripSignaturesForLog(input.preTransformRequest)),
-        safeStringify(stripSignaturesForLog(input.postTransformRequest)),
+        safeStringify(recursiveStripSignatures(input.preTransformRequest)),
+        safeStringify(recursiveStripSignatures(input.postTransformRequest)),
         input.isStreaming ? 1 : 0
       )
       logger.debug({ requestId: input.requestId }, 'Request logged')
@@ -185,8 +185,8 @@ export class RequestLogStore {
   logResponse(input: LogResponseInput): void {
     try {
       this.updateResponseStmt.run(
-        safeStringify(stripSignaturesForLog(input.preTransformResponse)),
-        safeStringify(stripSignaturesForLog(input.postTransformResponse)),
+        safeStringify(recursiveStripSignatures(input.preTransformResponse)),
+        safeStringify(recursiveStripSignatures(input.postTransformResponse)),
         input.statusCode,
         input.durationMs,
         input.errorMessage ?? null,
