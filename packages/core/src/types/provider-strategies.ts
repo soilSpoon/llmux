@@ -11,6 +11,7 @@
  * - Handlers remain provider-agnostic by using strategies polymorphically
  */
 
+import type { ThinkingPolicy } from '../thinking'
 import type { ProviderName } from './providers'
 
 /**
@@ -40,6 +41,11 @@ export interface PrepareUpstreamOptions {
   reqId: string
   provider: ProviderName
   retryEndpointIndex?: number
+  /**
+   * Computed thinking policy for this request
+   * Providers can use this to set appropriate headers/config
+   */
+  thinkingPolicy?: ThinkingPolicy
 }
 
 /**
@@ -227,6 +233,7 @@ export interface ErrorHandlingAction {
   newModel?: string
   newProvider?: ProviderName
   delay?: number
+  suppressIncrement?: boolean
 }
 
 /**

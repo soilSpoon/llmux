@@ -1,5 +1,5 @@
-export function parseRetryAfterMs(response?: Response | null, body?: string): number {
-  if (!response || !response.headers) return 30000
+export function parseRetryAfterMs(response?: Response | null, body?: string): number | undefined {
+  if (!response || !response.headers) return undefined
 
   // 1. Check retry-after-ms header
   const retryAfterMsHeader = response.headers.get('retry-after-ms')
@@ -20,12 +20,18 @@ export function parseRetryAfterMs(response?: Response | null, body?: string): nu
     const retryDelayMatch = body.match(/"retryDelay":\s*"([0-9.]+)s"/)
     if (retryDelayMatch?.[1]) return parseFloat(retryDelayMatch[1]) * 1000
 
-    const quotaResetMatch = body.match(/reset after (\d+)s/)
-    if (quotaResetMatch?.[1]) return parseInt(quotaResetMatch[1], 10) * 1000
+    const quotaResetMatch = body.match(/reset after (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?/)
+    if (quotaResetMatch) {
+      const hours = parseInt(quotaResetMatch[1] || '0', 10)
+      const minutes = parseInt(quotaResetMatch[2] || '0', 10)
+      const seconds = parseInt(quotaResetMatch[3] || '0', 10)
+      const totalMs = (hours * 3600 + minutes * 60 + seconds) * 1000
+      if (totalMs > 0) return totalMs
+    }
   }
 
-  // 4. Default fallback (30 seconds)
-  return 30000
+  // 4. No explicit retry time found
+  return undefined
 }
 
 /**

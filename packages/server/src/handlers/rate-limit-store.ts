@@ -1,9 +1,6 @@
 import type { ModelFamily } from './account-rotation-with-tier'
 
-export type LimitType = 'soft' | 'hard'
-
 export interface RateLimit {
-  type: LimitType
   expiresAt: number | null // null means indefinite/until manual reset
   reason?: string
 }

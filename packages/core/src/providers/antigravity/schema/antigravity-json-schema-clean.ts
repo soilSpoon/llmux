@@ -170,8 +170,8 @@ function filterUndefinedRequired(schema: MutableSchemaNode): MutableSchemaNode {
 
   const result: MutableSchemaNode = { ...schema }
 
-  if (result.type === 'object' && Array.isArray(result.required) && result.properties) {
-    const definedProps = Object.keys(result.properties)
+  if (result.type === 'object' && Array.isArray(result.required)) {
+    const definedProps = result.properties ? Object.keys(result.properties) : []
     result.required = result.required.filter((req: string) => definedProps.includes(req))
 
     // If required becomes empty, remove it (cleaner)

@@ -615,27 +615,6 @@ function transformGenerationConfig(
       // Older models use thinkingBudget
       result.thinkingConfig.thinkingBudget = thinking.budget
     }
-
-    // Antigravity compatibility: provide snake_case variants
-    // Antigravity compatibility: provide snake_case variants and REMOVE camelCase to avoid OneOf errors
-    if (ctx?.provider === 'antigravity') {
-      const tc = result.thinkingConfig as Record<string, unknown>
-
-      if (tc.includeThoughts !== undefined) {
-        tc.include_thoughts = tc.includeThoughts
-        delete tc.includeThoughts
-      }
-
-      if (tc.thinkingBudget !== undefined) {
-        tc.thinking_budget = tc.thinkingBudget
-        delete tc.thinkingBudget
-      }
-
-      if (tc.thinkingLevel !== undefined) {
-        tc.thinking_level = tc.thinkingLevel
-        delete tc.thinkingLevel
-      }
-    }
   }
 
   return Object.keys(result).length > 0 ? result : undefined
@@ -693,13 +672,21 @@ function transformSchema(schema: JSONSchema): GeminiSchema {
   }
 
   if (schema.description) result.description = schema.description
-  if (schema.required) result.required = schema.required
   if (schema.enum) result.enum = schema.enum.map(String)
 
   if (schema.properties) {
     result.properties = {}
     for (const [key, value] of Object.entries(schema.properties)) {
       result.properties[key] = transformSchemaProperty(value)
+    }
+  }
+
+  // Filter required to only include properties that exist
+  if (schema.required) {
+    const props = result.properties || {}
+    const filtered = schema.required.filter((key) => key in props)
+    if (filtered.length > 0) {
+      result.required = filtered
     }
   }
 
@@ -738,12 +725,18 @@ function transformSchemaProperty(prop: JSONSchemaProperty): GeminiSchema {
   if (prop.description) result.description = prop.description
   // Convert enum values to strings as Gemini expects string enums usually
   if (prop.enum) result.enum = prop.enum.map(String)
-  if (prop.required) result.required = prop.required
-
   if (prop.properties) {
     result.properties = {}
     for (const [key, value] of Object.entries(prop.properties)) {
       result.properties[key] = transformSchemaProperty(value)
+    }
+  }
+
+  if (prop.required) {
+    const props = result.properties || {}
+    const filtered = prop.required.filter((key) => key in props)
+    if (filtered.length > 0) {
+      result.required = filtered
     }
   }
 

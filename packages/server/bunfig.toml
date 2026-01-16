@@ -1,2 +1,2 @@
 [test]
-preload = ["/home/dh/dev/CLIProxyAPI/llmux/packages/core/test/global-setup.ts"]
+preload = ["../core/test/global-setup.ts"]

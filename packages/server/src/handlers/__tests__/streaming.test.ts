@@ -75,7 +75,6 @@ describe("handleStreamingProxy with modelMappings", () => {
       expect(capturedBody).toMatchObject({
         model: "gemini-claude",
         messages: [],
-        reasoning_effort: "none",
       });
     });
 
@@ -93,7 +92,6 @@ describe("handleStreamingProxy with modelMappings", () => {
       expect(capturedBody).toMatchObject({
         model: "model-a",
         messages: [],
-        reasoning_effort: "none",
       });
     });
   });
@@ -107,7 +105,6 @@ describe("handleStreamingProxy with modelMappings", () => {
       expect(capturedBody).toMatchObject({
         model: "gpt-4",
         messages: [],
-        reasoning_effort: "none",
       });
     });
 
@@ -125,7 +122,6 @@ describe("handleStreamingProxy with modelMappings", () => {
       expect(capturedBody).toMatchObject({
         model: "gpt-4",
         messages: [],
-        reasoning_effort: "none",
       });
     });
   });
@@ -146,7 +142,6 @@ describe("handleStreamingProxy with modelMappings", () => {
       expect(capturedBody).toMatchObject({
         model: "override-model",
         messages: [],
-        reasoning_effort: "none",
       });
     });
   });
@@ -163,7 +158,6 @@ describe("handleStreamingProxy with modelMappings", () => {
       expect(capturedBody).toMatchObject({
         model: "gpt-4",
         messages: [],
-        reasoning_effort: "none",
       });
     });
 
