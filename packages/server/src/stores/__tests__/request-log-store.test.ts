@@ -151,6 +151,6 @@ describe('RequestLogStore', () => {
 
     const entry = store.getByRequestId(requestId)
     expect(entry).toBeDefined()
-    expect(entry?.preTransformRequest).toContain('object Object')
+    expect(entry?.preTransformRequest).toContain('[Circular]')
   })
 })

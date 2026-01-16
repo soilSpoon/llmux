@@ -162,8 +162,8 @@ export class RequestLogStore {
         input.targetProvider,
         input.targetModel,
         input.targetEndpoint,
-        safeStringify(input.preTransformRequest),
-        safeStringify(input.postTransformRequest),
+        safeStringify(stripSignaturesForLog(input.preTransformRequest)),
+        safeStringify(stripSignaturesForLog(input.postTransformRequest)),
         input.isStreaming ? 1 : 0
       )
       logger.debug({ requestId: input.requestId }, 'Request logged')
@@ -185,8 +185,8 @@ export class RequestLogStore {
   logResponse(input: LogResponseInput): void {
     try {
       this.updateResponseStmt.run(
-        safeStringify(input.preTransformResponse),
-        safeStringify(input.postTransformResponse),
+        safeStringify(stripSignaturesForLog(input.preTransformResponse)),
+        safeStringify(stripSignaturesForLog(input.postTransformResponse)),
         input.statusCode,
         input.durationMs,
         input.errorMessage ?? null,
@@ -224,7 +224,13 @@ export class RequestLogStore {
       const values = keys.map((k) => {
         const val = updates[k as keyof RequestLogEntry]
         if (val === undefined) return null
-        if (typeof val === 'object' && val !== null) return safeStringify(val)
+
+        // Strip signatures from object values
+        if (typeof val === 'object' && val !== null) {
+          const stripped = stripSignaturesForLog(val)
+          return safeStringify(stripped)
+        }
+
         if (typeof val === 'boolean') return val ? 1 : 0
         return val
       })
@@ -296,6 +302,32 @@ function safeStringify(value: unknown, limit = 0): string {
   } catch {
     return String(value)
   }
+}
+
+function stripSignaturesForLog(obj: unknown, seen = new WeakSet()): unknown {
+  if (!obj || typeof obj !== 'object') return obj
+
+  if (seen.has(obj)) {
+    return '[Circular]'
+  }
+  seen.add(obj)
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => stripSignaturesForLog(item, seen))
+  }
+
+  const newObj: Record<string, unknown> = {}
+  const source = obj as Record<string, unknown>
+
+  for (const key in source) {
+    if (key === 'thoughtSignature' || key === 'thought_signature') {
+      newObj[key] = '[REDACTED]'
+    } else {
+      newObj[key] = stripSignaturesForLog(source[key], seen)
+    }
+  }
+
+  return newObj
 }
 
 let globalLogStore: RequestLogStore | null = null
