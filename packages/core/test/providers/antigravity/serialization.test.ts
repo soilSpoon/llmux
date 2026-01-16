@@ -33,10 +33,13 @@ describe('Antigravity Serialization', () => {
     const genConfig = inner.generationConfig
     if (genConfig) {
       expect(genConfig).toBeDefined()
-      // AntigravityInnerRequest uses camelCase keys compliant with the API spec
-      expect(genConfig.thinkingConfig).toBeDefined()
-      expect(genConfig.thinkingConfig?.thinkingBudget).toBe(4000)
-      expect(genConfig.thinkingConfig?.includeThoughts).toBe(true)
+      // Expect snake_case keys for Claude models (Antigravity behavior)
+      if ('thinking_config' in genConfig && genConfig.thinking_config) {
+        expect(genConfig.thinking_config.thinking_budget).toBe(4000)
+        expect(genConfig.thinking_config.include_thoughts).toBe(true)
+      } else {
+        throw new Error('Expected thinking_config (snake_case) to be defined')
+      }
     }
 
     // Check tools casing

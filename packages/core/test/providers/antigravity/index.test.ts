@@ -298,7 +298,7 @@ describe("AntigravityProvider", () => {
       }
     });
 
-    it("should use camelCase thinking config for Claude models", () => {
+    it("should use snake_case thinking config for Claude models", () => {
       const request = createUnifiedRequest({
         messages: [createUnifiedMessage("user", "Hello")],
         thinking: { enabled: true, budget: 16384, includeThoughts: true },
@@ -307,10 +307,14 @@ describe("AntigravityProvider", () => {
 
       const result = provider.transform(request, 'claude-sonnet-4-5-thinking') as AntigravityRequest;
 
-      // Thinking config fields use camelCase (snake_case conversion was rolled back)
-      const thinkingConfig = (result.request.generationConfig as any)?.thinkingConfig;
-      expect(thinkingConfig?.includeThoughts).toBe(true);
-      expect(thinkingConfig?.thinkingBudget).toBe(16384);
+      // Thinking config fields use snake_case
+      const genConfig = result.request.generationConfig;
+      if (genConfig && 'thinking_config' in genConfig && genConfig.thinking_config) {
+        expect(genConfig.thinking_config.include_thoughts).toBe(true);
+        expect(genConfig.thinking_config.thinking_budget).toBe(16384);
+      } else {
+        throw new Error("Expected thinking_config to be defined");
+      }
     });
   });
 

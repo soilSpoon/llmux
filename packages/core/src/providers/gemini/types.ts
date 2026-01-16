@@ -143,7 +143,22 @@ export interface GeminiToolConfig {
 /**
  * Generation config
  */
-export interface GeminiGenerationConfig {
+import type { MergeExclusive, Simplify } from 'type-fest'
+
+// ... existing imports ...
+
+/**
+ * Generation config
+ */
+export type GeminiGenerationConfig = Simplify<
+  GeminiGenerationConfigBase &
+    MergeExclusive<
+      { thinkingConfig?: GeminiThinkingConfig },
+      { thinking_config?: GeminiThinkingConfigSnake }
+    >
+>
+
+export interface GeminiGenerationConfigBase {
   temperature?: number
   topP?: number
   topK?: number
@@ -154,17 +169,14 @@ export interface GeminiGenerationConfig {
   frequencyPenalty?: number
   responseMimeType?: 'text/plain' | 'application/json'
   responseSchema?: GeminiSchema
-  // biome-ignore lint/suspicious/noExplicitAny: Allow unified response format for discriminated union matching
-  responseFormat?: any
+  // Allow unified response format for discriminated union matching (legacy/hybrid support)
+  responseFormat?: GeminiResponseFormat
   seed?: number
   responseLogprobs?: boolean
   logprobs?: number
 
   // Modality controls
   responseModalities?: ('TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO')[]
-
-  // Thinking configuration
-  thinkingConfig?: GeminiThinkingConfig
 
   // Speech output
   speechConfig?: {
@@ -175,7 +187,20 @@ export interface GeminiGenerationConfig {
 }
 
 /**
- * Thinking config
+ * Legacy/Unified-compatible response format for Gemini
+ */
+export interface GeminiResponseFormat {
+  type: 'text' | 'json_object' | 'json_schema'
+  json_schema?: {
+    name: string
+    strict?: boolean
+    schema?: Record<string, unknown>
+    description?: string
+  }
+}
+
+/**
+ * Thinking config (CamelCase - Standard Gemini)
  */
 export interface GeminiThinkingConfig {
   includeThoughts?: boolean
@@ -183,9 +208,15 @@ export interface GeminiThinkingConfig {
   thinkingBudget?: number
   // For Gemini 3 models - use level
   thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
-  // Antigravity Claude-style (snake_case)
+}
+
+/**
+ * Thinking config (SnakeCase - Antigravity/Claude compatibility)
+ */
+export interface GeminiThinkingConfigSnake {
   include_thoughts?: boolean
   thinking_budget?: number
+  thinking_level?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
 }
 
 /**

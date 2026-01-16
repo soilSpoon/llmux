@@ -21,6 +21,7 @@ import type {
   GeminiRequest,
   GeminiSchema,
   GeminiSystemInstruction,
+  GeminiThinkingConfig,
   GeminiTool,
   GeminiToolConfig,
 } from './types'
@@ -264,51 +265,55 @@ function parseGenerationConfig(config?: GeminiGenerationConfig) {
 
   const result: UnifiedRequest['config'] = {}
 
-  if (config.maxOutputTokens !== undefined) {
-    result.maxTokens = config.maxOutputTokens
-  }
-  if (config.temperature !== undefined) {
-    result.temperature = config.temperature
-  }
-  if (config.topP !== undefined) {
-    result.topP = config.topP
-  }
-  if (config.topK !== undefined) {
-    result.topK = config.topK
-  }
-  if (config.stopSequences !== undefined) {
-    result.stopSequences = config.stopSequences
-  }
+  if (config.maxOutputTokens !== undefined) result.maxTokens = config.maxOutputTokens
+  if (config.temperature !== undefined) result.temperature = config.temperature
+  if (config.topP !== undefined) result.topP = config.topP
+  if (config.topK !== undefined) result.topK = config.topK
+  if (config.stopSequences !== undefined) result.stopSequences = config.stopSequences
 
   return Object.keys(result).length > 0 ? result : undefined
 }
 
 function parseThinkingConfig(config?: GeminiGenerationConfig) {
-  if (!config?.thinkingConfig) return undefined
+  if (!config) return undefined
 
-  const thinkingConfig = config.thinkingConfig
+  // Handle camelCase config (Standard Gemini)
+  if (config.thinkingConfig) {
+    const { includeThoughts, thinkingBudget, thinkingLevel } = config.thinkingConfig
+    if (
+      includeThoughts === undefined &&
+      thinkingBudget === undefined &&
+      thinkingLevel === undefined
+    ) {
+      return undefined
+    }
 
-  // Check both camelCase and snake_case variants (for Antigravity compatibility)
-  const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
-  const thinkingBudget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
-
-  if (
-    !includeThoughts &&
-    !thinkingBudget &&
-    !thinkingConfig.thinkingLevel &&
-    !thinkingConfig.thinking_level
-  )
-    return undefined
-
-  return {
-    enabled: includeThoughts ?? true,
-    budget: thinkingBudget,
-    level: (thinkingConfig.thinkingLevel ?? thinkingConfig.thinking_level)?.toLowerCase() as
-      | 'minimal'
-      | 'low'
-      | 'medium'
-      | 'high',
+    return {
+      enabled: includeThoughts ?? true,
+      budget: thinkingBudget,
+      level: thinkingLevel?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    }
   }
+
+  // Handle snake_case config (Antigravity/Claude)
+  if (config.thinking_config) {
+    const { include_thoughts, thinking_budget, thinking_level } = config.thinking_config
+    if (
+      include_thoughts === undefined &&
+      thinking_budget === undefined &&
+      thinking_level === undefined
+    ) {
+      return undefined
+    }
+
+    return {
+      enabled: include_thoughts ?? true,
+      budget: thinking_budget,
+      level: thinking_level?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    }
+  }
+
+  return undefined
 }
 
 function parseTools(tools?: GeminiTool[]): UnifiedTool[] | undefined {
@@ -569,21 +574,12 @@ function transformGenerationConfig(
 
   // Transform generation config
   if (config) {
-    if (config.maxTokens !== undefined) {
-      result.maxOutputTokens = config.maxTokens
-    }
-    if (config.temperature !== undefined) {
-      result.temperature = config.temperature
-    }
-    if (config.topP !== undefined) {
-      result.topP = config.topP
-    }
-    if (config.topK !== undefined) {
-      result.topK = config.topK
-    }
-    if (config.stopSequences !== undefined) {
-      result.stopSequences = config.stopSequences
-    }
+    if (config.maxTokens !== undefined) result.maxOutputTokens = config.maxTokens
+    if (config.temperature !== undefined) result.temperature = config.temperature
+    if (config.topP !== undefined) result.topP = config.topP
+    if (config.topK !== undefined) result.topK = config.topK
+    if (config.stopSequences !== undefined) result.stopSequences = config.stopSequences
+
     if (config.responseFormat !== undefined) {
       // Handle response_format
       if (
@@ -614,29 +610,47 @@ function transformGenerationConfig(
 
   // Transform thinking config
   if (thinking) {
+    const model = ctx?.model?.toLowerCase() || ''
+    const isAntigravity = ctx?.provider === 'antigravity'
+
+    // Antigravity Claude thinking models use snake_case thinking_config
+    const isAntigravityClaudeThinking =
+      isAntigravity && model.includes('claude') && model.includes('thinking')
+
     // Detect Gemini 3+ models to use thinkingLevel instead of budget
-    // Model names like: gemini-3.0-flash, gemini-3-pro, etc.
-    // NOTE: -preview models (like gemini-3-pro-preview) often don't support thinkingLevel yet
-    const isGemini3 = ctx?.model?.includes('gemini-3')
+    const isGemini3 = model.includes('gemini-3')
 
-    result.thinkingConfig = {
-      includeThoughts: thinking.includeThoughts ?? thinking.enabled,
-    }
+    const includeThoughts = thinking.includeThoughts ?? thinking.enabled
 
-    if (isGemini3) {
-      // Gemini 3 uses thinkingLevel
-      // Map budget to level if level is not explicitly set
-      if (!thinking.level && thinking.budget) {
-        if (thinking.budget < 16384) result.thinkingConfig.thinkingLevel = 'LOW'
-        else if (thinking.budget < 32768) result.thinkingConfig.thinkingLevel = 'MEDIUM'
-        else result.thinkingConfig.thinkingLevel = 'HIGH'
-      } else {
-        result.thinkingConfig.thinkingLevel =
-          (thinking.level?.toUpperCase() as 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH') || 'MEDIUM'
+    if (isAntigravityClaudeThinking) {
+      // Use snake_case for Antigravity Claude
+      result.thinking_config = {
+        include_thoughts: includeThoughts,
+        thinking_budget: thinking.budget,
       }
     } else {
-      // Older models use thinkingBudget
-      result.thinkingConfig.thinkingBudget = thinking.budget
+      // Standard CamelCase for Gemini and others
+      const camelConfig: GeminiThinkingConfig = {
+        includeThoughts,
+      }
+
+      if (isGemini3) {
+        // Gemini 3 uses thinkingLevel
+        if (!thinking.level && thinking.budget) {
+          // Map budget to level
+          if (thinking.budget < 16384) camelConfig.thinkingLevel = 'LOW'
+          else if (thinking.budget < 32768) camelConfig.thinkingLevel = 'MEDIUM'
+          else camelConfig.thinkingLevel = 'HIGH'
+        } else {
+          camelConfig.thinkingLevel =
+            (thinking.level?.toUpperCase() as 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH') || 'MEDIUM'
+        }
+      } else {
+        // Older models use thinkingBudget
+        camelConfig.thinkingBudget = thinking.budget
+      }
+
+      result.thinkingConfig = camelConfig
     }
   }
 

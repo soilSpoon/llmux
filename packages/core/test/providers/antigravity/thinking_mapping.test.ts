@@ -25,10 +25,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
     }
 
     const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig as ClaudeThinkingConfig
+    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinkingBudget).toBe(8192)
+    expect(thinkingConfig.thinking_budget).toBe(8192)
   })
 
   it('should map reasoning_effort="medium" to 16384 tokens', () => {
@@ -41,10 +41,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
     }
 
     const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig as ClaudeThinkingConfig
+    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinkingBudget).toBe(16384)
+    expect(thinkingConfig.thinking_budget).toBe(16384)
   })
 
   it('should map reasoning_effort="high" to 32768 tokens', () => {
@@ -57,10 +57,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
     }
 
     const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig as ClaudeThinkingConfig
+    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinkingBudget).toBe(32768)
+    expect(thinkingConfig.thinking_budget).toBe(32768)
   })
 
   it('should prioritize explicit budget over effort', () => {
@@ -74,10 +74,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
     }
 
     const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig as ClaudeThinkingConfig
+    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinkingBudget).toBe(20000)
+    expect(thinkingConfig.thinking_budget).toBe(20000)
   })
 
   it('should default to 16000 tokens when no budget or effort is provided', () => {
@@ -89,9 +89,9 @@ describe('Antigravity Thinking Budget Mapping', () => {
     }
 
     const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig as ClaudeThinkingConfig
+    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinkingBudget).toBe(16384)
+    expect(thinkingConfig.thinking_budget).toBe(16384)
   })
 })

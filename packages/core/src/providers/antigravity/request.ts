@@ -6,24 +6,16 @@ import {
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { UnifiedRequest } from '../../types/unified'
-import {
-  ANTIGRAVITY_SYSTEM_INSTRUCTION,
-  CLAUDE_MIN_OUTPUT_TOKENS,
-  DEFAULT_THINKING_BUDGET,
-  SKIP_THOUGHT_SIGNATURE,
-  THINKING_BUDGETS,
-} from './constants'
+import { ANTIGRAVITY_SYSTEM_INSTRUCTION, SKIP_THOUGHT_SIGNATURE } from './constants'
 import {
   createInnerRequest,
   ensureToolConfig,
   extractMetadata,
   injectSystemInstruction,
-  isClaudeModel,
-  isThinkingModel,
-  normalizeGenerationConfig,
+  preprocessAntigravityRequest,
   preprocessTools,
 } from './transform-utils'
-import type { AntigravityRequest, ClaudeThinkingConfig, GeminiThinkingConfig } from './types'
+import type { AntigravityRequest } from './types'
 
 export function parse(request: AntigravityRequest): UnifiedRequest {
   const unified = parseGeminiRequest(request.request as GeminiRequest)
@@ -68,9 +60,11 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
 }
 
 export function transform(request: UnifiedRequest, model: string): AntigravityRequest {
-  const tools = preprocessTools(request.tools)
+  const preprocessed = preprocessAntigravityRequest(request, model)
+  const tools = preprocessTools(preprocessed.tools)
+
   const geminiRequest = buildGeminiRequest(
-    { ...request, tools },
+    { ...preprocessed, tools },
     {
       provider: 'antigravity',
       model,
@@ -82,65 +76,10 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
   injectSystemInstruction(innerRequest, ANTIGRAVITY_SYSTEM_INSTRUCTION, model)
   ensureToolConfig(innerRequest, model)
-  normalizeGenerationConfig(innerRequest, model)
-
-  // Handle thinking config mapping
-  let thinkingEnabled = false
-  if (request.thinking?.enabled) {
-    thinkingEnabled = true
-    // Ensure generationConfig exists
-    if (!innerRequest.generationConfig) {
-      innerRequest.generationConfig = {}
-    }
-    const genConfig = innerRequest.generationConfig
-
-    // Claude thinking models use camelCase config format
-    if (isClaudeModel(model) && isThinkingModel(model)) {
-      // Min output tokens for Claude thinking
-      if ((request.config?.maxTokens || 0) < CLAUDE_MIN_OUTPUT_TOKENS) {
-        genConfig.maxOutputTokens = CLAUDE_MIN_OUTPUT_TOKENS
-      }
-
-      // Derive budget from level if not explicitly provided
-      let budget = request.thinking.budget
-
-      // Fallback: Map reasoning_effort (from OpenAI format) to thinking budget
-      if (!budget) {
-        if (request.thinking.effort && request.thinking.effort !== 'none') {
-          budget = THINKING_BUDGETS[request.thinking.effort]
-        } else if (request.thinking.level && request.thinking.level !== 'minimal') {
-          budget = THINKING_BUDGETS[request.thinking.level]
-        }
-      }
-
-      if (!budget) {
-        budget = DEFAULT_THINKING_BUDGET
-      }
-
-      genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts,
-        thinkingBudget: budget,
-      } as ClaudeThinkingConfig
-    } else if (model.toLowerCase().includes('gemini')) {
-      // Map reasoning_effort to thinkingLevel for Gemini 3
-      let level = request.thinking.level
-
-      if (!level && request.thinking.effort) {
-        // Direct mapping from reasoning_effort to thinkingLevel
-        level = request.thinking.effort as 'low' | 'medium' | 'high'
-      }
-
-      genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
-        thinkingBudget: request.thinking.budget,
-        thinkingLevel: level,
-      } as GeminiThinkingConfig
-    }
-  }
 
   // Post-process contents
   if (innerRequest.contents) {
-    processContentsForThinking(innerRequest.contents, thinkingEnabled)
+    processContentsForThinking(innerRequest.contents, preprocessed.thinking?.enabled || false)
   }
 
   // Random project ID matching /^[a-z]+-[a-z]+-[0-9a-f]{5}$/

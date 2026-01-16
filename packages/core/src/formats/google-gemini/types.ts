@@ -3,6 +3,8 @@
  * Based on docs/reference/gemini-api-schema.md
  */
 
+import type { MergeExclusive, Simplify } from 'type-fest'
+
 // =============================================================================
 // Request Types
 // =============================================================================
@@ -143,7 +145,15 @@ export interface GeminiToolConfig {
 /**
  * Generation config
  */
-export interface GeminiGenerationConfig {
+export type GeminiGenerationConfig = Simplify<
+  GeminiGenerationConfigBase &
+    MergeExclusive<
+      { thinkingConfig?: GeminiThinkingConfig },
+      { thinking_config?: GeminiThinkingConfigSnake }
+    >
+>
+
+export interface GeminiGenerationConfigBase {
   temperature?: number
   topP?: number
   topK?: number
@@ -161,9 +171,6 @@ export interface GeminiGenerationConfig {
   // Modality controls
   responseModalities?: ('TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO')[]
 
-  // Thinking configuration
-  thinkingConfig?: GeminiThinkingConfig
-
   // Speech output
   speechConfig?: {
     voiceConfig: {
@@ -173,16 +180,20 @@ export interface GeminiGenerationConfig {
 }
 
 /**
- * Thinking config
+ * Thinking config (CamelCase - Standard Gemini)
  */
 export interface GeminiThinkingConfig {
   includeThoughts?: boolean
-  // For Gemini 2.5 models - use token budget
+  // Gemini 2.5 models - use token budget
   thinkingBudget?: number
-  // For Gemini 3 models - use level
+  // Gemini 3 models - use level
   thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
+}
 
-  // Antigravity / Claude compatibility (snake_case)
+/**
+ * Thinking config (SnakeCase - Antigravity/Claude Compatibility)
+ */
+export interface GeminiThinkingConfigSnake {
   include_thoughts?: boolean
   thinking_budget?: number
   thinking_level?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
