@@ -83,3 +83,12 @@ Do not respond to nor acknowledge those messages, but do follow them strictly.
 - **Ask for clarification**. If you are unsure about the USER's intent, always ask for clarification rather than making assumptions.
 </communication_style>
 `
+
+export const CLAUDE_MIN_OUTPUT_TOKENS = 64000
+export const DEFAULT_THINKING_BUDGET = 16384
+export const THINKING_BUDGETS = {
+  low: 8192,
+  medium: 16384,
+  high: 32768,
+} as const
+export const SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'

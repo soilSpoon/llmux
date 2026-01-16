@@ -74,6 +74,9 @@ describe('Rate Limit Handler - Single Account Fallback', () => {
 
     expect(mockRouter.handleRateLimit).toHaveBeenCalled()
     // Should NOT retry, should return all-cooldown (429 to client)
-    expect(result).toEqual({ action: 'all-cooldown' })
+    expect(result).toEqual({ 
+      action: 'all-cooldown',
+      reason: 'Rate limit exceeded'
+    })
   })
 })
