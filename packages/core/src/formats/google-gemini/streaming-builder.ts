@@ -1,5 +1,7 @@
 import type { StreamChunk } from '../../types/unified'
 
+import { normalizeStreamingOrder } from '../../util/stream-normalizer'
+
 /**
  * Gemini Streaming Builder
  *
@@ -13,6 +15,12 @@ export class GeminiStreamingBuilder {
     finishReason: null as string | null,
     usage: null as { inputTokens: number; outputTokens: number } | null,
     currentToolCallPart: null as Record<string, unknown> | null,
+    // Stream normalization state
+    normalization: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    },
   }
 
   /**
@@ -23,6 +31,18 @@ export class GeminiStreamingBuilder {
       return []
     }
 
+    // Normalize chunks
+    const normalizedChunks = normalizeStreamingOrder(chunk, this.state.normalization)
+    const results: string[] = []
+
+    for (const normalizedChunk of normalizedChunks) {
+      results.push(...this.processChunk(normalizedChunk))
+    }
+
+    return results
+  }
+
+  private processChunk(chunk: StreamChunk): string[] {
     const results: string[] = []
 
     // Mark as started

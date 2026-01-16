@@ -23,6 +23,11 @@ export function createAntigravityStreamingPipeline(model: string): StreamingPipe
     finishReason: null,
     finalUsage: null,
     messageStopEmitted: false,
+    normalization: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    },
   }
 
   const parser = new AntigravityStreamingParser(state)

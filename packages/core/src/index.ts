@@ -213,7 +213,7 @@ export {
   ZERO_COST_MODELS,
 } from './util/model-capabilities'
 export { SSEParser } from './util/sse-parser'
-export { normalizeStreamingOrder } from './util/stream-normalizer'
+export { normalizeStreamingOrder, type StreamingState } from './util/stream-normalizer'
 export { stripThinkingFromMessages } from './util/thinking-utils'
 // Utilities
 export {

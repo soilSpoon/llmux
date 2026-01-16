@@ -4,7 +4,7 @@ import type { StreamChunk } from '../types'
  * State for normalizing streaming event order.
  * Ensures that reasoning-end always comes before text-start.
  */
-interface StreamingState {
+export interface StreamingState {
   hasThinkingStarted: boolean
   hasThinkingEnded: boolean
   hasTextStarted: boolean

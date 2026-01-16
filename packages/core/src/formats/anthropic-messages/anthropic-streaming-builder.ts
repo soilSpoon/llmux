@@ -7,6 +7,8 @@ interface ThinkingBlock {
   signature?: string
 }
 
+import { normalizeStreamingOrder } from '../../util/stream-normalizer'
+
 /**
  * Anthropic Streaming Builder
  *
@@ -25,6 +27,12 @@ export class AnthropicStreamingBuilder {
     currentToolName: '', // Track current tool name to detect changes
     currentToolId: '', // Track current tool id to detect changes
     currentThinkingBlocks: [] as ThinkingBlock[], // Track thinking blocks for message_start reset
+    // Stream normalization state
+    normalization: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    },
   }
 
   constructor(private model: string) {
@@ -39,6 +47,18 @@ export class AnthropicStreamingBuilder {
       return []
     }
 
+    // Normalize chunks (e.g., ensure thinking ends before text starts)
+    const normalizedChunks = normalizeStreamingOrder(chunk, this.state.normalization)
+    const results: string[] = []
+
+    for (const normalizedChunk of normalizedChunks) {
+      results.push(...this.processChunk(normalizedChunk))
+    }
+
+    return results
+  }
+
+  private processChunk(chunk: StreamChunk): string[] {
     const results: string[] = []
 
     // 1. Auto-emit message_start on first chunk
