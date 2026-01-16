@@ -87,6 +87,13 @@ export type {
   AntigravityRequest,
   AntigravityResponse,
 } from './providers/antigravity/types'
+export type { BackoffContext, BackoffStrategy } from './providers/backoff'
+export {
+  AnthropicBackoffStrategy,
+  DefaultBackoffStrategy,
+  GeminiBackoffStrategy,
+  getBackoffStrategy,
+} from './providers/backoff'
 export type { AuthType, Provider, ProviderConfig, ProviderName } from './providers/base'
 // Provider base types
 export { BaseProvider, isValidProviderName } from './providers/base'
