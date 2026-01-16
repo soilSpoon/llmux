@@ -101,11 +101,11 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   if (sourceFormat === 'anthropic-messages') {
     streamingBuilder = new AnthropicStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'openai-chat') {
-    streamingBuilder = new OpenAIChatStreamingBuilder()
+    streamingBuilder = new OpenAIChatStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'google-gemini') {
-    streamingBuilder = new GeminiStreamingBuilder()
+    streamingBuilder = new GeminiStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'openai-responses') {
-    streamingBuilder = new OpenAIResponsesStreamingBuilder()
+    streamingBuilder = new OpenAIResponsesStreamingBuilder(formatContext.model)
   }
 
   if (!streamingBuilder) {
@@ -130,6 +130,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
   return new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
+      const chunkArrivalTime = Date.now()
       const text = decoder.decode(chunk, { stream: true })
       streamContext.totalBytes += text.length
       if (streamContext.accumulatedUpstream.length < MAX_STREAM_BUFFER_SIZE) {
@@ -138,6 +139,10 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
       buffer += text
 
       // 디버깅: 업스트림에서 받은 청크 기록
+      logger.debug(
+        { reqId: options.reqId, chunkSize: text.length, time: chunkArrivalTime },
+        '[STREAM_TIMING] Upstream chunk arrived'
+      )
 
       debugLogger.logChunk(text)
 
@@ -234,6 +239,16 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 }
 
                 streamContext.chunkCount++
+                const enqueueTime = Date.now()
+                logger.debug(
+                  {
+                    reqId: options.reqId,
+                    chunkNum: streamContext.chunkCount,
+                    outputLen: output.length,
+                    time: enqueueTime,
+                  },
+                  '[STREAM_TIMING] Enqueuing output to client'
+                )
                 controller.enqueue(encoder.encode(output))
               }
             }

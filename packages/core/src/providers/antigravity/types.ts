@@ -77,6 +77,7 @@ export interface AntigravitySystemInstruction {
 export interface AntigravityGenerationConfig
   extends Omit<GeminiGenerationConfig, 'thinkingConfig'> {
   thinkingConfig?: AntigravityThinkingConfig
+  thinking_config?: AntigravityThinkingConfig
 }
 
 /**
@@ -88,11 +89,11 @@ export interface GeminiThinkingConfig {
 }
 
 /**
- * Claude-style thinking config via Antigravity (snake_case)
+ * Claude-style thinking config via Antigravity (camelCase)
  */
 export interface ClaudeThinkingConfig {
-  include_thoughts?: boolean
-  thinking_budget?: number
+  includeThoughts?: boolean
+  thinkingBudget?: number
 }
 
 /**

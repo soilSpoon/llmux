@@ -199,6 +199,9 @@ function parseGenerationConfig(config?: GeminiGenerationConfig) {
   if (config.topK !== undefined) {
     result.topK = config.topK
   }
+  if (config.stopSequences) {
+    result.stopSequences = config.stopSequences
+  }
   if (config.responseFormat) {
     const format = config.responseFormat
     if (format.type === 'json_schema' && 'json_schema' in format) {

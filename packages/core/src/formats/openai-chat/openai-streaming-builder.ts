@@ -11,6 +11,8 @@ export class OpenAIChatStreamingBuilder {
     finished: false,
   }
 
+  constructor(private model?: string) {}
+
   /**
    * Build OpenAI SSE events from a unified StreamChunk
    */
@@ -19,7 +21,7 @@ export class OpenAIChatStreamingBuilder {
       return []
     }
 
-    const output = transformStreamChunk(chunk)
+    const output = transformStreamChunk(chunk, this.model)
     if (!output) {
       return []
     }

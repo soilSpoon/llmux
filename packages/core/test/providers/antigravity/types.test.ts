@@ -88,18 +88,18 @@ describe("Antigravity Types", () => {
           generationConfig: {
             maxOutputTokens: 64000,
             thinkingConfig: {
-              include_thoughts: true,
-              thinking_budget: 16384,
+              includeThoughts: true,
+              thinkingBudget: 16384,
             },
           },
         },
       };
       const thinkingConfig = request.request.generationConfig?.thinkingConfig;
-      if (thinkingConfig && 'include_thoughts' in thinkingConfig) {
-        expect(thinkingConfig.include_thoughts).toBe(true);
+      if (thinkingConfig && 'includeThoughts' in thinkingConfig) {
+        expect(thinkingConfig.includeThoughts).toBe(true);
       }
-      if (thinkingConfig && 'thinking_budget' in thinkingConfig) {
-        expect(thinkingConfig.thinking_budget).toBe(16384);
+      if (thinkingConfig && 'thinkingBudget' in thinkingConfig) {
+        expect(thinkingConfig.thinkingBudget).toBe(16384);
       }
     });
   });

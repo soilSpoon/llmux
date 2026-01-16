@@ -478,9 +478,6 @@ function transformPart(
           // Use local thinking signature if present (rare/merged), otherwise use fallback
           thoughtSignature:
             part.thinking?.signature || fallbackSignature || 'skip_thought_signature_validator',
-          // Ensure snake_case is also populated for compatibility
-          thought_signature:
-            part.thinking?.signature || fallbackSignature || 'skip_thought_signature_validator',
         }
       }
       break
@@ -640,27 +637,6 @@ function transformGenerationConfig(
     } else {
       // Older models use thinkingBudget
       result.thinkingConfig.thinkingBudget = thinking.budget
-    }
-
-    // Antigravity compatibility: provide snake_case variants
-    // Antigravity compatibility: provide snake_case variants and REMOVE camelCase to avoid OneOf errors
-    if (ctx?.provider === 'antigravity') {
-      const tc = result.thinkingConfig as Record<string, unknown>
-
-      if (tc.includeThoughts !== undefined) {
-        tc.include_thoughts = tc.includeThoughts
-        delete tc.includeThoughts
-      }
-
-      if (tc.thinkingBudget !== undefined) {
-        tc.thinking_budget = tc.thinkingBudget
-        delete tc.thinkingBudget
-      }
-
-      if (tc.thinkingLevel !== undefined) {
-        tc.thinking_level = tc.thinkingLevel
-        delete tc.thinkingLevel
-      }
     }
   }
 

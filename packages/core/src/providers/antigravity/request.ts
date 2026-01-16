@@ -51,8 +51,8 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
 
     unified.thinking = {
       enabled: true,
-      budget: geminiThinking.thinkingBudget ?? claudeThinking.thinking_budget,
-      includeThoughts: geminiThinking.includeThoughts ?? claudeThinking.include_thoughts,
+      budget: geminiThinking.thinkingBudget ?? claudeThinking.thinkingBudget,
+      includeThoughts: geminiThinking.includeThoughts ?? claudeThinking.includeThoughts,
     }
   }
 
@@ -87,20 +87,61 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     const genConfig = innerRequest.generationConfig
 
     // Claude style snake_case for thinking models
-    if (model.toLowerCase().includes('thinking')) {
+    if (model.toLowerCase().includes('thinking') || model.toLowerCase().includes('claude')) {
       // Min output tokens for Claude thinking
       if ((request.config?.maxTokens || 0) < 64000) {
         genConfig.maxOutputTokens = 64000
       }
 
+      // Derive budget from level if not explicitly provided
+      let budget = request.thinking.budget
+
+      // Fallback: Map reasoning_effort (from OpenAI format) to thinking budget
+      if (!budget && request.thinking.effort) {
+        switch (request.thinking.effort) {
+          case 'low':
+            budget = 8192
+            break
+          case 'medium':
+            budget = 16384
+            break
+          case 'high':
+            budget = 32768
+            break
+        }
+      }
+
+      if (!budget && request.thinking.level) {
+        switch (request.thinking.level) {
+          case 'low':
+            budget = 8192
+            break
+          case 'medium':
+            budget = 16384
+            break
+          case 'high':
+            budget = 32768
+            break
+        }
+      }
+
       genConfig.thinkingConfig = {
-        include_thoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
-        thinking_budget: request.thinking.budget,
+        includeThoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
+        thinkingBudget: budget ?? 16000, // Default to 16k if undetermined
       } as ClaudeThinkingConfig
     } else if (model.toLowerCase().includes('gemini')) {
+      // Map reasoning_effort to thinkingLevel for Gemini 3
+      let level = request.thinking.level
+
+      if (!level && request.thinking.effort) {
+        // Direct mapping from reasoning_effort to thinkingLevel
+        level = request.thinking.effort as 'low' | 'medium' | 'high'
+      }
+
       genConfig.thinkingConfig = {
         includeThoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
         thinkingBudget: request.thinking.budget,
+        thinkingLevel: level,
       } as GeminiThinkingConfig
     }
   }

@@ -48,6 +48,7 @@ export interface DispatchInput {
   networkErrorMaxDelayMs?: number
   retryState?: RetryState
   timeoutMs?: number
+  signal?: AbortSignal
 }
 
 export interface DispatchResult {
@@ -119,6 +120,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       }
 
       const dispatchLogData = {
+        requestId: reqId,
         attempt: retryState.attempt,
         originalModel: request.meta.originalModel,
         provider: request.meta.provider,
@@ -132,31 +134,27 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         logger.debug(dispatchLogData, 'Dispatching upstream request')
       }
 
-      // Decide per-request timeout; fall back to per-mode defaults
-      const timeoutMs = input.timeoutMs ?? (mode === 'streaming' ? 60_000 : 30_000)
-
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
-
-      try {
-        const init: RequestInit = {
-          ...request.init,
-          signal: controller.signal,
-          // non-streaming keep-alive; Bun already reuses connections but this
-          // makes the intent explicit and aligns with the spec
-          ...(mode === 'non-streaming' ? { keepalive: true } : {}),
-        }
-
-        lastResponse = await fetch(request.endpoint, init)
-      } finally {
-        clearTimeout(timeoutId)
+      // No timeout - let upstream take as long as needed
+      // Use client's signal if available to support user cancellation
+      const init: RequestInit = {
+        ...request.init,
+        signal: input.signal,
+        // non-streaming keep-alive; Bun already reuses connections but this
+        // makes the intent explicit and aligns with the spec
+        ...(mode === 'non-streaming' ? { keepalive: true } : {}),
       }
 
+      lastResponse = await fetch(request.endpoint, init)
+
       if (!lastResponse.ok) {
-        const errorText = await lastResponse
-          .clone()
-          .text()
-          .catch(() => '')
+        // [Simplified] Avoid cloning response body to prevent any buffering risk
+        const errorText =
+          mode === 'streaming'
+            ? `Upstream Error ${lastResponse.status}`
+            : await lastResponse
+                .clone()
+                .text()
+                .catch(() => '')
 
         // Log error details for debugging 403/4xx errors
         if (lastResponse.status === 403 || lastResponse.status === 400) {
@@ -347,6 +345,10 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
       const isAbortError =
         error instanceof Error &&
         (error.name === 'AbortError' || message.toLowerCase().includes('aborted'))
+
+      if (isAbortError) {
+        throw error
+      }
 
       logger.error(
         { error: message, attempt: retryState.attempt, isTimeout: isAbortError },

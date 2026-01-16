@@ -13,6 +13,11 @@ export class GeminiStreamingBuilder {
     finishReason: null as string | null,
     usage: null as { inputTokens: number; outputTokens: number } | null,
     currentToolCallPart: null as Record<string, unknown> | null,
+    model: 'unknown',
+  }
+
+  constructor(model?: string) {
+    this.state.model = model ?? 'unknown'
   }
 
   /**
@@ -99,7 +104,7 @@ export class GeminiStreamingBuilder {
 
     // Emit streaming chunk if we have accumulated parts
     if (this.state.accumulatedParts.length > 0) {
-      const geminiChunk = {
+      const geminiChunk: Record<string, unknown> = {
         candidates: [
           {
             content: {
@@ -108,6 +113,10 @@ export class GeminiStreamingBuilder {
             },
           },
         ],
+      }
+
+      if (this.state.model && this.state.model !== 'unknown') {
+        geminiChunk.modelVersion = this.state.model
       }
 
       results.push(`data: ${JSON.stringify(geminiChunk)}\n\n`)
@@ -137,6 +146,10 @@ export class GeminiStreamingBuilder {
             finishReason: this.state.finishReason || 'STOP',
           },
         ],
+      }
+
+      if (this.state.model && this.state.model !== 'unknown') {
+        finalChunk.modelVersion = this.state.model
       }
 
       if (this.state.usage) {

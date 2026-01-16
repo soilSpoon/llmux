@@ -143,7 +143,6 @@ describe('Google Gemini Format', () => {
       
       expect(toolCallPart).toBeDefined()
       expect(toolCallPart!.thoughtSignature).toBe('sig_1234567890')
-      expect(toolCallPart!.thought_signature).toBe('sig_1234567890')
     })
   })
 
