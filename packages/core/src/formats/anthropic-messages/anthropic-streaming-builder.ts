@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
-import type { StreamChunk } from '../../types/unified'
+import type { StreamChunk, ThinkingBlock } from '../../types/unified'
+import { normalizeStreamingOrder, type StreamingState } from '../../util/stream-normalizer'
 import { formatSSE } from './streaming'
 
 /**
@@ -19,6 +20,12 @@ export class AnthropicStreamingBuilder {
     hasToolUseBlock: false, // Track if any tool_use block was emitted
     currentToolName: '', // Track current tool name to detect changes
     currentToolId: '', // Track current tool id to detect changes
+    currentThinkingBlocks: [] as ThinkingBlock[], // Track thinking blocks to reset/handle state
+    streamingState: {
+      hasThinkingStarted: false,
+      hasThinkingEnded: false,
+      hasTextStarted: false,
+    } as StreamingState,
   }
 
   constructor(private model: string) {
@@ -33,118 +40,131 @@ export class AnthropicStreamingBuilder {
       return []
     }
 
+    // Normalize event order first
+    const { events: normalizedEvents, newState } = normalizeStreamingOrder(
+      [chunk],
+      this.state.streamingState
+    )
+    this.state.streamingState = newState
+
     const results: string[] = []
 
-    // 1. Auto-emit message_start on first chunk
-    if (this.state.phase === 'idle') {
-      const msgStart = {
-        type: 'message_start',
-        message: {
-          id: this.state.messageId,
-          type: 'message',
-          role: 'assistant',
-          content: [],
-          model: this.model,
-          stop_reason: null,
-          stop_sequence: null,
-          usage: { input_tokens: 0, output_tokens: 0 },
-        },
+    for (const normalizedChunk of normalizedEvents) {
+      // 1. Auto-emit message_start on first chunk
+      if (this.state.phase === 'idle') {
+        const msgStart = {
+          type: 'message_start',
+          message: {
+            id: this.state.messageId,
+            type: 'message',
+            role: 'assistant',
+            content: [],
+            model: this.model,
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          },
+        }
+        results.push(formatSSE('message_start', msgStart))
+        this.state.phase = 'message_started'
+
+        // Reset thinking blocks state on message start (US-007)
+        this.state.currentThinkingBlocks = []
       }
-      results.push(formatSSE('message_start', msgStart))
-      this.state.phase = 'message_started'
-    }
 
-    // Handle finish/done chunks
-    if (chunk.type === 'finish' || chunk.type === 'done') {
-      return this.handleFinish(chunk, results)
-    }
-
-    // Handle error chunks
-    if (chunk.type === 'error') {
-      const errorEvent = {
-        type: 'error',
-        error: {
-          type: 'overloaded_error',
-          message: chunk.error || 'Unknown error',
-        },
+      // Handle finish/done chunks
+      if (normalizedChunk.type === 'finish' || normalizedChunk.type === 'done') {
+        results.push(...this.handleFinish(normalizedChunk, results))
+        continue
       }
-      results.push(formatSSE('error', errorEvent))
-      return results
-    }
 
-    // Handle content/block chunks
-    if (this.needsBlockStart(chunk)) {
-      if (this.state.phase === 'block_started') {
-        // Close previous block
-        results.push(
-          formatSSE('content_block_stop', {
-            type: 'content_block_stop',
-            index: this.state.currentBlockIndex,
-          })
-        )
+      // Handle error chunks
+      if (normalizedChunk.type === 'error') {
+        const errorEvent = {
+          type: 'error',
+          error: {
+            type: 'overloaded_error',
+            message: normalizedChunk.error || 'Unknown error',
+          },
+        }
+        results.push(formatSSE('error', errorEvent))
+        continue // Errors stop processing for this chunk
+      }
 
-        // Start new block
-        const prevIndex = this.state.currentBlockIndex
-        this.state.currentBlockIndex++ // Auto-increment for the new block
+      // Handle content/block chunks
+      if (this.needsBlockStart(normalizedChunk)) {
+        if (this.state.phase === 'block_started') {
+          // Close previous block
+          results.push(
+            formatSSE('content_block_stop', {
+              type: 'content_block_stop',
+              index: this.state.currentBlockIndex,
+            })
+          )
 
-        // If the chunk specifically provides a higher index, use it.
-        // Otherwise, our auto-incremental index ensures uniqueness.
-        if (chunk.blockIndex !== undefined && chunk.blockIndex > prevIndex) {
-          this.state.currentBlockIndex = chunk.blockIndex
+          // Start new block
+          const prevIndex = this.state.currentBlockIndex
+          this.state.currentBlockIndex++ // Auto-increment for the new block
+
+          // If the chunk specifically provides a higher index, use it.
+          // Otherwise, our auto-incremental index ensures uniqueness.
+          if (normalizedChunk.blockIndex !== undefined && normalizedChunk.blockIndex > prevIndex) {
+            this.state.currentBlockIndex = normalizedChunk.blockIndex
+          }
+
+          results.push(...this.emitBlockStart(normalizedChunk))
+        } else {
+          // First block start
+          results.push(...this.emitBlockStart(normalizedChunk))
+          this.state.phase = 'block_started'
+        }
+      }
+
+      // Emit delta
+      const deltaEvents = this.buildContentBlockDelta(normalizedChunk)
+      results.push(...deltaEvents)
+
+      // Handle implicit finish in content chunk (common in Gemini/Antigravity)
+      // Only trigger if we have a stopReason (Gemini sends usage on every chunk, but stopReason only on last)
+      if (normalizedChunk.stopReason) {
+        if (this.state.phase === 'block_started') {
+          results.push(
+            formatSSE('content_block_stop', {
+              type: 'content_block_stop',
+              index: this.state.currentBlockIndex,
+            })
+          )
+          this.state.phase = 'message_started'
         }
 
-        results.push(...this.emitBlockStart(chunk))
-      } else {
-        // First block start
-        results.push(...this.emitBlockStart(chunk))
-        this.state.phase = 'block_started'
+        let unifiedReason = normalizedChunk.stopReason || 'end_turn'
+
+        // Patch stop_reason: if we had a tool_use block, stop_reason should be 'tool_use'
+        // (Gemini sends 'end_turn' even for tool calls)
+        if (this.state.hasToolUseBlock && unifiedReason === 'end_turn') {
+          unifiedReason = 'tool_use'
+        }
+
+        const usage = {
+          input_tokens: normalizedChunk.usage?.inputTokens || 0,
+          output_tokens: normalizedChunk.usage?.outputTokens || 0,
+        }
+
+        const msgDelta = {
+          type: 'message_delta',
+          delta: {
+            stop_reason: unifiedReason,
+            stop_sequence: null,
+          },
+          usage,
+        }
+        results.push(formatSSE('message_delta', msgDelta))
+
+        const msgStop = { type: 'message_stop' }
+        results.push(formatSSE('message_stop', msgStop))
+
+        this.state.phase = 'finished'
       }
-    }
-
-    // Emit delta
-    const deltaEvents = this.buildContentBlockDelta(chunk)
-    results.push(...deltaEvents)
-
-    // Handle implicit finish in content chunk (common in Gemini/Antigravity)
-    // Only trigger if we have a stopReason (Gemini sends usage on every chunk, but stopReason only on last)
-    if (chunk.stopReason) {
-      if (this.state.phase === 'block_started') {
-        results.push(
-          formatSSE('content_block_stop', {
-            type: 'content_block_stop',
-            index: this.state.currentBlockIndex,
-          })
-        )
-        this.state.phase = 'message_started'
-      }
-
-      let unifiedReason = chunk.stopReason || 'end_turn'
-
-      // Patch stop_reason: if we had a tool_use block, stop_reason should be 'tool_use'
-      // (Gemini sends 'end_turn' even for tool calls)
-      if (this.state.hasToolUseBlock && unifiedReason === 'end_turn') {
-        unifiedReason = 'tool_use'
-      }
-
-      const usage = {
-        input_tokens: chunk.usage?.inputTokens || 0,
-        output_tokens: chunk.usage?.outputTokens || 0,
-      }
-
-      const msgDelta = {
-        type: 'message_delta',
-        delta: {
-          stop_reason: unifiedReason,
-          stop_sequence: null,
-        },
-        usage,
-      }
-      results.push(formatSSE('message_delta', msgDelta))
-
-      const msgStop = { type: 'message_stop' }
-      results.push(formatSSE('message_stop', msgStop))
-
-      this.state.phase = 'finished'
     }
 
     return results

@@ -1,4 +1,5 @@
 import type { StreamChunk } from '../../types/unified'
+import { normalizeStreamingOrder, type StreamingState } from '../../util/stream-normalizer'
 import { formatSSEEvent } from './streaming-utils'
 
 export interface AntigravityBuilderState {
@@ -10,6 +11,7 @@ export interface AntigravityBuilderState {
   finalUsage: { inputTokens: number; outputTokens: number } | null
   messageStopEmitted: boolean
   messageStartFiltered: boolean
+  streamingState: StreamingState
 }
 
 export class AntigravityStreamingBuilder {
@@ -23,9 +25,17 @@ export class AntigravityStreamingBuilder {
 
   build(chunk: StreamChunk | StreamChunk[]): string | string[] | null {
     const chunks = Array.isArray(chunk) ? chunk : [chunk]
+
+    // Normalize event order first
+    const { events: normalizedEvents, newState } = normalizeStreamingOrder(
+      chunks,
+      this.state.streamingState
+    )
+    this.state.streamingState = newState
+
     const results: string[] = []
 
-    for (const c of chunks) {
+    for (const c of normalizedEvents) {
       // Auto-emit message_start on first content block (Anthropic format)
       if (
         !this.state.messageStartGenerated &&
@@ -103,6 +113,12 @@ export class AntigravityStreamingBuilder {
         }
       } else if (c.type === 'block_stop') {
         // Skip block_stop - will be handled in flush()
+      } else if (c.type === 'thinking-end') {
+        // Skip explicit thinking-end for Anthropic wire format as it's handled via block transitions
+        // or implicit block stops. However, if we need to force a block transition,
+        // the normalizeStreamingOrder ensures thinking-end comes before text-delta.
+        // We can optionally emit a content_block_stop here if we track block state precisely.
+        // For now, Antigravity builder logic is simpler and relies on client to handle stops.
       }
     }
 

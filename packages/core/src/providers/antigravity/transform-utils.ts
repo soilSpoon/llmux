@@ -40,8 +40,8 @@ export function isThinkingModel(model: string): boolean {
 export function convertToWireFormat(request: AntigravityInnerRequest): Record<string, unknown> {
   return convertKeysDeep(request as unknown as Record<string, unknown>, camelToSnakeKey, {
     preserveKeys: ['contents', 'parts', 'text', 'inlineData', 'data', 'mimeType'],
-    preserveTree: ['parameters', 'args', 'response'],
-  }) as Record<string, unknown>
+    preserveTree: ['parameters', 'args', 'response', 'functionCallingConfig'],
+  }) as unknown as Record<string, unknown>
 }
 
 /**

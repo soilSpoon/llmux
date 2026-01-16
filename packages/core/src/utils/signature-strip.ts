@@ -87,3 +87,34 @@ export function stripSignaturesFromMessages(messages: MessageWithContent[]): Mes
     return { role: message.role, content: strippedContent }
   })
 }
+
+/**
+ * Recursively strip thought signatures from any object.
+ * Handles circular references and arrays.
+ * Replaces signature values with '[REDACTED]'.
+ */
+export function recursiveStripSignatures(obj: unknown, seen = new WeakSet<object>()): unknown {
+  if (!obj || typeof obj !== 'object') return obj
+
+  if (seen.has(obj)) {
+    return '[Circular]'
+  }
+  seen.add(obj)
+
+  if (Array.isArray(obj)) {
+    return obj.map((item) => recursiveStripSignatures(item, seen))
+  }
+
+  const newObj: Record<string, unknown> = {}
+  const source = obj as Record<string, unknown>
+
+  for (const key in source) {
+    if (key === 'thoughtSignature' || key === 'thought_signature') {
+      newObj[key] = '[REDACTED]'
+    } else {
+      newObj[key] = recursiveStripSignatures(source[key], seen)
+    }
+  }
+
+  return newObj
+}

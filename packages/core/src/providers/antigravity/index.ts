@@ -11,12 +11,11 @@ import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
+import { camelToSnakeKey, convertKeysDeep } from '../../utils/casing'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
 import { parseResponse, transformResponse } from './response'
-import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import {
-  convertToWireFormat,
   createInnerRequest,
   ensureToolConfig,
   extractMetadata,
@@ -197,7 +196,7 @@ export class AntigravityProvider extends BaseProvider {
    * Transform a UnifiedRequest into Antigravity request format.
    * Wraps the Gemini-style request with Antigravity envelope.
    */
-  transform(request: UnifiedRequest, model: string): AntigravityRequest {
+  transform(request: UnifiedRequest, model: string): unknown {
     const tools = preprocessTools(request.tools)
     const geminiRequest = buildGeminiRequest(
       { ...request, tools },
@@ -215,21 +214,23 @@ export class AntigravityProvider extends BaseProvider {
     ensureToolConfig(innerRequest, model)
     normalizeGenerationConfig(innerRequest, model)
 
-    // Convert to snake_case wire format at the boundary
-    const wireRequest = convertToWireFormat(innerRequest)
-
     // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
     // Fallback values are used if metadata is missing entirely.
-    return {
+    const wrapper = {
       project: request.metadata?.project ?? '',
       model,
       requestType: 'agent',
       userAgent: 'antigravity',
       requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
       userRole: request.userRole,
-      request: wireRequest,
+      request: innerRequest,
       metadata: extractMetadata(request.metadata),
     }
+
+    // Convert wrapper to snake_case too (though top-level keys are mostly camel/mixed)
+    return convertKeysDeep(wrapper as unknown as Record<string, unknown>, camelToSnakeKey, {
+      preserveTree: ['parameters', 'args', 'response'],
+    }) as unknown
   }
 
   /**

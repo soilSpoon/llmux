@@ -462,6 +462,8 @@ export interface StreamChunk {
     | 'thinking'
     | 'block_stop'
     | 'done'
+    // Allow string for test flexibility
+    | string
 
   id?: string
 

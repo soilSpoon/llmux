@@ -214,8 +214,14 @@ export {
   supportsThinking,
 } from './util/model-capabilities'
 export { SSEParser } from './util/sse-parser'
+export {
+  type NormalizeResult,
+  normalizeStreamingOrder,
+  type StreamingState,
+} from './util/stream-normalizer'
 // Utilities
 export {
+  recursiveStripSignatures,
   stripSignaturesFromContents,
   stripSignaturesFromMessages,
   stripThoughtSignatures,

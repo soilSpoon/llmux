@@ -29,7 +29,7 @@ export interface AntigravityRequest {
   userAgent?: string
   requestType?: string
   userRole?: string
-  request: AntigravityInnerRequest
+  request: AntigravityInnerRequest | Record<string, unknown> // Relaxed type for wire format
 
   // Metadata passed through (not injected into inner request)
   metadata?: AntigravityRequestMetadata

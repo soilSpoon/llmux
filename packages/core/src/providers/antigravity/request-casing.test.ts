@@ -37,6 +37,14 @@ describe('AntigravityProvider Casing', () => {
     }
     
     const transformed = provider.transform(request, 'antigravity-claude-sonnet-4-5-thinking') as Record<string, any>
+    
+    // Check wrapper keys
+    expect(transformed).toHaveProperty('user_agent')
+    expect(transformed).not.toHaveProperty('userAgent')
+    
+    expect(transformed).toHaveProperty('request_type')
+    expect(transformed).not.toHaveProperty('requestType')
+    
     const innerRequest = transformed.request
     
     // Check top-level keys
