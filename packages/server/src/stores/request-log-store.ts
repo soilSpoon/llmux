@@ -12,6 +12,7 @@
 import { Database } from 'bun:sqlite'
 import type { ProviderName } from '@llmux/core'
 import { createLogger } from '@llmux/core'
+import { sanitizeForLogging } from '../utils/sanitize-for-logging'
 
 const logger = createLogger({ service: 'request-log-store' })
 
@@ -153,6 +154,11 @@ export class RequestLogStore {
   logRequest(input: LogRequestInput): void {
     try {
       const timestamp = new Date().toISOString()
+
+      // Sanitize request bodies before logging
+      const sanitizedPreTransformRequest = sanitizeForLogging(input.preTransformRequest)
+      const sanitizedPostTransformRequest = sanitizeForLogging(input.postTransformRequest)
+
       this.insertRequestStmt.run(
         input.requestId,
         timestamp,
@@ -162,8 +168,8 @@ export class RequestLogStore {
         input.targetProvider,
         input.targetModel,
         input.targetEndpoint,
-        safeStringify(input.preTransformRequest),
-        safeStringify(input.postTransformRequest),
+        safeStringify(sanitizedPreTransformRequest),
+        safeStringify(sanitizedPostTransformRequest),
         input.isStreaming ? 1 : 0
       )
       logger.debug({ requestId: input.requestId }, 'Request logged')
@@ -184,9 +190,13 @@ export class RequestLogStore {
 
   logResponse(input: LogResponseInput): void {
     try {
+      // Sanitize response bodies before logging
+      const sanitizedPreTransformResponse = sanitizeForLogging(input.preTransformResponse)
+      const sanitizedPostTransformResponse = sanitizeForLogging(input.postTransformResponse)
+
       this.updateResponseStmt.run(
-        safeStringify(input.preTransformResponse),
-        safeStringify(input.postTransformResponse),
+        safeStringify(sanitizedPreTransformResponse),
+        safeStringify(sanitizedPostTransformResponse),
         input.statusCode,
         input.durationMs,
         input.errorMessage ?? null,
@@ -210,7 +220,26 @@ export class RequestLogStore {
 
   updateLog(requestId: string, updates: Partial<RequestLogEntry>): void {
     try {
-      const keys = Object.keys(updates).filter(
+      // Sanitize updates if they contain request/response bodies
+      const sanitizedUpdates = { ...updates }
+      if (sanitizedUpdates.preTransformRequest) {
+        sanitizedUpdates.preTransformRequest =
+          typeof sanitizedUpdates.preTransformRequest === 'string'
+            ? sanitizedUpdates.preTransformRequest
+            : safeStringify(
+                sanitizeForLogging(
+                  JSON.parse(sanitizedUpdates.preTransformRequest as unknown as string)
+                )
+              )
+      }
+      // Note: RequestLogEntry properties are strings, but updates might come in as objects before serialization
+      // However, the interface says string. Let's look at usage.
+      // Usage in proxy.ts: logStore.updateLog(reqId, { postTransformResponse, statusCode })
+      // where postTransformResponse is object or string.
+      // The RequestLogEntry interface defines these as strings, but the updateLog implementation handles objects via safeStringify.
+
+      // Let's sanitize the raw objects before they hit safeStringify loop below.
+      const keys = Object.keys(sanitizedUpdates).filter(
         (k) => k !== 'requestId' && k !== 'id' && k !== 'timestamp'
       )
       if (keys.length === 0) return
@@ -222,9 +251,15 @@ export class RequestLogStore {
       })
 
       const values = keys.map((k) => {
-        const val = updates[k as keyof RequestLogEntry]
+        let val = sanitizedUpdates[k as keyof RequestLogEntry]
+
+        // Sanitize object values before stringifying
+        if (typeof val === 'object' && val !== null) {
+          val = sanitizeForLogging(val)
+          return safeStringify(val)
+        }
+
         if (val === undefined) return null
-        if (typeof val === 'object' && val !== null) return safeStringify(val)
         if (typeof val === 'boolean') return val ? 1 : 0
         return val
       })

@@ -611,8 +611,8 @@ describe("Antigravity Response Transformations", () => {
                 id: "call-123",
                 name: "get_weather",
                 arguments: { location: "NYC" },
-                thoughtSignature: "sig789",
               },
+              thoughtSignature: "sig789",
             },
           ],
         });

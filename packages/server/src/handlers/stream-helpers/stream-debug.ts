@@ -1,4 +1,5 @@
 import { createLogger } from '@llmux/core'
+import { sanitizeForLogging } from '../../utils/sanitize-for-logging'
 
 const logger = createLogger({ service: 'stream-debug' })
 
@@ -76,9 +77,10 @@ function createFileLogger(options: StreamDebugOptions): StreamDebugLogger {
     logParseResult(input: string, output: unknown) {
       ensureInit()
       try {
+        const sanitizedOutput = sanitizeForLogging(output)
         fs.appendFileSync(
           logPath,
-          `\n--- PARSE RESULT ---\nInput: ${input.slice(0, 200)}\nOutput: ${JSON.stringify(output)}\n`
+          `\n--- PARSE RESULT ---\nInput: ${input.slice(0, 200)}\nOutput: ${JSON.stringify(sanitizedOutput)}\n`
         )
       } catch {
         // ignore
@@ -87,7 +89,8 @@ function createFileLogger(options: StreamDebugOptions): StreamDebugLogger {
     logFinalResponse(context: Record<string, unknown>) {
       const responsePath = logPath.replace('-stream.log', '-response.json')
       try {
-        fs.writeFileSync(responsePath, JSON.stringify(context, null, 2))
+        const sanitizedContext = sanitizeForLogging(context)
+        fs.writeFileSync(responsePath, JSON.stringify(sanitizedContext, null, 2))
         logger.debug(
           { reqId: options.reqId, debugFile: responsePath },
           '[DEBUG] Stream response saved'

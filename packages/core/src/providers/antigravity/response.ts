@@ -138,7 +138,7 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
 
       case 'tool_call': {
         // Add thoughtSignature for Claude compatibility
-        const signature = part.toolCall?.thoughtSignature || 'skip_thought_signature_validator'
+        const signature = part.thoughtSignature || 'skip_thought_signature_validator'
         parts.push({
           functionCall: {
             name: encodeAntigravityToolName(part.toolCall?.name ?? ''),
