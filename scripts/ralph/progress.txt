@@ -10,6 +10,8 @@
 - **Pattern:** Model capability configs in `model-capabilities.ts` use regex patterns checked in order (first match wins). More specific patterns must come before general ones.
 - **Pattern:** OpenAI Chat format `reasoning_effort` only supports `none|low|medium|high`; filter `minimal|xhigh` when mapping from `ReasoningEffort`.
 - **Pattern:** Unit tests for `packages/core/src/providers/*` are located in `packages/core/test/providers/`, not colocated.
+- **Pattern:** `BackoffStrategy` logic should be kept separate from retry loop logic to allow for independent testing and reuse.
+- **Pattern:** Parsing `Retry-After` headers requires handling both seconds (number) and HTTP Date strings.
 
 # Ralph Progress Log
 Started: Thu Jan 16 2026
@@ -189,4 +191,21 @@ Thread: http://100.64.0.2:8743/threads/T-019bc436-477a-7607-b115-b0303b05c316
   - When modifying builders that are initialized elsewhere (like Antigravity), ensure the state interface is updated and propagated correctly (e.g. `AntigravityParserState & AntigravityBuilderState`).
   - Private state can be accessed in tests via casting to `any` for verification when public methods don't expose it directly.
   - Consistent type exports (`type StreamingState`) are crucial when sharing state interfaces across modules.
+---
+
+## 2026-01-16 - US-013
+Thread: http://100.64.0.2:8743/threads/T-019bc43b-9c97-70ca-8325-21227227e529
+- Implemented `BackoffStrategy` interface and provider-specific strategies in `packages/core/src/providers/backoff.ts`:
+  - `DefaultBackoffStrategy`: Exponential backoff with jitter and Retry-After support
+  - `AnthropicBackoffStrategy`: Optimized defaults for Anthropic
+  - `GeminiBackoffStrategy`: Lower max delay cap
+- Exported strategies and `getBackoffStrategy` factory from `packages/core/src/index.ts`
+- Added comprehensive unit tests in `packages/core/src/providers/backoff.test.ts`
+- Files changed:
+  - `packages/core/src/providers/backoff.ts` (new)
+  - `packages/core/src/providers/backoff.test.ts` (new)
+  - `packages/core/src/index.ts`
+- **Learnings for future iterations:**
+  - `BackoffStrategy` logic should be kept separate from retry loop logic to allow for independent testing and reuse.
+  - Parsing `Retry-After` headers requires handling both seconds (number) and HTTP Date strings.
 ---
