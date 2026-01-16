@@ -3,7 +3,7 @@ import { type Credential, isOAuthCredential, type OAuthCredential, TokenRefresh 
 import { createLogger } from '@llmux/core'
 import { AccountRotationWithTierManager, type ModelFamily } from './account-rotation-with-tier'
 import { getModelFamily } from './family-rate-limiting'
-import { type LimitType, rateLimitStore } from './rate-limit-store'
+import { rateLimitStore } from './rate-limit-store'
 
 const logger = createLogger({ service: 'account-rotation-manager' })
 
@@ -74,7 +74,6 @@ export class AccountRotationManager {
     model: string,
     index: number,
     durationMs: number,
-    type: LimitType = 'soft',
     reason?: string
   ): Promise<void> {
     const family = getModelFamily(model, provider)
@@ -86,7 +85,6 @@ export class AccountRotationManager {
     if (credentials?.[index]) {
       const accountId = this.getAccountId(credentials[index])
       rateLimitStore.markLimit(provider, accountId, family, {
-        type,
         expiresAt: durationMs > 0 ? Date.now() + durationMs : null,
         reason,
       })

@@ -44,4 +44,5 @@ export interface ErrorHandlingResult {
   newModel?: string
   newProvider?: ProviderName
   delay?: number
+  reason?: string
 }
