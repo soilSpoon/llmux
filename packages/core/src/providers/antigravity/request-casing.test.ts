@@ -5,7 +5,7 @@ import type { UnifiedRequest } from '../../../src/types/unified'
 describe('AntigravityProvider Casing', () => {
   const provider = new AntigravityProvider()
   
-  it('should maintain camelCase keys in transformed request', () => {
+  it('should convert keys to snake_case in transformed request (Wire Format)', () => {
     const request: UnifiedRequest = {
       messages: [
         { role: 'user', parts: [{ type: 'text', text: 'Hello' }] }
@@ -18,7 +18,8 @@ describe('AntigravityProvider Casing', () => {
           parameters: {
             type: 'object',
             properties: {
-              location: { type: 'string' }
+              location: { type: 'string' },
+              userId: { type: 'string' } // Camel case param should be preserved
             }
           }
         }
@@ -35,39 +36,44 @@ describe('AntigravityProvider Casing', () => {
       }
     }
     
-    const transformed = provider.transform(request, 'antigravity-claude-sonnet-4-5-thinking')
-    const innerRequest = transformed.request as Record<string, any>
+    const transformed = provider.transform(request, 'antigravity-claude-sonnet-4-5-thinking') as Record<string, any>
+    const innerRequest = transformed.request
     
     // Check top-level keys
-    expect(innerRequest).toHaveProperty('systemInstruction')
-    expect(innerRequest).not.toHaveProperty('system_instruction')
+    expect(innerRequest).toHaveProperty('system_instruction')
+    expect(innerRequest).not.toHaveProperty('systemInstruction')
     
-    expect(innerRequest).toHaveProperty('generationConfig')
-    expect(innerRequest).not.toHaveProperty('generation_config')
+    expect(innerRequest).toHaveProperty('generation_config')
+    expect(innerRequest).not.toHaveProperty('generationConfig')
     
     expect(innerRequest).toHaveProperty('tools')
     
     // Check nested keys in generationConfig
-    const genConfig = innerRequest.generationConfig
-    expect(genConfig).toHaveProperty('maxOutputTokens')
-    expect(genConfig).not.toHaveProperty('max_output_tokens')
+    const genConfig = innerRequest.generation_config
+    expect(genConfig).toHaveProperty('max_output_tokens')
+    expect(genConfig).not.toHaveProperty('maxOutputTokens')
     
-    expect(genConfig).toHaveProperty('stopSequences')
-    expect(genConfig).not.toHaveProperty('stop_sequences')
+    expect(genConfig).toHaveProperty('stop_sequences')
+    expect(genConfig).not.toHaveProperty('stopSequences')
     
-    expect(genConfig).toHaveProperty('thinkingConfig')
-    expect(genConfig).not.toHaveProperty('thinking_config')
+    expect(genConfig).toHaveProperty('thinking_config')
+    expect(genConfig).not.toHaveProperty('thinkingConfig')
     
-    const thinkingConfig = genConfig.thinkingConfig
-    expect(thinkingConfig).toHaveProperty('thinkingBudget')
-    expect(thinkingConfig).not.toHaveProperty('thinking_budget')
+    const thinkingConfig = genConfig.thinking_config
+    expect(thinkingConfig).toHaveProperty('thinking_budget')
+    expect(thinkingConfig).not.toHaveProperty('thinkingBudget')
     
-    expect(thinkingConfig).toHaveProperty('includeThoughts')
-    expect(thinkingConfig).not.toHaveProperty('include_thoughts')
+    expect(thinkingConfig).toHaveProperty('include_thoughts')
+    expect(thinkingConfig).not.toHaveProperty('includeThoughts')
     
     // Check nested keys in tools
     const tools = innerRequest.tools
-    expect(tools[0]).toHaveProperty('functionDeclarations')
-    expect(tools[0]).not.toHaveProperty('function_declarations')
+    expect(tools[0]).toHaveProperty('function_declarations')
+    expect(tools[0]).not.toHaveProperty('functionDeclarations')
+    
+    // Check parameter preservation (should NOT be snake_case)
+    const params = tools[0].function_declarations[0].parameters
+    expect(params.properties).toHaveProperty('userId')
+    expect(params.properties).not.toHaveProperty('user_id')
   })
 })

@@ -140,8 +140,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Implemented convertToWireFormat using convertKeysDeep with strict preservation of args/parameters. Verified with updated request-casing.test.ts."
     },
     {
       "id": "US-010",

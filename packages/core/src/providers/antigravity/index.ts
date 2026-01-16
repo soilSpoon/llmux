@@ -7,14 +7,16 @@
 
 import crypto from 'node:crypto'
 import { buildWireRequest as buildGeminiRequest } from '../../formats/google-gemini/request'
-import type { GeminiRequest, GeminiResponse } from '../../formats/google-gemini/types'
+import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
+import { parseResponse, transformResponse } from './response'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import {
+  convertToWireFormat,
   createInnerRequest,
   ensureToolConfig,
   extractMetadata,
@@ -22,7 +24,7 @@ import {
   normalizeGenerationConfig,
   preprocessTools,
 } from './transform-utils'
-import { type AntigravityRequest, type AntigravityResponse, isAntigravityRequest } from './types'
+import { type AntigravityResponse, isAntigravityRequest } from './types'
 
 export class AntigravityProvider extends BaseProvider {
   readonly name: ProviderName
@@ -213,6 +215,9 @@ export class AntigravityProvider extends BaseProvider {
     ensureToolConfig(innerRequest, model)
     normalizeGenerationConfig(innerRequest, model)
 
+    // Convert to snake_case wire format at the boundary
+    const wireRequest = convertToWireFormat(innerRequest)
+
     // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
     // Fallback values are used if metadata is missing entirely.
     return {
@@ -222,7 +227,7 @@ export class AntigravityProvider extends BaseProvider {
       userAgent: 'antigravity',
       requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
       userRole: request.userRole,
-      request: innerRequest,
+      request: wireRequest,
       metadata: extractMetadata(request.metadata),
     }
   }
@@ -232,19 +237,7 @@ export class AntigravityProvider extends BaseProvider {
    * Handles both wrapped ({ response: { candidates: ... } }) and unwrapped formats.
    */
   parseResponse(response: unknown): UnifiedResponse {
-    // Unwrap Antigravity envelope if present
-    let geminiResponse = response
-    if (
-      response &&
-      typeof response === 'object' &&
-      'response' in response &&
-      (response as Record<string, unknown>).response &&
-      typeof (response as Record<string, unknown>).response === 'object'
-    ) {
-      geminiResponse = (response as Record<string, unknown>).response
-    }
-
-    return getFormat('google-gemini').parseResponse(geminiResponse as unknown as GeminiResponse)
+    return parseResponse(response)
   }
 
   /**
@@ -252,12 +245,7 @@ export class AntigravityProvider extends BaseProvider {
    * Wraps the Gemini-style response with Antigravity envelope.
    */
   transformResponse(response: UnifiedResponse): AntigravityResponse {
-    const geminiResponse = getFormat('google-gemini').buildWireResponse(response, {
-      provider: 'antigravity',
-      model: response.model || 'gemini-2.0-flash',
-    }) as GeminiResponse
-
-    return { response: geminiResponse }
+    return transformResponse(response)
   }
 
   /**

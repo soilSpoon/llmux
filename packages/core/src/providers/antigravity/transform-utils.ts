@@ -7,6 +7,7 @@ import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import { isThinkingModel as isThinkingModelCore } from '../../thinking/model-capabilities'
 import type { JSONSchema, RequestMetadata, UnifiedTool } from '../../types/unified'
+import { camelToSnakeKey, convertKeysDeep } from '../../utils/casing'
 import type {
   AntigravityGenerationConfig,
   AntigravityInnerRequest,
@@ -31,6 +32,16 @@ export function isGemini3Model(model: string): boolean {
  */
 export function isThinkingModel(model: string): boolean {
   return isThinkingModelCore(model, 'antigravity')
+}
+
+/**
+ * This is used at the boundary before sending to Antigravity API
+ */
+export function convertToWireFormat(request: AntigravityInnerRequest): Record<string, unknown> {
+  return convertKeysDeep(request as unknown as Record<string, unknown>, camelToSnakeKey, {
+    preserveKeys: ['contents', 'parts', 'text', 'inlineData', 'data', 'mimeType'],
+    preserveTree: ['parameters', 'args', 'response'],
+  }) as Record<string, unknown>
 }
 
 /**

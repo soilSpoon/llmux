@@ -5,6 +5,7 @@
 - Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
 - Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
 - Use `convertKeysDeep()` from `@llmux/core` for recursive key transformation at provider boundaries
+- When using `convertKeysDeep` for Gemini/Antigravity, use `preserveTree: ['parameters', 'args', 'response']` to protect user-defined keys
 - ThinkingMode type is in `types/provider-strategies.ts` - reuse it for mode definitions
 - ThinkingPolicy interface is in `@llmux/core/src/thinking/thinking-policy.ts` - central source of truth for thinking decisions
 - Use `isThinkingModel()` from `@llmux/core/src/thinking/model-capabilities.ts` for table-driven model capability detection
@@ -150,4 +151,20 @@ Thread: http://100.64.0.2:8743/threads/T-019bc406-c114-72c7-9b9b-049adb7a8fc8
   - `isClaudeFresh` is computed inside the pipeline (via `sanitizeRequestSignatures`) and also passed into policy computation in builder.
   - The pipeline uses a combined check: `policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false`.
   - This ensures that if the pipeline discovers we are in "Claude Fresh" mode (signature stripping), we force disable thinking even if the policy was initially enabled.
+---
+
+## [2026-01-16] - US-009
+Thread: http://100.64.0.2:8743/threads/T-019bc471-c8ad-762f-a72e-edcc1e698f76
+- Implemented `convertToWireFormat` in `transform-utils.ts` using `convertKeysDeep`
+- Configured strict preservation of `parameters`, `args`, and `response` keys to protect user-defined schemas and data
+- Updated `AntigravityProvider.transform` to use `convertToWireFormat` at the boundary and return snake_case object
+- Changed `transform` return type to `unknown` to reflect dynamic snake_case structure
+- Updated `request-casing.test.ts` to assert snake_case keys and verify parameter preservation
+- Files changed:
+  - packages/core/src/providers/antigravity/transform-utils.ts (modified)
+  - packages/core/src/providers/antigravity/index.ts (modified)
+  - packages/core/src/providers/antigravity/request-casing.test.ts (modified)
+- **Learnings for future iterations:**
+  - When converting to wire format using `convertKeysDeep`, use `preserveTree: ['parameters', 'args', 'response']` for Gemini-based providers to prevent corrupting user-defined parameter names.
+  - Changing provider transform return type to `unknown` is safe as `BaseProvider` defines it as `unknown`, but requires casting if used internally with specific types.
 ---
