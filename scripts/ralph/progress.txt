@@ -209,3 +209,19 @@ Thread: http://100.64.0.2:8743/threads/T-019bc43b-9c97-70ca-8325-21227227e529
   - `BackoffStrategy` logic should be kept separate from retry loop logic to allow for independent testing and reuse.
   - Parsing `Retry-After` headers requires handling both seconds (number) and HTTP Date strings.
 ---
+
+## 2026-01-16 - US-014
+Thread: http://100.64.0.2:8743/threads/T-019bc467-b507-76ca-b7a1-c2baa478e990
+- Implemented Gemini image token estimation
+- Created `estimateGeminiImageTokens` and `calculateGeminiTotalInputTokens` utilities in `packages/core/src/util/token-estimation.ts`
+- Updated `accumulateGeminiResponse` in `packages/core/src/sse/accumulators.ts` to include image tokens in usage metadata
+- Added unit tests for token estimation logic
+- Files changed:
+  - `packages/core/src/util/token-estimation.ts` (new)
+  - `packages/core/src/sse/accumulators.ts`
+  - `packages/core/src/index.ts`
+  - `packages/core/src/util/__tests__/token-estimation.test.ts` (new)
+- **Learnings for future iterations:**
+  - `accumulateGeminiResponse` now updates usage metadata with accurate input token counts including images.
+  - Used explicit `GeminiContent[]` casting instead of `any` to satisfy biome linting rules.
+---
