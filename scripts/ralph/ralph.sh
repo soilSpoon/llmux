@@ -64,10 +64,24 @@ for i in $(seq 1 $MAX_ITERATIONS); do
   
   # Check for completion signal
   if echo "$OUTPUT" | grep -q "<promise>COMPLETE</promise>"; then
-    echo ""
-    echo "Ralph completed all tasks!"
-    echo "Completed at iteration $i of $MAX_ITERATIONS"
-    exit 0
+    # Verify completion against PRD using jq
+    if [ -f "$PRD_FILE" ]; then
+      REMAINING_TASKS=$(jq '[.userStories[] | select(.passes == false)] | length' "$PRD_FILE")
+      
+      if [ "$REMAINING_TASKS" -eq "0" ]; then
+        echo ""
+        echo "✅ Ralph completed all tasks! (Verified with prd.json)"
+        echo "Completed at iteration $i of $MAX_ITERATIONS"
+        exit 0
+      else
+        echo ""
+        echo "⚠️  Agent signaled completion, but $REMAINING_TASKS tasks remain in prd.json."
+        echo "   Ignoring false completion signal and continuing..."
+      fi
+    else
+      echo "⚠️  prd.json not found to verify completion. Exiting based on agent signal."
+      exit 0
+    fi
   fi
   
   echo "Iteration $i complete. Continuing..."
