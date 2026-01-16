@@ -92,6 +92,6 @@ describe('Antigravity Thinking Budget Mapping', () => {
     const thinkingConfig = result.request.generationConfig?.thinkingConfig as ClaudeThinkingConfig
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinkingBudget).toBe(16000)
+    expect(thinkingConfig.thinkingBudget).toBe(16384)
   })
 })

@@ -127,9 +127,13 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
         }
       }
 
+      if (!budget) {
+        budget = 16384
+      }
+
       genConfig.thinkingConfig = {
         includeThoughts: request.thinking.includeThoughts,
-        thinkingBudget: request.thinking.budget,
+        thinkingBudget: budget,
       } as ClaudeThinkingConfig
     } else if (model.toLowerCase().includes('gemini')) {
       // Map reasoning_effort to thinkingLevel for Gemini 3

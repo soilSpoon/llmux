@@ -103,7 +103,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   } else if (sourceFormat === 'openai-chat') {
     streamingBuilder = new OpenAIChatStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'google-gemini') {
-    streamingBuilder = new GeminiStreamingBuilder(formatContext.model)
+    streamingBuilder = new GeminiStreamingBuilder()
   } else if (sourceFormat === 'openai-responses') {
     streamingBuilder = new OpenAIResponsesStreamingBuilder(formatContext.model)
   }

@@ -10,12 +10,19 @@ import { transformStreamChunk } from './streaming'
 export class OpenAIChatStreamingBuilder {
   private state = {
     finished: false,
+    model: 'unknown',
     // Stream normalization state
     normalization: {
       hasThinkingStarted: false,
       hasThinkingEnded: false,
       hasTextStarted: false,
     },
+  }
+
+  constructor(model?: string) {
+    if (model) {
+      this.state.model = model
+    }
   }
 
   /**
@@ -31,7 +38,7 @@ export class OpenAIChatStreamingBuilder {
     const results: string[] = []
 
     for (const normalizedChunk of normalizedChunks) {
-      const output = transformStreamChunk(normalizedChunk)
+      const output = transformStreamChunk(normalizedChunk, this.state.model)
       if (output) {
         // In OpenAI format, each data line is followed by \n\n
         results.push(`${output}\n\n`)

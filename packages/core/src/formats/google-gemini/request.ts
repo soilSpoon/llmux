@@ -617,7 +617,7 @@ function transformGenerationConfig(
     // Detect Gemini 3+ models to use thinkingLevel instead of budget
     // Model names like: gemini-3.0-flash, gemini-3-pro, etc.
     // NOTE: -preview models (like gemini-3-pro-preview) often don't support thinkingLevel yet
-    const isGemini3 = ctx?.model?.includes('gemini-3') && !ctx?.model?.includes('-preview')
+    const isGemini3 = ctx?.model?.includes('gemini-3')
 
     result.thinkingConfig = {
       includeThoughts: thinking.includeThoughts ?? thinking.enabled,
