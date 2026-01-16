@@ -62,7 +62,6 @@ export function parse(request: unknown): UnifiedRequest {
 }
 
 import { applyThinkingConfig } from '../../transform/thinking'
-import { stripThinkingFromMessages } from '../../util/thinking-utils'
 
 /**
  * Transform UnifiedRequest into AnthropicRequest
@@ -70,7 +69,7 @@ import { stripThinkingFromMessages } from '../../util/thinking-utils'
 export function transform(request: UnifiedRequest, model?: string): AnthropicRequest {
   const result: AnthropicRequest = {
     model: model || (request.metadata?.model as string) || '', // Use provided model or restore from metadata
-    messages: transformMessages(stripThinkingFromMessages(request.messages)),
+    messages: transformMessages(request.messages),
     max_tokens: request.config?.maxTokens ?? DEFAULT_MAX_TOKENS,
   }
 

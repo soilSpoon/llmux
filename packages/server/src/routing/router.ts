@@ -2,6 +2,7 @@ import { createLogger, type ProviderName } from '@llmux/core'
 import type { RoutingConfig } from '../config'
 import { type CooldownManager, globalCooldownManager } from '../cooldown'
 import { AllCooldownError } from '../handlers/error-utils'
+import { parseModelMapping } from '../handlers/model-mapping'
 import type { ModelLookup } from '../models/lookup'
 import { ModelRouter } from './model-router'
 import type { UpstreamProvider } from './types'
@@ -27,7 +28,7 @@ export class Router {
     // routing/types.ts: UpstreamProvider = ProviderName | 'openai-web' | 'opencode-zen'
     // config.ts: ProviderName (core)
     // They are compatible as UpstreamProvider is a superset
-    const modelMappings = config.modelMapping as
+    let modelMappings = config.modelMapping as
       | Record<
           string,
           {
@@ -37,6 +38,29 @@ export class Router {
           }
         >
       | undefined
+
+    // If plural modelMappings exists, convert it to the internal record format
+    if (config.modelMappings && Array.isArray(config.modelMappings)) {
+      modelMappings = modelMappings || {}
+      for (const m of config.modelMappings) {
+        const to = Array.isArray(m.to) ? m.to[0] : m.to
+        if (to) {
+          const parsed = parseModelMapping(to)
+          const fallbacks = Array.isArray(m.to)
+            ? m.to.slice(1).map((f) => {
+                const p = parseModelMapping(f)
+                return p.provider ? `${p.provider}/${p.model}` : p.model
+              })
+            : undefined
+
+          modelMappings[m.from] = {
+            provider: (parsed.provider as UpstreamProvider) || ('' as UpstreamProvider),
+            model: parsed.model,
+            fallbacks,
+          }
+        }
+      }
+    }
 
     // Initialize ModelRouter
     this.modelRouter = new ModelRouter({

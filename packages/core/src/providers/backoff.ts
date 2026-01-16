@@ -74,13 +74,13 @@ export class DefaultBackoffStrategy implements BackoffStrategy {
     // value can be seconds or HTTP date
     // Try parsing as number (seconds)
     const seconds = Number(value)
-    if (!isNaN(seconds)) {
+    if (!Number.isNaN(seconds)) {
       return seconds * 1000
     }
 
     // Try parsing as Date
     const date = Date.parse(value)
-    if (!isNaN(date)) {
+    if (!Number.isNaN(date)) {
       const ms = date - Date.now()
       return Math.max(0, ms)
     }

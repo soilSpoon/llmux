@@ -226,11 +226,7 @@ export class RequestLogStore {
         sanitizedUpdates.preTransformRequest =
           typeof sanitizedUpdates.preTransformRequest === 'string'
             ? sanitizedUpdates.preTransformRequest
-            : safeStringify(
-                sanitizeForLogging(
-                  JSON.parse(sanitizedUpdates.preTransformRequest as unknown as string)
-                )
-              )
+            : safeStringify(JSON.parse(sanitizedUpdates.preTransformRequest as unknown as string))
       }
       // Note: RequestLogEntry properties are strings, but updates might come in as objects before serialization
       // However, the interface says string. Let's look at usage.
@@ -258,6 +254,10 @@ export class RequestLogStore {
           val = sanitizeForLogging(val)
           return safeStringify(val)
         }
+
+        // If it's one of the body fields and it's a string, we might need to parse and sanitize
+        // but usually they are passed as objects to updateLog for convenience.
+        // The interface says string, but implementation handles objects.
 
         if (val === undefined) return null
         if (typeof val === 'boolean') return val ? 1 : 0

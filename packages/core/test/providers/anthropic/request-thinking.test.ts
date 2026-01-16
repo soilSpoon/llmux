@@ -2,8 +2,8 @@ import { describe, expect, it } from 'bun:test'
 import type { UnifiedRequest } from '../../../src/types/unified'
 import { transform } from '../../../src/providers/anthropic/request'
 
-describe('Anthropic Request Transform - Thinking Stripping', () => {
-  it('should strip thinking blocks from conversation history', () => {
+describe('Anthropic Request Transform - Thinking Preservation', () => {
+  it('should preserve thinking blocks in conversation history', () => {
     const request: UnifiedRequest = {
       messages: [
         {
@@ -39,10 +39,15 @@ describe('Anthropic Request Transform - Thinking Stripping', () => {
       { type: 'text', text: 'Hello' },
     ])
 
-    // Verify assistant message has thinking stripped
+    // Verify assistant message has thinking preserved
     expect(result.messages[1]!.role).toBe('assistant')
-    expect(result.messages[1]!.content).toHaveLength(1) // Only text part remains
+    expect(result.messages[1]!.content).toHaveLength(2)
     expect(result.messages[1]!.content[0]).toEqual({
+      type: 'thinking',
+      thinking: 'I should greet the user',
+      signature: 'sig123',
+    })
+    expect(result.messages[1]!.content[1]).toEqual({
       type: 'text',
       text: 'Hi there!',
     })
@@ -53,7 +58,7 @@ describe('Anthropic Request Transform - Thinking Stripping', () => {
     ])
   })
 
-  it('should preserve text parts even if thinking is present', () => {
+  it('should preserve thinking parts alongside text', () => {
     const request: UnifiedRequest = {
       messages: [
         {
@@ -73,12 +78,17 @@ describe('Anthropic Request Transform - Thinking Stripping', () => {
 
     const result = transform(request)
 
-    expect(result.messages[0]!.content).toHaveLength(2)
+    expect(result.messages[0]!.content).toHaveLength(3)
     expect(result.messages[0]!.content[0]).toEqual({ type: 'text', text: 'Part 1' })
-    expect(result.messages[0]!.content[1]).toEqual({ type: 'text', text: 'Part 2' })
+    expect(result.messages[0]!.content[1]).toEqual({
+      type: 'thinking',
+      thinking: 'Thinking...',
+      signature: 'sig',
+    })
+    expect(result.messages[0]!.content[2]).toEqual({ type: 'text', text: 'Part 2' })
   })
 
-  it('should handle messages with only thinking blocks (result in empty content)', () => {
+  it('should preserve messages with only thinking blocks', () => {
     const request: UnifiedRequest = {
       messages: [
         {
@@ -96,8 +106,11 @@ describe('Anthropic Request Transform - Thinking Stripping', () => {
 
     const result = transform(request)
 
-    // Anthropic API might reject empty content, but transform should strip it correctly
-    // It is up to the caller or validation layer to ensure messages are not empty if required
-    expect(result.messages[0]!.content).toHaveLength(0)
+    expect(result.messages[0]!.content).toHaveLength(1)
+    expect(result.messages[0]!.content[0]).toEqual({
+      type: 'thinking',
+      thinking: 'Just thinking...',
+      signature: 'sig',
+    })
   })
 })
