@@ -23,6 +23,7 @@ export interface ExecuteUpstreamOptions {
   timeoutMs?: number
   networkErrorBaseDelayMs?: number
   networkErrorMaxDelayMs?: number
+  signal?: AbortSignal
 }
 
 export interface ExecuteUpstreamResult {
@@ -53,6 +54,7 @@ export async function executeUpstream(
     timeoutMs: opts.timeoutMs,
     networkErrorBaseDelayMs: opts.networkErrorBaseDelayMs,
     networkErrorMaxDelayMs: opts.networkErrorMaxDelayMs,
+    signal: opts.signal,
   })
 
   if (!dispatchResult.response) {

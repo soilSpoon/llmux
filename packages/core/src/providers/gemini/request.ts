@@ -199,8 +199,29 @@ function parseGenerationConfig(config?: GeminiGenerationConfig) {
   if (config.topK !== undefined) {
     result.topK = config.topK
   }
-  if (config.stopSequences !== undefined) {
+  if (config.stopSequences) {
     result.stopSequences = config.stopSequences
+  }
+  if (config.responseFormat) {
+    const format = config.responseFormat
+    if (format.type === 'json_schema' && 'json_schema' in format) {
+      // @ts-expect-error - GeminiGenerationConfig type needs update
+      result.responseMimeType = 'application/json'
+      const jsonSchema = format.json_schema as {
+        name: string
+        strict?: boolean
+        schema?: Record<string, unknown>
+        description?: string
+      }
+      const schema = jsonSchema?.schema
+      if (schema) {
+        // @ts-expect-error - GeminiGenerationConfig type needs update
+        result.responseSchema = transformSchema(schema as JSONSchema)
+      }
+    } else if (format.type === 'json_object') {
+      // @ts-expect-error - GeminiGenerationConfig type needs update
+      result.responseMimeType = 'application/json'
+    }
   }
 
   return Object.keys(result).length > 0 ? result : undefined

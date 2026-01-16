@@ -5,7 +5,6 @@
 
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
-import { isThinkingModel as isThinkingModelCore } from '../../thinking/model-capabilities'
 import type { JSONSchema, RequestMetadata, UnifiedTool } from '../../types/unified'
 import type {
   AntigravityGenerationConfig,
@@ -30,7 +29,8 @@ export function isGemini3Model(model: string): boolean {
  * Delegates to the centralized model-capabilities module.
  */
 export function isThinkingModel(model: string): boolean {
-  return isThinkingModelCore(model, 'antigravity')
+  const m = model.toLowerCase()
+  return m.includes('thinking') || m.includes('gemini-3')
 }
 
 /**

@@ -8,6 +8,7 @@
 import crypto from 'node:crypto'
 import { buildWireRequest as buildGeminiRequest } from '../../formats/google-gemini/request'
 import type { GeminiRequest, GeminiResponse } from '../../formats/google-gemini/types'
+import { isGeminiRequest } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
@@ -24,6 +25,38 @@ import {
 } from './transform-utils'
 import { type AntigravityRequest, type AntigravityResponse, isAntigravityRequest } from './types'
 
+/**
+ * Extract the inner GeminiRequest from various Antigravity request formats.
+ * Returns the inner request and optional metadata if the input is valid.
+ */
+function extractGeminiRequest(request: unknown): {
+  geminiRequest: GeminiRequest
+  project?: string
+  model?: string
+  userRole?: string
+} | null {
+  // Case 1: Wrapped Antigravity request { project, model, request: {...} }
+  if (isAntigravityRequest(request)) {
+    const inner = request.request
+    // AntigravityInnerRequest is compatible with GeminiRequest
+    if (isGeminiRequest(inner)) {
+      return {
+        geminiRequest: inner,
+        project: request.project,
+        model: request.model,
+        userRole: request.userRole,
+      }
+    }
+  }
+
+  // Case 2: Raw GeminiRequest (unwrapped)
+  if (isGeminiRequest(request)) {
+    return { geminiRequest: request }
+  }
+
+  return null
+}
+
 export class AntigravityProvider extends BaseProvider {
   readonly name: ProviderName
   readonly config: ProviderConfig
@@ -36,7 +69,7 @@ export class AntigravityProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
-      defaultStreamParser: 'sse-standard',
+      defaultStreamParser: 'sse-line-delimited',
     }
   }
 
@@ -82,38 +115,25 @@ export class AntigravityProvider extends BaseProvider {
    * Handles both wrapped ({ request: { contents: ... } }) and unwrapped formats.
    */
   parse(request: unknown): UnifiedRequest {
-    // Unwrap Antigravity envelope if present
-    let geminiRequest: Record<string, unknown>
-    let project: string | undefined
-    let model: string | undefined
+    // Use type guard to extract and validate the inner GeminiRequest
+    const extracted = extractGeminiRequest(request)
 
-    let userRole: string | undefined
-
-    if (isAntigravityRequest(request)) {
-      geminiRequest = request.request as unknown as Record<string, unknown>
-      project = request.project
-      model = request.model
-      userRole = request.userRole
-    } else {
-      // Fallback or unwrapped
-      geminiRequest = request as Record<string, unknown>
+    if (!extracted) {
+      // Fallback for invalid/unknown formats - let parseRequest handle the error
+      throw new Error('Invalid Antigravity request: missing or invalid contents')
     }
 
-    // Normalize snake_case keys to camelCase for Gemini parser compatibility
-    // We only target specific structural keys to avoid corrupting data/schema keys
-    this.normalizeRequestKeys(geminiRequest)
+    const { geminiRequest, project, model, userRole } = extracted
 
-    // Antigravity's inner request is exactly GeminiRequest
-    const unified = getFormat('google-gemini').parseRequest(
-      geminiRequest as unknown as GeminiRequest
-    )
+    // Parse the validated GeminiRequest - no type assertion needed
+    const unified = getFormat('google-gemini').parseRequest(geminiRequest)
 
     if (userRole) {
       unified.userRole = userRole
     }
 
     // Extract non-standard fields from geminiRequest into metadata
-    const standardGeminiFields = [
+    const standardGeminiFields = new Set([
       'contents',
       'systemInstruction',
       'generationConfig',
@@ -121,74 +141,20 @@ export class AntigravityProvider extends BaseProvider {
       'toolConfig',
       'safetySettings',
       'cachedContent',
-    ]
+    ])
     const metadata: Record<string, unknown> = { ...unified.metadata }
 
     if (project) metadata.project = project
     if (model) metadata.model = model
 
     for (const key of Object.keys(geminiRequest)) {
-      if (!standardGeminiFields.includes(key)) {
-        metadata[key] = geminiRequest[key]
+      if (!standardGeminiFields.has(key)) {
+        metadata[key] = geminiRequest[key as keyof GeminiRequest]
       }
     }
 
     unified.metadata = metadata
     return unified
-  }
-
-  /**
-   * Normalizes snake_case keys in Gemini request to camelCase in-place
-   */
-  private normalizeRequestKeys(request: Record<string, unknown>): void {
-    const mapKey = (oldKey: string, newKey: string, target: Record<string, unknown>) => {
-      if (oldKey in target && !(newKey in target)) {
-        target[newKey] = target[oldKey]
-        delete target[oldKey]
-      }
-    }
-
-    // Top-level keys
-    mapKey('system_instruction', 'systemInstruction', request)
-    mapKey('generation_config', 'generationConfig', request)
-    mapKey('tool_config', 'toolConfig', request)
-    mapKey('safety_settings', 'safetySettings', request)
-
-    // generationConfig
-    if (request.generationConfig && typeof request.generationConfig === 'object') {
-      const gc = request.generationConfig as Record<string, unknown>
-      mapKey('stop_sequences', 'stopSequences', gc)
-      mapKey('max_output_tokens', 'maxOutputTokens', gc)
-      mapKey('response_mime_type', 'responseMimeType', gc)
-      mapKey('response_schema', 'responseSchema', gc)
-      mapKey('thinking_config', 'thinkingConfig', gc)
-
-      if (gc.thinkingConfig && typeof gc.thinkingConfig === 'object') {
-        const tc = gc.thinkingConfig as Record<string, unknown>
-        mapKey('include_thoughts', 'includeThoughts', tc)
-        mapKey('thinking_budget', 'thinkingBudget', tc)
-      }
-    }
-
-    // tools
-    if (Array.isArray(request.tools)) {
-      for (const tool of request.tools) {
-        if (tool && typeof tool === 'object') {
-          mapKey('function_declarations', 'functionDeclarations', tool as Record<string, unknown>)
-        }
-      }
-    }
-
-    // toolConfig
-    if (request.toolConfig && typeof request.toolConfig === 'object') {
-      const tc = request.toolConfig as Record<string, unknown>
-      mapKey('function_calling_config', 'functionCallingConfig', tc)
-
-      if (tc.functionCallingConfig && typeof tc.functionCallingConfig === 'object') {
-        const fcc = tc.functionCallingConfig as Record<string, unknown>
-        mapKey('allowed_function_names', 'allowedFunctionNames', fcc)
-      }
-    }
   }
 
   /**
@@ -215,6 +181,8 @@ export class AntigravityProvider extends BaseProvider {
 
     // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
     // Fallback values are used if metadata is missing entirely.
+    // NOTE: Client-Metadata should be sent via headers, not body.
+    // We expose it here for inspection, but clients should strip 'metadata' from body and send as headers.
     return {
       project: request.metadata?.project ?? '',
       model,
@@ -222,6 +190,7 @@ export class AntigravityProvider extends BaseProvider {
       userAgent: 'antigravity',
       requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
       userRole: request.userRole,
+      // Convert inner request to wire format (strip undefineds, handle keys)
       request: innerRequest,
       metadata: extractMetadata(request.metadata),
     }

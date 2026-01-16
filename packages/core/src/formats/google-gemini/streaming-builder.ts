@@ -119,7 +119,7 @@ export class GeminiStreamingBuilder {
 
     // Emit streaming chunk if we have accumulated parts
     if (this.state.accumulatedParts.length > 0) {
-      const geminiChunk = {
+      const geminiChunk: Record<string, unknown> = {
         candidates: [
           {
             content: {

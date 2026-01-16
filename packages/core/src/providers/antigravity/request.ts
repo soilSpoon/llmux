@@ -6,7 +6,13 @@ import {
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { UnifiedRequest } from '../../types/unified'
-import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
+import {
+  ANTIGRAVITY_SYSTEM_INSTRUCTION,
+  CLAUDE_MIN_OUTPUT_TOKENS,
+  DEFAULT_THINKING_BUDGET,
+  SKIP_THOUGHT_SIGNATURE,
+  THINKING_BUDGETS,
+} from './constants'
 import {
   createInnerRequest,
   ensureToolConfig,
@@ -91,67 +97,50 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     // Claude thinking models use camelCase config format
     if (isClaudeModel(model) && isThinkingModel(model)) {
       // Min output tokens for Claude thinking
-      if ((request.config?.maxTokens || 0) < 64000) {
-        genConfig.maxOutputTokens = 64000
+      if ((request.config?.maxTokens || 0) < CLAUDE_MIN_OUTPUT_TOKENS) {
+        genConfig.maxOutputTokens = CLAUDE_MIN_OUTPUT_TOKENS
+      }
+
+      // Derive budget from level if not explicitly provided
+      let budget = request.thinking.budget
+
+      // Fallback: Map reasoning_effort (from OpenAI format) to thinking budget
+      if (!budget) {
+        if (request.thinking.effort && request.thinking.effort !== 'none') {
+          budget = THINKING_BUDGETS[request.thinking.effort]
+        } else if (request.thinking.level && request.thinking.level !== 'minimal') {
+          budget = THINKING_BUDGETS[request.thinking.level]
+        }
+      }
+
+      if (!budget) {
+        budget = DEFAULT_THINKING_BUDGET
       }
 
       genConfig.thinkingConfig = {
         includeThoughts: request.thinking.includeThoughts,
-        thinkingBudget: request.thinking.budget,
+        thinkingBudget: budget,
       } as ClaudeThinkingConfig
     } else if (model.toLowerCase().includes('gemini')) {
+      // Map reasoning_effort to thinkingLevel for Gemini 3
+      let level = request.thinking.level
+
+      if (!level && request.thinking.effort) {
+        // Direct mapping from reasoning_effort to thinkingLevel
+        level = request.thinking.effort as 'low' | 'medium' | 'high'
+      }
+
       genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts,
+        includeThoughts: request.thinking.includeThoughts ?? request.thinking.enabled,
         thinkingBudget: request.thinking.budget,
+        thinkingLevel: level,
       } as GeminiThinkingConfig
     }
   }
 
-  // Post-process contents for:
-  // 1. Tool name encoding (replace / with __)
-  // 2. Thought signature validation / skip sentinel
-  // 3. Inject thinking block if missing
+  // Post-process contents
   if (innerRequest.contents) {
-    for (const content of innerRequest.contents) {
-      // Encode tool names in functionResponse
-      if (content.parts) {
-        let hasToolCall = false
-        let hasThought = false
-
-        for (const part of content.parts) {
-          if (part.functionCall) {
-            hasToolCall = true
-            part.functionCall.name = encodeAntigravityToolName(part.functionCall.name)
-          }
-          if (part.functionResponse) {
-            part.functionResponse.name = encodeAntigravityToolName(part.functionResponse.name)
-          }
-          if (part.thought) {
-            hasThought = true
-          }
-
-          // Validate thoughtSignature
-          if (part.thoughtSignature) {
-            if (part.thoughtSignature.length < 30) {
-              part.thoughtSignature = 'skip_thought_signature_validator'
-            }
-          } else if (part.functionCall && thinkingEnabled) {
-            // If thinking enabled and tool call exists, defaulting to skip sentinel if missing
-            // This mimics the "B-option" test expectation
-            part.thoughtSignature = 'skip_thought_signature_validator'
-          }
-        }
-
-        // Inject thinking block if needed
-        if (content.role === 'model' && thinkingEnabled && hasToolCall && !hasThought) {
-          content.parts.unshift({
-            thought: true,
-            text: 'Thinking Process...',
-            thoughtSignature: 'skip_thought_signature_validator', // Mock signature or skip
-          })
-        }
-      }
-    }
+    processContentsForThinking(innerRequest.contents, thinkingEnabled)
   }
 
   // Random project ID matching /^[a-z]+-[a-z]+-[0-9a-f]{5}$/
@@ -168,5 +157,51 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     request: innerRequest,
     metadata: extractMetadata(request.metadata),
     ...(request.metadata?.sessionId && { sessionId: request.metadata.sessionId }),
+  }
+}
+
+function processContentsForThinking(
+  contents: NonNullable<GeminiRequest['contents']>,
+  thinkingEnabled: boolean
+) {
+  for (const content of contents) {
+    if (!content.parts) continue
+
+    let hasToolCall = false
+    let hasThought = false
+
+    for (const part of content.parts) {
+      if (part.functionCall) {
+        hasToolCall = true
+        part.functionCall.name = encodeAntigravityToolName(part.functionCall.name)
+      }
+      if (part.functionResponse) {
+        part.functionResponse.name = encodeAntigravityToolName(part.functionResponse.name)
+      }
+      if (part.thought) {
+        hasThought = true
+      }
+
+      // Validate thoughtSignature
+      if (part.thoughtSignature) {
+        if (part.thoughtSignature.length < 30) {
+          part.thoughtSignature = SKIP_THOUGHT_SIGNATURE
+        }
+      } else if (part.functionCall && thinkingEnabled) {
+        // If thinking enabled and tool call exists, defaulting to skip sentinel if missing
+        // This mimics the "B-option" test expectation
+        part.thoughtSignature = SKIP_THOUGHT_SIGNATURE
+      }
+    }
+
+    // Inject thinking block if needed
+    // This invariant ensures downstream validators don't fail when a tool call happens without thinking
+    if (content.role === 'model' && thinkingEnabled && hasToolCall && !hasThought) {
+      content.parts.unshift({
+        thought: true,
+        text: 'Thinking Process...',
+        thoughtSignature: SKIP_THOUGHT_SIGNATURE, // Mock signature or skip
+      })
+    }
   }
 }
