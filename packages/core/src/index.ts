@@ -166,6 +166,13 @@ export {
   type OpenAIChatCompletion,
   type OpenAIToolCall,
 } from './sse/accumulators'
+// Thinking Policy
+export type { ThinkingPolicy } from './thinking'
+export {
+  computeThinkingPolicy,
+  createDisabledThinkingPolicy,
+  createEnabledThinkingPolicy,
+} from './thinking'
 export type { TransformOptions, TransformResponseOptions } from './transform'
 export { transformRequest, transformResponse } from './transform'
 export type {

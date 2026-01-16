@@ -181,7 +181,7 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
             'Upstream error details'
           )
         }
-        const retryAfterMs = parseRetryAfterMs(lastResponse, errorText) || 30000
+        const retryAfterMs = parseRetryAfterMs(lastResponse, errorText)
 
         const result = await handleUpstreamError({
           reqId,
@@ -198,6 +198,10 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         })
 
         if (result.action === 'retry') {
+          if (result.suppressIncrement) {
+            // Rollback the increment if we are just rotating endpoints or doing minor retries
+            retryState.attempt--
+          }
           if (result.delay) {
             const delay = process.env.NODE_ENV === 'test' ? 1 : result.delay
             await new Promise((r) => setTimeout(r, delay))
@@ -207,12 +211,18 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
         if (result.action === 'all-cooldown') {
           // Return 429 response directly
+          let errorMessage =
+            'All available models and providers are currently rate-limited. Please try again later.'
+          if (result.reason) {
+            const errorInfo = parseUpstreamError(result.reason, 429)
+            errorMessage = errorInfo.message
+          }
+
           return {
             response: new Response(
               JSON.stringify({
                 error: {
-                  message:
-                    'All available models and providers are currently rate-limited. Please try again later.',
+                  message: errorMessage,
                   type: 'rate_limit_error',
                   code: 'all_providers_cooldown',
                 },

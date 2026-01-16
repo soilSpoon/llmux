@@ -1,0 +1,153 @@
+# Ralph Progress Tracker
+
+## Codebase Patterns
+- Thinking logic in `transform-pipeline.ts` uses `isThinkingEnabled === false` (explicit disable) rather than `!== true`
+- Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
+- Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
+- Use `convertKeysDeep()` from `@llmux/core` for recursive key transformation at provider boundaries
+- ThinkingMode type is in `types/provider-strategies.ts` - reuse it for mode definitions
+- ThinkingPolicy interface is in `@llmux/core/src/thinking/thinking-policy.ts` - central source of truth for thinking decisions
+- Use `isThinkingModel()` from `@llmux/core/src/thinking/model-capabilities.ts` for table-driven model capability detection
+- Use `computeThinkingPolicy()` from `@llmux/core/src/thinking/thinking-policy.ts` to compute thinking policy from request inputs
+- `ThinkingPolicy` is the central source of truth for thinking/reasoning behavior (enabled, mode, includes)
+
+
+## Current Status
+- Project: llmux
+- Branch: ralph/thinking-casing-refactor
+- Started: 2026-01-16
+
+## Execution Log
+
+## [2026-01-16] - US-002
+Thread: http://100.64.0.2:8743/threads/T-019bc246-ad64-716a-b047-79071b4dfbf7
+- Created `@llmux/core/src/utils/casing.ts` with `camelToSnakeKey` and `snakeToCamelKey` utilities
+- Exported from `@llmux/core` index
+- Added unit tests in `packages/core/test/utils/casing.test.ts`
+- Files changed:
+  - packages/core/src/utils/casing.ts (new)
+  - packages/core/src/utils/index.ts (modified)
+  - packages/core/test/utils/casing.test.ts (new)
+- **Learnings for future iterations:**
+  - `camelToSnakeKey` handles both standard camelCase and acronyms (XMLParser -> xml_parser)
+  - Tests verify idempotency for single words and preservation of underscores in snakeToCamelKey
+---
+
+## [2026-01-16] - US-001
+Thread: http://100.64.0.2:8743/threads/T-019bc3f1-6efa-7199-b22f-ed31e1ace795
+- Rolled back forced thinking logic in `transform-pipeline.ts`
+- Changed `isThinkingEnabled !== true` to `isThinkingEnabled === false` in two places
+- Updated tests to remove expectations for forced `reasoning_effort: "none"`
+- Files changed:
+  - packages/server/src/handlers/upstream/transform-pipeline.ts (modified)
+  - packages/server/src/handlers/__tests__/streaming.test.ts (modified)
+  - packages/server/src/handlers/__tests__/proxy.test.ts (modified)
+- **Learnings for future iterations:**
+  - The PRD mentioned removing forced `budget: 1024` and `includeThoughts: true`, but these are default fallbacks in `thinking.ts`, not forced settings
+  - The actual forced behavior was in the condition check: `!== true` meant undefined was treated as disabled
+  - Changing to `=== false` means only explicit disable will disable thinking, respecting user intent
+---
+
+## [2026-01-16] - US-003
+Thread: http://100.64.0.2:8743/threads/T-019bc3f5-f705-7318-a07e-5b89c7056573
+- Implemented `convertKeysDeep<T>()` function in `@llmux/core/src/utils/casing.ts`
+- Added `KeyConverter` type and `ConvertKeysDeepOptions` interface
+- Exported from `@llmux/core` index
+- Added comprehensive unit tests (10 test cases)
+- Files changed:
+  - packages/core/src/utils/casing.ts (modified)
+  - packages/core/src/utils/index.ts (modified)
+  - packages/core/test/utils/casing.test.ts (modified)
+- **Learnings for future iterations:**
+  - TypeScript type inference with `toEqual` is strict - use `as unknown` when asserting converted keys
+  - `preserveKeys` only preserves the key name, not its nested values (values are still recursively converted)
+  - The function handles null, undefined, primitives, arrays, and nested objects correctly
+---
+
+## [2026-01-16] - US-004
+Thread: http://100.64.0.2:8743/threads/T-019bc3f8-fae3-738d-8b9a-748686332dcb
+- Created `@llmux/core/src/thinking/thinking-policy.ts` with ThinkingPolicy interface
+- Added `enabled`, `mode`, `includeThoughtsInResponse`, `sendThinkingToUpstream`, `reason` fields
+- Extended mode to include `'interleaved'` in addition to existing ThinkingMode values
+- Added factory functions: `createDisabledThinkingPolicy()` and `createEnabledThinkingPolicy()`
+- Created `@llmux/core/src/thinking/index.ts` for module exports
+- Exported from `@llmux/core` index
+- Files changed:
+  - packages/core/src/thinking/thinking-policy.ts (new)
+  - packages/core/src/thinking/index.ts (new)
+  - packages/core/src/index.ts (modified)
+- **Learnings for future iterations:**
+  - ThinkingMode is already defined in `types/provider-strategies.ts` - reused it
+  - Extended mode type with `'interleaved'` using union type for streaming support
+  - Factory functions help ensure consistent policy creation patterns
+---
+
+## [2026-01-16] - US-005
+Thread: http://100.64.0.2:8743/threads/T-019bc3fb-243b-7518-b0bf-ccb791c054f0
+- Created `@llmux/core/src/thinking/model-capabilities.ts` with table-driven `isThinkingModel()` function
+- Supports Claude thinking models (claude.*thinking), Gemini 3/2.5, and OpenAI o1/o3 reasoning models
+- Replaced `includes('thinking')` calls in `transform-utils.ts` and `request.ts` with centralized helper
+- Added 28 unit tests covering all model patterns
+- Files changed:
+  - packages/core/src/thinking/model-capabilities.ts (new)
+  - packages/core/src/thinking/index.ts (modified)
+  - packages/core/src/providers/antigravity/transform-utils.ts (modified)
+  - packages/core/src/providers/antigravity/request.ts (modified)
+  - packages/core/test/thinking/model-capabilities.test.ts (new)
+- **Learnings for future iterations:**
+  - Model detection uses regex patterns in a capabilities table for flexibility
+  - `isThinkingModel` takes optional provider param to restrict certain rules (e.g., o1/o3 only for openai)
+  - The existing `isThinkingModel` in transform-utils.ts now delegates to the centralized module
+  - Claude thinking models need both `isClaudeModel()` AND `isThinkingModel()` checks for snake_case config format
+---
+
+## [2026-01-16] - US-006
+Thread: http://100.64.0.2:8743/threads/T-019bc3ff-329b-72ef-ad87-17c25a180a62
+- Implemented `computeThinkingPolicy()` function in `@llmux/core/src/thinking/thinking-policy.ts`
+- Added `ClientThinkingConfig` and `ComputeThinkingPolicyOptions` interfaces
+- Exported from `@llmux/core` index via thinking module
+- Added 20 comprehensive unit tests covering all scenarios
+- Files changed:
+  - packages/core/src/thinking/thinking-policy.ts (modified)
+  - packages/core/src/thinking/index.ts (modified)
+  - packages/core/test/thinking/compute-thinking-policy.test.ts (new)
+- **Learnings for future iterations:**
+  - Priority order: Claude Fresh > client enabled > options > model capability
+  - Uses `require()` for local import of `isThinkingModel` to avoid circular dependencies
+  - Streaming mode maps to 'interleaved', non-streaming/count_tokens maps to 'standard'
+  - Client `includeThoughts` defaults to true if not specified
+---
+
+## [2026-01-16] - US-007
+Thread: http://100.64.0.2:8743/threads/T-019bc402-2211-742f-9ab3-835def5bd77c
+- Updated `PrepareUpstreamOptions` interface in `@llmux/core` to include `thinkingPolicy`
+- Removed `isThinkingEnabled` from `PrepareUpstreamOptions`
+- Updated `upstream-request-builder.ts` to compute `ThinkingPolicy` and pass it to upstream strategy
+- Added `thinkingPolicy` to `UpstreamRequestMeta` in `upstream-request-builder.ts`
+- Exported `computeThinkingPolicy` from `@llmux/core` index
+- Verified typecheck and tests pass
+- Files changed:
+  - packages/core/src/types/provider-strategies.ts (modified)
+  - packages/server/src/handlers/upstream-request-builder.ts (modified)
+  - packages/core/src/index.ts (modified)
+- **Learnings for future iterations:**
+  - `ThinkingPolicy` is now computed early in the request pipeline (in builder)
+  - `isClaudeFresh` is determined by `getThinkingStrategy` and used for policy computation
+  - Interface changes in core propagate to all strategy implementations (though optional fields don't break them immediately)
+  
+## [2026-01-16] - US-008
+Thread: http://100.64.0.2:8743/threads/T-019bc406-c114-72c7-9b9b-049adb7a8fc8
+- Updated `TransformPipelineInput` in `transform-pipeline.ts` to use `thinkingPolicy?: ThinkingPolicy`
+- Removed `isThinkingEnabled?: boolean`
+- Integrated `thinkingPolicy` into `executeTransformPipeline` logic
+- Updated `shouldDisableThinking` check to combine `policyEnabled`, `isClaudeFresh`, and `sendThinkingToUpstream`
+- Updated `removeThinkingFromBody` check to use `policyEnabled === false`
+- Updated call site in `upstream-request-builder.ts`
+- Files changed:
+  - packages/server/src/handlers/upstream/transform-pipeline.ts (modified)
+  - packages/server/src/handlers/upstream-request-builder.ts (modified)
+- **Learnings for future iterations:**
+  - `isClaudeFresh` is computed inside the pipeline (via `sanitizeRequestSignatures`) and also passed into policy computation in builder.
+  - The pipeline uses a combined check: `policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false`.
+  - This ensures that if the pipeline discovers we are in "Claude Fresh" mode (signature stripping), we force disable thinking even if the policy was initially enabled.
+---

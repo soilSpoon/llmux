@@ -91,8 +91,8 @@ export interface GeminiThinkingConfig {
  * Claude-style thinking config via Antigravity (snake_case)
  */
 export interface ClaudeThinkingConfig {
-  include_thoughts?: boolean
-  thinking_budget?: number
+  includeThoughts?: boolean
+  thinkingBudget?: number
 }
 
 /**

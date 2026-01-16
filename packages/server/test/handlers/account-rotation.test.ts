@@ -47,7 +47,6 @@ describe('AccountRotationManager', () => {
   it('skips rate limited accounts', () => {
     // Limit the first account
     rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', {
-      type: 'soft',
       expiresAt: Date.now() + 1000
     })
 
@@ -58,11 +57,9 @@ describe('AccountRotationManager', () => {
   it('returns index with earliest expiry if all are limited', () => {
     // Limit both accounts
     rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', {
-      type: 'soft',
       expiresAt: Date.now() + 2000
     })
     rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', {
-      type: 'soft',
       expiresAt: Date.now() + 1000 // Expires sooner
     })
 
@@ -71,7 +68,7 @@ describe('AccountRotationManager', () => {
   })
 
   it('markRateLimited marks the account in the store', async () => {
-    await manager.markRateLimited('provider-a', 'gemini-pro', 0, 1000, 'soft', 'test reason')
+    await manager.markRateLimited('provider-a', 'gemini-pro', 0, 1000, 'test reason')
     
     const limit = rateLimitStore.getLimit('provider-a', 'acc-1', 'gemini-pro')
     expect(limit).not.toBeNull()
@@ -81,17 +78,17 @@ describe('AccountRotationManager', () => {
   it('areAllRateLimited returns true only when all accounts are limited', () => {
     expect(manager.areAllRateLimited('provider-a', 'gemini-pro', mockCredentials)).toBe(false)
 
-    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { expiresAt: Date.now() + 1000 })
     expect(manager.areAllRateLimited('provider-a', 'gemini-pro', mockCredentials)).toBe(false)
 
-    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { expiresAt: Date.now() + 1000 })
     expect(manager.areAllRateLimited('provider-a', 'gemini-pro', mockCredentials)).toBe(true)
   })
 
   it('getMinWaitTime returns correct wait time', () => {
     const now = Date.now()
-    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { type: 'soft', expiresAt: now + 2000 })
-    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { type: 'soft', expiresAt: now + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { expiresAt: now + 2000 })
+    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { expiresAt: now + 1000 })
 
     const wait = manager.getMinWaitTime('provider-a', 'gemini-pro', mockCredentials)
     // Should be close to 1000
@@ -104,19 +101,19 @@ describe('AccountRotationManager', () => {
     expect(manager.hasNext('provider-a', 'gemini-pro', 0, mockCredentials)).toBe(true)
     
     // Limit account 1 (index 0)
-    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { expiresAt: Date.now() + 1000 })
     // Should still have next (acc-2)
     expect(manager.hasNext('provider-a', 'gemini-pro', 0, mockCredentials)).toBe(true)
     
     // Limit account 2 (index 1)
-    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { expiresAt: Date.now() + 1000 })
     // No more available
     expect(manager.hasNext('provider-a', 'gemini-pro', 0, mockCredentials)).toBe(false)
   })
 
   it('getCredential rotates to next available account', async () => {
     // Limit account 1
-    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { expiresAt: Date.now() + 1000 })
     
     // Request credential, starting from index 0
     const result = await manager.getCredential('provider-a', 'gemini-pro', 0)
@@ -128,8 +125,8 @@ describe('AccountRotationManager', () => {
   
   it('getCredential returns null if all accounts limited', async () => {
     // Limit both
-    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
-    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { type: 'soft', expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-1', 'gemini-pro', { expiresAt: Date.now() + 1000 })
+    rateLimitStore.markLimit('provider-a', 'acc-2', 'gemini-pro', { expiresAt: Date.now() + 1000 })
     
     const result = await manager.getCredential('provider-a', 'gemini-pro', 0)
     

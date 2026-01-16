@@ -5,6 +5,7 @@
 
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
+import { isThinkingModel as isThinkingModelCore } from '../../thinking/model-capabilities'
 import type { JSONSchema, RequestMetadata, UnifiedTool } from '../../types/unified'
 import type {
   AntigravityGenerationConfig,
@@ -20,14 +21,16 @@ export function isClaudeModel(model: string): boolean {
   return model.toLowerCase().includes('claude')
 }
 
-// ... existing code ...
-
 export function isGemini3Model(model: string): boolean {
   return model.toLowerCase().includes('gemini-3')
 }
 
+/**
+ * Determines if a model supports thinking features.
+ * Delegates to the centralized model-capabilities module.
+ */
 export function isThinkingModel(model: string): boolean {
-  return model.toLowerCase().includes('thinking')
+  return isThinkingModelCore(model, 'antigravity')
 }
 
 /**
@@ -207,12 +210,17 @@ function sanitizeSchema(schema: unknown): unknown {
   // Recurse into properties
   if (result.properties && typeof result.properties === 'object') {
     const props = { ...(result.properties as Record<string, unknown>) }
+
     // Explicitly remove 'custom' property if it exists
     if ('custom' in props) {
       delete props.custom
     }
-    for (const key in props) {
-      props[key] = sanitizeSchema(props[key])
+
+    // Only iterate if we haven't already processed
+    for (const key of Object.keys(props)) {
+      if (key !== 'custom') {
+        props[key] = sanitizeSchema(props[key])
+      }
     }
     result.properties = props
   }
@@ -222,9 +230,27 @@ function sanitizeSchema(schema: unknown): unknown {
     result.items = sanitizeSchema(result.items)
   }
 
-  // Recurse into anyOf
+  // Recurse into logical combinators
   if (Array.isArray(result.anyOf)) {
     result.anyOf = result.anyOf.map(sanitizeSchema)
+  }
+  if (Array.isArray(result.oneOf)) {
+    result.oneOf = result.oneOf.map(sanitizeSchema)
+  }
+  if (Array.isArray(result.allOf)) {
+    result.allOf = result.allOf.map(sanitizeSchema)
+  }
+
+  // Filter 'required' to only include extant properties
+  if (Array.isArray(result.required)) {
+    const validProps = (result.properties || {}) as Record<string, unknown>
+    const required = result.required as string[]
+    const filtered = required.filter((key) => key in validProps)
+    if (filtered.length === 0) {
+      delete result.required
+    } else {
+      result.required = filtered
+    }
   }
 
   return result

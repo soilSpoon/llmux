@@ -10,7 +10,6 @@ describe('InMemoryRateLimitStore', () => {
 
   it('marks and retrieves a rate limit', () => {
     const limit: RateLimit = {
-      type: 'soft',
       expiresAt: Date.now() + 1000,
       reason: 'Too many requests'
     }
@@ -28,7 +27,6 @@ describe('InMemoryRateLimitStore', () => {
 
   it('removes expired limits on retrieval', async () => {
     const limit: RateLimit = {
-      type: 'soft',
       expiresAt: Date.now() - 100, // Expired
       reason: 'Expired limit'
     }
@@ -42,7 +40,6 @@ describe('InMemoryRateLimitStore', () => {
 
   it('clears a limit explicitly', () => {
     const limit: RateLimit = {
-      type: 'soft',
       expiresAt: Date.now() + 10000,
       reason: 'Manual clear'
     }
@@ -54,8 +51,8 @@ describe('InMemoryRateLimitStore', () => {
   })
 
   it('gets all limits for a provider family', () => {
-    const limit1: RateLimit = { type: 'soft', expiresAt: Date.now() + 1000 }
-    const limit2: RateLimit = { type: 'hard', expiresAt: Date.now() + 2000 }
+    const limit1: RateLimit = { expiresAt: Date.now() + 1000 }
+    const limit2: RateLimit = { expiresAt: Date.now() + 2000 }
     
     store.markLimit('provider-a', 'account-1', 'gpt-4', limit1)
     store.markLimit('provider-a', 'account-2', 'gpt-4', limit2)
@@ -70,8 +67,8 @@ describe('InMemoryRateLimitStore', () => {
   })
 
   it('cleans up expired limits when getting all limits', () => {
-    const activeLimit: RateLimit = { type: 'soft', expiresAt: Date.now() + 1000 }
-    const expiredLimit: RateLimit = { type: 'hard', expiresAt: Date.now() - 1000 }
+    const activeLimit: RateLimit = { expiresAt: Date.now() + 1000 }
+    const expiredLimit: RateLimit = { expiresAt: Date.now() - 1000 }
     
     store.markLimit('provider-a', 'account-1', 'gpt-4', activeLimit)
     store.markLimit('provider-a', 'account-2', 'gpt-4', expiredLimit)
