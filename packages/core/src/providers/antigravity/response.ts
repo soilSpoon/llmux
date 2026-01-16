@@ -63,6 +63,13 @@ export function parseResponse(response: unknown): UnifiedResponse {
         text: part.text,
         signature: part.thoughtSignature || part.thought_signature,
       })
+    } else if (part.thought === true && (part.thoughtSignature || part.thought_signature)) {
+      // Antigravity sometimes returns thought: true without text for signature-only blocks?
+      // Or handle cases where text is empty string but present.
+      thinkingBlocks.push({
+        text: part.text || '',
+        signature: part.thoughtSignature || part.thought_signature,
+      })
     } else if (part.functionCall) {
       // Function call - decode tool name
       const thoughtSig = part.thoughtSignature || part.thought_signature

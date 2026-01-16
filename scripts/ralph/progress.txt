@@ -136,3 +136,32 @@ Thread: http://100.64.0.2:8743/threads/T-019bc237-c1b9-711d-a635-fbfc66dc4229
   - Gemini parts can have both `thoughtSignature` and `thought_signature` fields depending on the API version or context
   - Always provide fallbacks for snake_case vs camelCase fields when dealing with raw API responses
 ---
+## [2026-01-16] - US-010
+Thread: https://ampcode.com/threads/T-019bc414-7e14-75ad-9b3b-3013d7517c35
+- Enforced signature stripping in logging entry points
+- Created `sanitizeForLogging` utility in `packages/server/src/utils/sanitize-for-logging.ts`
+- Applied sanitization in `RequestLogStore` (SQLite logs) and `StreamDebugLogger` (file debug logs)
+- Added comprehensive tests verifying sanitization works for nested objects and arrays
+- Files changed:
+  - packages/server/src/utils/sanitize-for-logging.ts
+  - packages/server/src/stores/request-log-store.ts
+  - packages/server/src/handlers/stream-helpers/stream-debug.ts
+  - packages/server/src/utils/__tests__/sanitize-for-logging.test.ts
+  - packages/server/src/stores/__tests__/log-sanitization.test.ts
+- **Learnings for future iterations:**
+  - When sanitizing logs, always strip both camelCase `thoughtSignature` and snake_case `thought_signature` to be safe.
+  - Apply sanitization at the edge (store/logger level) rather than relying on upstream callers to sanitize.
+  - TypeScript imports in tests need to align with `tsconfig` paths or relative paths correctly.
+---
+## 2026-01-16 - US-009
+Thread: http://100.64.0.2:8743/threads/T-019bc420-6ac2-70d9-bc40-f121c4513d87
+- Modified `packages/core/src/providers/antigravity/response.ts` to handle cases where `thought` is true but `text` is undefined, defaulting to an empty string.
+- This ensures that thinking blocks with just a `thoughtSignature` (common in Antigravity Claude responses) are correctly preserved.
+- Added a specific test case for this scenario in `packages/core/test/providers/antigravity/response.test.ts`.
+- Files changed:
+  - `packages/core/src/providers/antigravity/response.ts`
+  - `packages/core/test/providers/antigravity/response.test.ts` (updated)
+- **Learnings for future iterations:**
+  - Antigravity API responses can sometimes omit the `text` field for thinking parts if they only contain a signature. Always handle optional text fields gracefully.
+  - When modifying response parsing logic, ensure both `thoughtSignature` (camelCase) and `thought_signature` (snake_case) are checked, as different providers/versions may use either.
+---
