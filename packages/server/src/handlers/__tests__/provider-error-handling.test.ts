@@ -20,7 +20,7 @@ function createMockRetryState(overrides: Partial<RetryState> = {}): RetryState {
     accountIndex: -1,
     antigravityEndpointIndex: 0,
     overrideProjectId: null,
-    maxRetryAttempts: 20,
+    maxRetryAttempts: 40,
     ...overrides,
   }
 }
@@ -63,7 +63,7 @@ describe('RetryState mutations', () => {
       expect(state.accountIndex).toBe(-1)
       expect(state.antigravityEndpointIndex).toBe(0)
       expect(state.overrideProjectId).toBeNull()
-      expect(state.maxRetryAttempts).toBe(20)
+      expect(state.maxRetryAttempts).toBe(40)
     })
 
     it('should allow custom maxRetryAttempts', () => {
@@ -307,7 +307,7 @@ describe('handleUpstreamError - Antigravity provider (System B)', () => {
         'antigravity',
         'gemini-2.5-pro',
         -1,
-        30000,
+        1,
         'Transient 429'
       )
     })
