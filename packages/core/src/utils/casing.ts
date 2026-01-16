@@ -15,8 +15,15 @@ export type KeyConverter = (key: string) => string
 export interface ConvertKeysDeepOptions {
   /**
    * Keys to exclude from conversion. These keys will be preserved as-is.
+   * Recursion continues into the value.
    */
   preserveKeys?: readonly string[]
+
+  /**
+   * Keys where conversion AND recursion should stop.
+   * The value is copied as-is.
+   */
+  preserveTree?: readonly string[]
 }
 
 /**
@@ -80,6 +87,7 @@ export function convertKeysDeep<T>(
   }
 
   const preserveKeys = options?.preserveKeys ?? []
+  const preserveTree = options?.preserveTree ?? []
 
   // Handle arrays
   if (Array.isArray(value)) {
@@ -90,6 +98,11 @@ export function convertKeysDeep<T>(
   const result: Record<string, unknown> = {}
 
   for (const key of Object.keys(value)) {
+    if (preserveTree.includes(key)) {
+      result[key] = (value as Record<string, unknown>)[key]
+      continue
+    }
+
     const newKey = preserveKeys.includes(key) ? key : converter(key)
     const originalValue = (value as Record<string, unknown>)[key]
     result[newKey] = convertKeysDeep(originalValue, converter, options)

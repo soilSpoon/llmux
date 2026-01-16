@@ -41,6 +41,7 @@ export function isThinkingModel(model: string): boolean {
 export function convertToWireFormat(request: AntigravityInnerRequest): AntigravityInnerRequest {
   return convertKeysDeep(request, camelToSnakeKey, {
     preserveKeys: ['contents', 'parts', 'text', 'inlineData', 'data', 'mimeType'],
+    preserveTree: ['parameters', 'metadata'],
   })
 }
 
@@ -221,12 +222,17 @@ function sanitizeSchema(schema: unknown): unknown {
   // Recurse into properties
   if (result.properties && typeof result.properties === 'object') {
     const props = { ...(result.properties as Record<string, unknown>) }
+
     // Explicitly remove 'custom' property if it exists
     if ('custom' in props) {
       delete props.custom
     }
-    for (const key in props) {
-      props[key] = sanitizeSchema(props[key])
+
+    // Only iterate if we haven't already processed
+    for (const key of Object.keys(props)) {
+      if (key !== 'custom') {
+        props[key] = sanitizeSchema(props[key])
+      }
     }
     result.properties = props
   }
