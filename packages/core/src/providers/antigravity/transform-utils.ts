@@ -236,9 +236,27 @@ function sanitizeSchema(schema: unknown): unknown {
     result.items = sanitizeSchema(result.items)
   }
 
-  // Recurse into anyOf
+  // Recurse into logical combinators
   if (Array.isArray(result.anyOf)) {
     result.anyOf = result.anyOf.map(sanitizeSchema)
+  }
+  if (Array.isArray(result.oneOf)) {
+    result.oneOf = result.oneOf.map(sanitizeSchema)
+  }
+  if (Array.isArray(result.allOf)) {
+    result.allOf = result.allOf.map(sanitizeSchema)
+  }
+
+  // Filter 'required' to only include extant properties
+  if (Array.isArray(result.required)) {
+    const validProps = (result.properties || {}) as Record<string, unknown>
+    const required = result.required as string[]
+    const filtered = required.filter((key) => key in validProps)
+    if (filtered.length === 0) {
+      delete result.required
+    } else {
+      result.required = filtered
+    }
   }
 
   return result

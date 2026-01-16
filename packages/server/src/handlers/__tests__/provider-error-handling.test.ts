@@ -286,7 +286,6 @@ describe('handleUpstreamError - Antigravity provider (System B)', () => {
         'gemini-2.5-pro',
         -1,
         60000,
-        'soft',
         'Transient 429'
       )
     })
@@ -309,7 +308,6 @@ describe('handleUpstreamError - Antigravity provider (System B)', () => {
         'gemini-2.5-pro',
         -1,
         30000,
-        'soft',
         'Transient 429'
       )
     })
@@ -573,7 +571,6 @@ describe('AccountRotationManager integration', () => {
       spyOn(accountRotationManager as any, 'getAccountId').mockReturnValue('user1@test.com')
 
       rateLimitStore.markLimit('antigravity', 'user1@test.com', 'gemini-pro', {
-        type: 'soft',
         expiresAt: Date.now() + 60000,
       })
 
@@ -593,7 +590,6 @@ describe('AccountRotationManager integration', () => {
 
       // Mark user1 as limited
       rateLimitStore.markLimit('antigravity', 'user1@test.com', 'gemini-pro', {
-        type: 'soft',
         expiresAt: Date.now() + 60000,
       })
 

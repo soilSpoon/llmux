@@ -45,4 +45,5 @@ export interface ErrorHandlingResult {
   newProvider?: ProviderName
   delay?: number
   reason?: string
+  suppressIncrement?: boolean
 }

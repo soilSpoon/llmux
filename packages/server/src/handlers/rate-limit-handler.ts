@@ -11,9 +11,9 @@ import type { ErrorHandlingContext, ErrorHandlingResult, RetryState } from './ty
 
 const logger = createLogger({ service: 'rate-limit-handler' })
 
-export const MAX_RETRY_ATTEMPTS = 20
+export const MAX_RETRY_ATTEMPTS = 40
 
-export function createRetryState(maxRetryAttempts: number = 20): RetryState {
+export function createRetryState(maxRetryAttempts: number = MAX_RETRY_ATTEMPTS): RetryState {
   return {
     attempt: 0,
     accountIndex: -1,

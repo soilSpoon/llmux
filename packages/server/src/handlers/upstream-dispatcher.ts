@@ -198,6 +198,10 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
         })
 
         if (result.action === 'retry') {
+          if (result.suppressIncrement) {
+            // Rollback the increment if we are just rotating endpoints or doing minor retries
+            retryState.attempt--
+          }
           if (result.delay) {
             const delay = process.env.NODE_ENV === 'test' ? 1 : result.delay
             await new Promise((r) => setTimeout(r, delay))

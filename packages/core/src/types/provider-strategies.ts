@@ -233,6 +233,7 @@ export interface ErrorHandlingAction {
   newModel?: string
   newProvider?: ProviderName
   delay?: number
+  suppressIncrement?: boolean
 }
 
 /**
