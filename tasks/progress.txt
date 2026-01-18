@@ -255,3 +255,18 @@ Thread: http://100.64.0.2:8743/threads/T-019bd121-a3ae-726a-9dd2-da84a36036a2
   - Streaming parsers often need to support multiple variations of fields (legacy vs new vs snake_case wire format) to be robust against different upstream versions or format transformations.
   - When fixing lint errors, ensure typechecks run across all packages to catch propagated issues (like missing exports or unused imports in dependent files).
 ---
+
+## [2026-01-18] - US-009
+Thread: http://100.64.0.2:8743/threads/T-019bd12d-8698-712f-a101-e50806f16176
+- Verified snake_case conversion in Antigravity provider using `convertKeysDeep`
+- Confirmed `thinking_config`, `include_thoughts`, `thinking_budget` exist only in wire format (snake_case)
+- Confirmed request format matches opencode-antigravity-auth expectations via integration test
+- `convertToSnakeCaseThinkingConfig` was already removed/not present
+- Files verified:
+  - packages/core/src/providers/antigravity/transform-utils.ts
+  - packages/core/src/providers/antigravity/index.ts
+  - packages/server/src/__tests__/antigravity-thinking.integration.test.ts
+- **Learnings for future iterations:**
+  - `thinkingConfig` is maintained in camelCase internally within Antigravity provider until the final `transform` step
+  - `convertToWireFormat` handles the deep conversion to snake_case just before sending
+  - Integration tests mock the provider transform output effectively for format verification

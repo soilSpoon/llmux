@@ -5,6 +5,7 @@
 - The **wire format** (what is sent to the API) is converted to **snake_case** at the provider boundary (`transform` method).
 - When testing `transform()` result (wire format), cast to `AntigravityWireRequest` or `Record<string, unknown>` and expect snake_case keys (e.g., `thinking_config`, `include_thoughts`).
 - When testing `request.ts` internal helpers, expect camelCase.
+- `thinking_config` in wire format is snake_case: `thinking_budget`, `include_thoughts`.
 
 ## Exports
 - Utilities used by `@llmux/server` must be exported from `packages/core/src/index.ts`.
