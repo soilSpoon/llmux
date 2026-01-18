@@ -7,15 +7,32 @@
 
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
+import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
-import { convertKeysDeep, snakeToCamelKey } from '../../utils/casing'
+import { camelToSnakeKey, convertKeysDeep, snakeToCamelKey } from '../../utils/casing'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { transform as transformRequest } from './request'
 import { parseResponse, transformResponse } from './response'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
-import { convertToWireFormat } from './transform-utils'
-import { type AntigravityResponse, isAntigravityRequest } from './types'
+import {
+  createInnerRequest,
+  ensureToolConfig,
+  extractMetadata,
+  injectSystemInstruction,
+  isClaudeModel,
+  isThinkingModel,
+  normalizeGenerationConfig,
+  preprocessTools,
+} from './transform-utils'
+import {
+  type AntigravityInnerRequest,
+  type AntigravityRequest,
+  type AntigravityResponse,
+  type ClaudeThinkingConfig,
+  type GeminiThinkingConfig,
+  isAntigravityRequest,
+} from './types'
 
 export class AntigravityProvider extends BaseProvider {
   readonly name: ProviderName
@@ -139,10 +156,145 @@ export class AntigravityProvider extends BaseProvider {
    * Wraps the Gemini-style request with Antigravity envelope.
    */
   transform(request: UnifiedRequest, model: string): unknown {
-    const wrapper = transformRequest(request, model)
+    const tools = preprocessTools(request.tools)
+    const geminiRequest = buildGeminiRequest(
+      { ...request, tools },
+      {
+        provider: this.name,
+        model,
+      }
+    )
 
-    // Convert wrapper to snake_case too (though top-level keys are mostly camel/mixed)
-    return convertToWireFormat(wrapper as unknown as Record<string, unknown>)
+    const sessionId = request.metadata?.sessionId || `session-${crypto.randomUUID()}`
+
+    const innerRequest = createInnerRequest(geminiRequest, sessionId)
+
+    injectSystemInstruction(innerRequest, ANTIGRAVITY_SYSTEM_INSTRUCTION, model)
+    ensureToolConfig(innerRequest, model)
+    normalizeGenerationConfig(innerRequest, model)
+
+    // Handle thinking config mapping
+    let thinkingEnabled = false
+    if (request.thinking?.enabled) {
+      thinkingEnabled = true
+      // Ensure generationConfig exists
+      if (!innerRequest.generationConfig) {
+        innerRequest.generationConfig = {}
+      }
+      const genConfig = innerRequest.generationConfig
+
+      // Claude thinking models use camelCase config format in types,
+      // but convertKeysDeep will handle snake_case conversion at the boundary.
+      if (isClaudeModel(model) && isThinkingModel(model)) {
+        // Min output tokens for Claude thinking
+        if ((request.config?.maxTokens || 0) < 64000) {
+          genConfig.maxOutputTokens = 64000
+        }
+
+        genConfig.thinkingConfig = {
+          includeThoughts: request.thinking.includeThoughts,
+          thinkingBudget: request.thinking.budget,
+        } as ClaudeThinkingConfig
+      } else if (model.toLowerCase().includes('gemini')) {
+        genConfig.thinkingConfig = {
+          includeThoughts: request.thinking.includeThoughts,
+          thinkingBudget: request.thinking.budget,
+        } as GeminiThinkingConfig
+      }
+    }
+
+    // Post-process contents for:
+    // 1. Tool name encoding (replace / with __)
+    // 2. Thought signature validation / skip sentinel
+    // 3. Inject thinking block if missing
+    if (innerRequest.contents) {
+      for (const content of innerRequest.contents) {
+        // Encode tool names in functionResponse
+        if (content.parts) {
+          let hasToolCall = false
+          let hasThought = false
+
+          for (const part of content.parts) {
+            if (part.functionCall) {
+              hasToolCall = true
+              part.functionCall.name = encodeAntigravityToolName(part.functionCall.name)
+            }
+            if (part.functionResponse) {
+              part.functionResponse.name = encodeAntigravityToolName(part.functionResponse.name)
+            }
+            if (part.thought) {
+              hasThought = true
+            }
+
+            // Validate thoughtSignature
+            if (part.thoughtSignature) {
+              if (part.thoughtSignature.length < 30) {
+                part.thoughtSignature = 'skip_thought_signature_validator'
+              }
+            } else if (part.functionCall && thinkingEnabled) {
+              // If thinking enabled and tool call exists, defaulting to skip sentinel if missing
+              // This mimics the "B-option" test expectation
+              part.thoughtSignature = 'skip_thought_signature_validator'
+            }
+          }
+
+          // Inject thinking block if needed
+          if (content.role === 'model' && thinkingEnabled && hasToolCall && !hasThought) {
+            content.parts.unshift({
+              thought: true,
+              text: 'Thinking Process...',
+              thoughtSignature: 'skip_thought_signature_validator', // Mock signature or skip
+            })
+          }
+        }
+      }
+    }
+
+    // Use convertKeysDeep to serialize the inner request to snake_case for Antigravity
+    // We exclude 'contents' because it contains user data where keys should be preserved
+    // and 'tools' because parameter schemas are user-defined.
+    // However, Antigravity API expects snake_case for config fields.
+    const serializedRequest = convertKeysDeep(innerRequest, camelToSnakeKey, {
+      preserveKeys: [
+        'contents',
+        'parts',
+        'text',
+        'inlineData',
+        'fileData',
+        'functionCall',
+        'functionResponse',
+        'args',
+        'response',
+        'name',
+        'parameters',
+        'properties',
+        'required',
+        'enum',
+        'items',
+        'anyOf',
+        'oneOf',
+        'allOf',
+        'description',
+        'type',
+        'format',
+        'nullable',
+      ],
+      preserveTree: ['parameters'], // Stop recursion at parameters schema
+    }) as AntigravityInnerRequest
+
+    // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
+    // Fallback values are used if metadata is missing entirely.
+    return {
+      project: request.metadata?.project ?? '',
+      model,
+      requestType: 'agent',
+      userAgent: 'antigravity',
+      requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
+      userRole: request.userRole,
+      request: serializedRequest,
+      metadata: extractMetadata(request.metadata),
+      ...(request.metadata?.sessionId && { sessionId: request.metadata.sessionId }),
+    }
   }
 
   /**

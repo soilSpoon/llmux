@@ -48,6 +48,7 @@ describe('AntigravityProvider Casing', () => {
     const innerRequest = transformed.request
     
     // Check top-level keys
+    // The provider should return snake_case keys for Antigravity API
     expect(innerRequest).toHaveProperty('system_instruction')
     expect(innerRequest).not.toHaveProperty('systemInstruction')
     

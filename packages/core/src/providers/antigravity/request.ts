@@ -6,6 +6,7 @@ import {
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { UnifiedRequest } from '../../types/unified'
+import { camelToSnakeKey, convertKeysDeep } from '../../utils/casing'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
 import {
   createInnerRequest,
@@ -17,7 +18,12 @@ import {
   normalizeGenerationConfig,
   preprocessTools,
 } from './transform-utils'
-import type { AntigravityRequest, ClaudeThinkingConfig, GeminiThinkingConfig } from './types'
+import type {
+  AntigravityInnerRequest,
+  AntigravityRequest,
+  ClaudeThinkingConfig,
+  GeminiThinkingConfig,
+} from './types'
 
 export function parse(request: AntigravityRequest): UnifiedRequest {
   const unified = parseGeminiRequest(request.request as GeminiRequest)
@@ -88,7 +94,8 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     }
     const genConfig = innerRequest.generationConfig
 
-    // Claude thinking models use camelCase config format
+    // Claude thinking models use camelCase config format in types,
+    // but convertKeysDeep will handle snake_case conversion at the boundary.
     if (isClaudeModel(model) && isThinkingModel(model)) {
       genConfig.thinkingConfig = {
         includeThoughts: request.thinking.includeThoughts,
@@ -154,13 +161,47 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   const project =
     request.metadata?.project || `random-project-${crypto.randomUUID().substring(0, 5)}`
 
+  // Use convertKeysDeep to serialize the inner request to snake_case for Antigravity
+  // We exclude 'contents' because it contains user data where keys should be preserved
+  // and 'tools' because parameter schemas are user-defined.
+  // However, Antigravity API expects snake_case for config fields.
+  console.log('DEBUG: innerRequest keys before conversion:', Object.keys(innerRequest))
+  const serializedRequest = convertKeysDeep(innerRequest, camelToSnakeKey, {
+    preserveKeys: [
+      'contents',
+      'parts',
+      'text',
+      'inlineData',
+      'fileData',
+      'functionCall',
+      'functionResponse',
+      'args',
+      'response',
+      'name',
+      'parameters',
+      'properties',
+      'required',
+      'enum',
+      'items',
+      'anyOf',
+      'oneOf',
+      'allOf',
+      'description',
+      'type',
+      'format',
+      'nullable',
+    ],
+    preserveTree: ['parameters'], // Stop recursion at parameters schema
+  }) as AntigravityInnerRequest
+  console.log('DEBUG: serializedRequest keys:', Object.keys(serializedRequest))
+
   return {
     project,
     model,
     requestType: 'agent',
     userAgent: 'antigravity',
     requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
-    request: innerRequest,
+    request: serializedRequest,
     metadata: extractMetadata(request.metadata),
     ...(request.metadata?.sessionId && { sessionId: request.metadata.sessionId }),
   }

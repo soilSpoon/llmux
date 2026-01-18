@@ -101,22 +101,11 @@ export function normalizeGenerationConfig(request: AntigravityInnerRequest, mode
   }
 
   if (isClaudeModel(model)) {
-    normalizeStopSequences(genConfig)
+    // normalizeStopSequences is no longer needed since convertKeysDeep handles camelCase to snake_case conversion at the boundary
   }
 
   if (!isThinkingModel(model)) {
     removeThinkingConfig(genConfig)
-  }
-}
-
-/**
- * Converts snake_case stop_sequences to camelCase stopSequences
- */
-function normalizeStopSequences(genConfig: AntigravityGenerationConfig): void {
-  const stopSeqs = (genConfig as { stop_sequences?: unknown }).stop_sequences
-  if (Array.isArray(stopSeqs) && !genConfig.stopSequences) {
-    genConfig.stopSequences = stopSeqs as string[]
-    delete (genConfig as { stop_sequences?: unknown }).stop_sequences
   }
 }
 
