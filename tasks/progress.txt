@@ -205,3 +205,15 @@ Thread: http://100.64.0.2:8743/threads/T-019bd001-1b06-701d-b4eb-0e53c7bdf0b2
   - Integration tests cover cross-provider round-trips and are critical for detecting format conversion issues.
 ---
 - Fixed `user_role` parsing in `AntigravityProvider.parse` to support snake_case envelope key
+
+## [2026-01-18] - US-010
+Thread: http://100.64.0.2:8743/threads/T-019bd010-cc39-758c-9862-10d3ae29a890
+- Updated AntigravityUpstreamStrategy to add anthropic-beta header based on ThinkingPolicy.mode
+- Header is now added when `thinkingPolicy.mode === 'interleaved'` instead of checking model name
+- Files changed:
+  - packages/server/src/strategies/antigravity/upstream.ts (modified)
+- **Learnings for future iterations:**
+  - ThinkingPolicy.mode can be 'interleaved' (streaming thinking), 'standard', 'none', 'claude-fresh', or 'gemini-cache'
+  - The anthropic-beta header `output-128k-2025-02-19` is required for interleaved thinking mode
+  - No `model.includes('thinking')` logic was present in antigravity.ts to remove - the acceptance criteria assumed legacy code that didn't exist
+---

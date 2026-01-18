@@ -154,8 +154,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added anthropic-beta header injection in AntigravityUpstreamStrategy.prepare() when thinkingPolicy.mode === 'interleaved'. No model.includes('thinking') logic was present to remove."
     },
     {
       "id": "US-011",
