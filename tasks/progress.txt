@@ -242,22 +242,16 @@ Thread: http://100.64.0.2:8743/threads/T-019bd0d8-ff1a-73f8-9ff5-5f9a56fb22b5
   - Test `handleStreamingProxy` carefully: it catches errors and returns responses, so expect failures to be silent unless you inspect the response or side effects.
 ---
 
-## [2026-01-18] - US-009, US-012, US-013 (Fixes)
-Thread: http://100.64.0.2:8743/threads/T-019bd116-b1ee-7309-82d3-9cbf96f2b35c
-- Restored `convertToWireFormat` in `transform-utils.ts` (was missing despite PRD status)
-- Fixed Antigravity wire format serialization (snake_case)
-- Removed 64k token enforcement for Claude thinking models to respect user intent (US-013)
-- Fixed `transform-pipeline` to propagate `includeThoughts` from policy
-- Fixed OpenAI streaming builder to output `reasoning_content` for thinking chunks
+## [2026-01-18] - US-011
+Thread: http://100.64.0.2:8743/threads/T-019bd121-a3ae-726a-9dd2-da84a36036a2
+- Updated `AntigravityStreamingParser` to accept `thought`, `thoughtSignature`, and `thought_signature` fields in streaming candidates
+- Added unit tests verifying parsing for all three field variations
+- Removed unused `camelToSnakeKey` import in `providers/antigravity/index.ts`
 - Files changed:
-  - packages/core/src/providers/antigravity/transform-utils.ts
+  - packages/core/src/providers/antigravity/streaming-parser.ts
+  - packages/core/test/providers/antigravity/streaming-parser.test.ts (new)
   - packages/core/src/providers/antigravity/index.ts
-  - packages/core/src/providers/antigravity/request.ts
-  - packages/server/src/handlers/upstream/transform-pipeline.ts
-  - packages/core/src/formats/openai-chat/streaming.ts
-  - packages/core/test/providers/antigravity/request.test.ts
 - **Learnings for future iterations:**
-  - When `convertKeysDeep` is used for Antigravity wire format, ensure it's called at the boundary (`transform`) and input config is prepared correctly.
-  - `transformStreamChunk` in `streaming.ts` needs to handle granular chunk types like `thinking-delta` if they are produced by normalizer.
-  - OpenAI Chat format now supports `reasoning_content` for O1/O3 compatibility - valid alternative to `content`.
+  - Streaming parsers often need to support multiple variations of fields (legacy vs new vs snake_case wire format) to be robust against different upstream versions or format transformations.
+  - When fixing lint errors, ensure typechecks run across all packages to catch propagated issues (like missing exports or unused imports in dependent files).
 ---

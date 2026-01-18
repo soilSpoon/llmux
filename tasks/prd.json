@@ -168,7 +168,7 @@
       ],
       "priority": 11,
       "passes": true,
-      "notes": "Added support for thought_signature in streaming parser and verified with tests."
+      "notes": "Verified support for thoughtSignature (legacy), thought_signature (snake_case), and thought (legacy) fields in Antigravity streaming parser."
     },
     {
       "id": "US-012",
