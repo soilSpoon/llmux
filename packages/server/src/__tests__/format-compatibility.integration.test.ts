@@ -7,10 +7,7 @@ import type { ProviderName } from '@llmux/core'
 process.env.ANTIGRAVITY_API_KEY = 'test-key'
 
 describe('E2E: Format Compatibility', () => {
-  const provider = new AntigravityProvider({
-    apiKey: 'test-key',
-    model: 'claude-3-5-sonnet',
-  } as any)
+  const provider = new AntigravityProvider('antigravity')
 
   it('should transform OpenAI format to Antigravity format', () => {
     // OpenAI format request (as parsed by OpenAI provider)
@@ -42,9 +39,9 @@ describe('E2E: Format Compatibility', () => {
     // Verify Antigravity structure
     expect(transformed.request).toBeDefined()
     expect(transformed.request.contents).toBeDefined() // Contents might include both if system prompt not extracted or merged
-    expect(transformed.request.systemInstruction).toBeDefined()
+    expect(transformed.request.system_instruction).toBeDefined()
     // System instruction might be in the request structure or merged into contents
-    const hasSystemText = transformed.request.systemInstruction.parts.some((p: any) => p.text.includes('You are a helpful assistant')) ||
+    const hasSystemText = transformed.request.system_instruction.parts.some((p: any) => p.text.includes('You are a helpful assistant')) ||
                           transformed.request.contents.some((c: any) => c.parts.some((p: any) => p.text.includes('You are a helpful assistant')))
     expect(hasSystemText).toBe(true)
     
@@ -89,7 +86,7 @@ describe('E2E: Format Compatibility', () => {
     // Antigravity transform injects system prompt into innerRequest
     // Check if it's there OR in contents (fallback)
     
-    const hasSystemInstruction = transformed.request.systemInstruction?.parts?.[0]?.text?.includes('You are Claude')
+    const hasSystemInstruction = transformed.request.system_instruction?.parts?.some((p: any) => p.text?.includes('You are Claude'))
     const hasSystemInContents = transformed.request.contents?.some((c: any) => c.parts?.some((p: any) => p.text?.includes('You are Claude')))
     
     expect(hasSystemInstruction || hasSystemInContents).toBe(true)

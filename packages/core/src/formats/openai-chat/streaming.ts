@@ -274,9 +274,8 @@ export function transformStreamChunk(chunk: StreamChunk): string {
       })
 
     case 'thinking':
-      // OpenAI streaming doesn't have explicit thinking chunks
-      // We could potentially use reasoning_content in the delta if we wanted to support it
-      // For now, we follow the pattern in providers/openai/streaming.ts
+    case 'thinking-delta':
+      // Use reasoning_content for thinking chunks (O1/O3 compatible)
       return formatSSE({
         id,
         object: 'chat.completion.chunk',
@@ -285,11 +284,17 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         choices: [
           {
             index,
-            delta: { content: chunk.delta?.thinking?.text || '' },
+            delta: { reasoning_content: chunk.delta?.thinking?.text || '' },
             finish_reason: null,
           },
         ],
       })
+
+    case 'thinking-start':
+    case 'thinking-end':
+      // OpenAI streaming doesn't support start/end events for thinking
+      // Return empty string to be ignored by builder
+      return ''
 
     case 'block_stop':
       // OpenAI doesn't have explicit block_stop, but we can simulate it with empty delta if needed

@@ -90,11 +90,6 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
     // Claude thinking models use camelCase config format
     if (isClaudeModel(model) && isThinkingModel(model)) {
-      // Min output tokens for Claude thinking
-      if ((request.config?.maxTokens || 0) < 64000) {
-        genConfig.maxOutputTokens = 64000
-      }
-
       genConfig.thinkingConfig = {
         includeThoughts: request.thinking.includeThoughts,
         thinkingBudget: request.thinking.budget,

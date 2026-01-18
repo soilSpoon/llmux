@@ -7,6 +7,7 @@ import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import { isThinkingModel as isThinkingModelCore } from '../../thinking/model-capabilities'
 import type { JSONSchema, RequestMetadata, UnifiedTool } from '../../types/unified'
+import { camelToSnakeKey, convertKeysDeep } from '../../utils/casing'
 import type {
   AntigravityGenerationConfig,
   AntigravityInnerRequest,
@@ -254,6 +255,19 @@ function sanitizeSchema(schema: unknown): unknown {
   return result
 }
 
+/**
+ * Converts a request object to Antigravity wire format (snake_case).
+ * Preserves user-defined keys in parameters, args, and response trees.
+ */
+export function convertToWireFormat(request: Record<string, unknown>): unknown {
+  return convertKeysDeep(request, camelToSnakeKey, {
+    preserveTree: ['parameters', 'args', 'response'],
+  })
+}
+
+/**
+ * Preprocesses tools to handle Antigravity-specific requirements
+ */
 export function preprocessTools(tools: UnifiedTool[] | undefined): UnifiedTool[] | undefined {
   if (!tools) return undefined
 

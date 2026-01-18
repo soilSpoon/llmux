@@ -9,10 +9,7 @@ describe('Integration: Antigravity Thinking Requests', () => {
   // We'll mock the actual HTTP fetch but go through the full pipeline
   
   it('should transform thinking request correctly for Claude 3.7 Thinking', () => {
-    const provider = new AntigravityProvider({
-      apiKey: 'test-key',
-      model: 'claude-3-7-sonnet-thinking',
-    } as any)
+    const provider = new AntigravityProvider('antigravity')
     
     // Simulate request with thinking enabled
     const request = {
@@ -32,7 +29,7 @@ describe('Integration: Antigravity Thinking Requests', () => {
     expect(transformed.request.generation_config).toBeDefined()
     expect(transformed.request.generation_config.thinking_config).toBeDefined()
     expect(transformed.request.generation_config.thinking_config.include_thoughts).toBe(true)
-    expect(transformed.request.generation_config.thinking_config.thinking_budget_token_count).toBe(4000)
+    expect(transformed.request.generation_config.thinking_config.thinking_budget).toBe(4000)
     
     // Verify NO camelCase leaks
     expect(transformed.generationConfig).toBeUndefined()
@@ -41,10 +38,7 @@ describe('Integration: Antigravity Thinking Requests', () => {
   })
   
   it('should NOT include thinking config for non-thinking models', () => {
-    const provider = new AntigravityProvider({
-      apiKey: 'test-key',
-      model: 'gpt-4o', // Non-thinking model mapped to AG
-    } as any)
+    const provider = new AntigravityProvider('antigravity')
     
     const request = {
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
@@ -64,33 +58,27 @@ describe('Integration: Antigravity Thinking Requests', () => {
   })
 
   it('should disable thinking when policy says disabled (e.g. Claude Fresh)', () => {
-    const provider = new AntigravityProvider({
-      apiKey: 'test-key',
-      model: 'claude-3-7-sonnet-thinking',
-    } as any)
+    const provider = new AntigravityProvider('antigravity')
     
     const request = {
       messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
-      thinking: { budget: 4000 },
+      thinking: { enabled: false, budget: 4000 },
       stream: true
     } as any
     
     // Simulate Claude Fresh policy (disabled)
-    // We simulate this by NOT enabling thinking in the request
-    // The pipeline would have stripped this flag if policy said disable
+    // We simulate this by explicitly disabling thinking in the request (which is what pipeline does)
     
     // @ts-ignore
     const transformed = provider.transform(request, 'claude-3-7-sonnet-thinking' as ProviderName) as any
     
-    expect(transformed.request.generation_config).toBeDefined()
-    expect(transformed.request.generation_config.thinking_config).toBeUndefined()
+    // If thinking is disabled and no other config, generation_config should be undefined
+    // because applyThinkingConfig returns early, and clean up logic removes empty generationConfig
+    expect(transformed.request.generation_config).toBeUndefined()
   })
   
   it('should format Antigravity request correctly matching opencode-antigravity-auth', () => {
-      const provider = new AntigravityProvider({
-          apiKey: 'test-key',
-          model: 'claude-3-7-sonnet-thinking',
-      } as any)
+      const provider = new AntigravityProvider('antigravity')
 
       const request = {
           messages: [{ role: 'user', parts: [{ type: 'text', text: 'Hello' }] }],
@@ -111,7 +99,7 @@ describe('Integration: Antigravity Thinking Requests', () => {
       // Check thinking config mapping
       const thinking = transformed.request.generation_config.thinking_config
       expect(thinking).toBeDefined()
-      expect(thinking.thinking_budget_token_count).toBe(1024)
+      expect(thinking.thinking_budget).toBe(1024)
       expect(thinking.include_thoughts).toBe(false)
   })
 })

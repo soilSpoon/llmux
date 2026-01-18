@@ -569,7 +569,7 @@ describe("Antigravity Request Transformations", () => {
         }
       });
 
-      it("should set minimum maxOutputTokens for Claude thinking models", () => {
+      it("should preserve maxOutputTokens for Claude thinking models (respect user intent)", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [createUnifiedMessage("user", "Hello")],
           thinking: {
@@ -583,9 +583,7 @@ describe("Antigravity Request Transformations", () => {
 
         const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityRequest;
 
-        expect(
-          result.request.generationConfig?.maxOutputTokens
-        ).toBeGreaterThanOrEqual(64000);
+        expect(result.request.generationConfig?.maxOutputTokens).toBe(1000);
       });
     });
 

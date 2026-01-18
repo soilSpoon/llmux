@@ -5,25 +5,16 @@
  * Antigravity wraps Gemini-style requests/responses with additional metadata.
  */
 
-import crypto from 'node:crypto'
-import { buildWireRequest as buildGeminiRequest } from '../../formats/google-gemini/request'
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { camelToSnakeKey, convertKeysDeep, snakeToCamelKey } from '../../utils/casing'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
-import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
+import { transform as transformRequest } from './request'
 import { parseResponse, transformResponse } from './response'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
-import {
-  createInnerRequest,
-  ensureToolConfig,
-  extractMetadata,
-  injectSystemInstruction,
-  normalizeGenerationConfig,
-  preprocessTools,
-} from './transform-utils'
+import { convertToWireFormat } from './transform-utils'
 import { type AntigravityResponse, isAntigravityRequest } from './types'
 
 export class AntigravityProvider extends BaseProvider {
@@ -148,40 +139,10 @@ export class AntigravityProvider extends BaseProvider {
    * Wraps the Gemini-style request with Antigravity envelope.
    */
   transform(request: UnifiedRequest, model: string): unknown {
-    const tools = preprocessTools(request.tools)
-    const geminiRequest = buildGeminiRequest(
-      { ...request, tools },
-      {
-        provider: this.name,
-        model,
-      }
-    )
-
-    const sessionId = request.metadata?.sessionId || `session-${crypto.randomUUID()}`
-
-    const innerRequest = createInnerRequest(geminiRequest, sessionId)
-
-    injectSystemInstruction(innerRequest, ANTIGRAVITY_SYSTEM_INSTRUCTION, model)
-    ensureToolConfig(innerRequest, model)
-    normalizeGenerationConfig(innerRequest, model)
-
-    // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
-    // Fallback values are used if metadata is missing entirely.
-    const wrapper = {
-      project: request.metadata?.project ?? '',
-      model,
-      requestType: 'agent',
-      userAgent: 'antigravity',
-      requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
-      userRole: request.userRole,
-      request: innerRequest,
-      metadata: extractMetadata(request.metadata),
-    }
+    const wrapper = transformRequest(request, model)
 
     // Convert wrapper to snake_case too (though top-level keys are mostly camel/mixed)
-    return convertKeysDeep(wrapper as unknown as Record<string, unknown>, camelToSnakeKey, {
-      preserveTree: ['parameters', 'args', 'response'],
-    }) as unknown
+    return convertToWireFormat(wrapper as unknown as Record<string, unknown>)
   }
 
   /**

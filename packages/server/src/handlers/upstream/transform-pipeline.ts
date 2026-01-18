@@ -99,9 +99,15 @@ export async function executeTransformPipeline(
   } else if (policyEnabled === true) {
     // Ensure thinking is enabled in the unified request if policy dictates it
     if (!unifiedRequest.thinking) {
-      unifiedRequest.thinking = { enabled: true }
+      unifiedRequest.thinking = {
+        enabled: true,
+        includeThoughts: thinkingPolicy?.includeThoughtsInResponse,
+      }
     } else {
       unifiedRequest.thinking.enabled = true
+      if (unifiedRequest.thinking.includeThoughts === undefined) {
+        unifiedRequest.thinking.includeThoughts = thinkingPolicy?.includeThoughtsInResponse
+      }
     }
   }
 
