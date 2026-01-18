@@ -95,7 +95,7 @@ export class AntigravityProvider extends BaseProvider {
       geminiRequest = request.request as unknown as Record<string, unknown>
       project = request.project
       model = request.model
-      userRole = (request.userRole ?? (request as Record<string, unknown>).user_role) as
+      userRole = (request.userRole ?? (request as unknown as Record<string, unknown>).user_role) as
         | string
         | undefined
     } else {

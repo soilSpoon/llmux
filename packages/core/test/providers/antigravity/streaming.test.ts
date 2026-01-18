@@ -111,6 +111,17 @@ describe("Antigravity Streaming Transformations", () => {
         expect((result as StreamChunk | null)?.type).toBe("thinking");
         expect((result as StreamChunk | null)?.delta?.thinking?.text).toBe("Thinking...");
       });
+
+      it("should parse thinking chunk with snake_case signature", () => {
+        const chunk =
+          'data: {"response":{"candidates":[{"content":{"parts":[{"thought":true,"text":"Thinking...","thought_signature":"sig_snake"}],"role":"model"}}]}}';
+
+        const result = parseStreamChunk(chunk);
+
+        expect((result as StreamChunk | null)?.type).toBe("thinking");
+        expect((result as StreamChunk | null)?.delta?.thinking?.text).toBe("Thinking...");
+        expect((result as StreamChunk | null)?.delta?.thinking?.signature).toBe("sig_snake");
+      });
     });
 
     describe("tool call parsing", () => {

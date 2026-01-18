@@ -9,3 +9,8 @@
 ## Exports
 - Utilities used by `@llmux/server` must be exported from `packages/core/src/index.ts`.
 - `recursiveStripSignatures` is required by server logging stores.
+
+## Streaming
+- Antigravity streaming chunks (`parseStreamChunk`) return loosely typed objects (`Record<string, unknown>`).
+- When accessing optional fields like `thoughtSignature` or `thought_signature`, use explicit checks or type casting (e.g., `(part.thoughtSignature || part.thought_signature) as string | undefined`).
+

@@ -217,3 +217,18 @@ Thread: http://100.64.0.2:8743/threads/T-019bd010-cc39-758c-9862-10d3ae29a890
   - The anthropic-beta header `output-128k-2025-02-19` is required for interleaved thinking mode
   - No `model.includes('thinking')` logic was present in antigravity.ts to remove - the acceptance criteria assumed legacy code that didn't exist
 ---
+
+## [2026-01-18] - US-011
+Thread: http://100.64.0.2:8743/threads/T-019bd015-24c9-7059-acba-b0230ef905e7
+- Updated `parseStreamChunk` in `packages/core/src/providers/antigravity/streaming.ts` to support both `thoughtSignature` and `thought_signature`
+- Added unit tests in `packages/core/test/providers/antigravity/streaming.test.ts`
+- Fixed a typecheck error in `packages/core/src/providers/antigravity/index.ts` involving `AntigravityWireRequest` casting
+- Files changed:
+  - packages/core/src/providers/antigravity/streaming.ts (modified)
+  - packages/core/test/providers/antigravity/streaming.test.ts (modified)
+  - packages/core/src/providers/antigravity/index.ts (modified)
+- **Learnings for future iterations:**
+  - Antigravity streaming chunks are loosely typed as `Record<string, unknown>` at parts level.
+  - When accessing optional keys in loose records, type casting or explicit checks are needed.
+  - Fix typecheck errors in related files (like index.ts) even if they seem unrelated, to ensure global stability.
+---

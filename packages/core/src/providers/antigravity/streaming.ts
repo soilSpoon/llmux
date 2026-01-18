@@ -204,7 +204,7 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
           type: 'thinking',
           thinking: {
             text: part.text,
-            signature: part.thoughtSignature as string | undefined,
+            signature: (part.thoughtSignature || part.thought_signature) as string | undefined,
           },
         },
       }
