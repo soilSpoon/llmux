@@ -1,6 +1,7 @@
 # Ralph Progress Tracker
 
 ## Codebase Patterns
+- Pattern: When migrating types to runtime, first duplicate in runtime and deprecate in core, then in a subsequent step update consumers and remove from core
 - Thinking logic in `transform-pipeline.ts` uses `isThinkingEnabled === false` (explicit disable) rather than `!== true`
 - Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
 - Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
@@ -168,4 +169,23 @@ Thread: http://100.64.0.2:8743/threads/T-019bc406-c114-72c7-9b9b-049adb7a8fc8
   - `isClaudeFresh` is computed inside the pipeline (via `sanitizeRequestSignatures`) and also passed into policy computation in builder.
   - The pipeline uses a combined check: `policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false`.
   - This ensures that if the pipeline discovers we are in "Claude Fresh" mode (signature stripping), we force disable thinking even if the policy was initially enabled.
+---
+
+## [2026-01-18] - US-102
+Thread: http://100.64.0.2:8743/threads/T-019bcffa-f358-779c-a267-1cee02ab663b
+- Created `packages/runtime/src/strategies/upstream.ts`
+- Duplicated Upstream interfaces from Core to Runtime
+- Exported them from `@llmux/runtime`
+- Added `@llmux/core` as dependency to runtime
+- Deprecated original types in `packages/core/src/types/provider-strategies.ts`
+- Files changed:
+  - packages/runtime/package.json
+  - packages/runtime/src/strategies/upstream.ts (new)
+  - packages/runtime/src/strategies/index.ts (new)
+  - packages/runtime/src/index.ts
+  - packages/core/src/types/provider-strategies.ts
+- **Learnings for future iterations:**
+  - Runtime needs to depend on Core for shared types (ProviderName, ThinkingPolicy)
+  - Cannot remove types from Core yet because Server depends on them; deprecation strategy chosen
+  - Monorepo structure allows incremental migration via duplication + deprecation
 ---
