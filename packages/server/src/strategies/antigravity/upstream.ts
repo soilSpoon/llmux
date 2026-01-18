@@ -40,6 +40,11 @@ export class AntigravityUpstreamStrategy implements UpstreamPreparationStrategy 
         : `${baseUrl}${ANTIGRAVITY_API_PATH_GENERATE}`
     }
 
+    // Add anthropic-beta header if interleaved thinking is enabled
+    if (options.thinkingPolicy?.mode === 'interleaved') {
+      antigravityContext.headers['anthropic-beta'] = 'output-128k-2025-02-19'
+    }
+
     return {
       accountIndex: antigravityContext.accountIndex,
       projectId: antigravityContext.projectId,
