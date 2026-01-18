@@ -21,6 +21,7 @@ const VALID_PROVIDER_NAMES: readonly ProviderName[] = [
   'antigravity',
   'opencode-zen',
   'openai-web',
+  'github-copilot',
   'google',
   'unknown',
 ] as const

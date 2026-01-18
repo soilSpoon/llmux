@@ -45,6 +45,7 @@ registerProvider(new AntigravityProvider())
 registerProvider(new AntigravityProvider('gemini-cli'))
 registerProvider(new OpencodeZenProvider())
 registerProvider(new CoreOpenAIWebProvider())
+registerProvider(new OpenAIProvider('github-copilot'))
 
 registerServerStrategies()
 
