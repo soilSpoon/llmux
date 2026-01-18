@@ -191,3 +191,16 @@ Thread: http://100.64.0.2:8743/threads/T-019bd001-1b06-701d-b4eb-0e53c7bdf0b2
   - Tests checking wire format must cast to `Record<string, unknown>` or `AntigravityWireRequest`.
   - Missing exports in core can cause obscure build failures in server package.
 ---
+
+## [2026-01-18] - US-009 (Additional Fixes)
+Thread: http://100.64.0.2:8743/threads/T-019bd001-1b06-701d-b4eb-0e53c7bdf0b2
+- Fixed bidirectional key conversion using `convertKeysDeep` with `snakeToCamelKey`
+- Removed manual `normalizeRequestKeys` method (replaced by generic utility)
+- Integration tests for antigravity provider now pass
+- Files changed:
+  - packages/core/src/providers/antigravity/index.ts
+- **Learnings for future iterations:**
+  - Bidirectional format conversion requires symmetry: `transform` uses `camelToSnakeKey`, `parse` must use `snakeToCamelKey`.
+  - When using `convertKeysDeep`, preserve schema keys (`parameters`, `args`, `response`) to avoid corrupting user data.
+  - Integration tests cover cross-provider round-trips and are critical for detecting format conversion issues.
+---
