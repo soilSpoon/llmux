@@ -218,34 +218,26 @@ Thread: http://100.64.0.2:8743/threads/T-019bd010-cc39-758c-9862-10d3ae29a890
   - No `model.includes('thinking')` logic was present in antigravity.ts to remove - the acceptance criteria assumed legacy code that didn't exist
 ---
 
-## [2026-01-18] - US-011
-Thread: http://100.64.0.2:8743/threads/T-019bd08f-3dec-722d-b1df-c94668d89823
-- Updated streaming parsers to handle `thought_signature` (snake_case) alongside `thoughtSignature` (camelCase)
-- Updated `GeminiPart` type definition to include `thought_signature`
-- Updated `parseStreamChunk` in `packages/core/src/providers/antigravity/streaming.ts` and `packages/core/src/formats/google-gemini/streaming.ts`
-- Added tests verifying both casing styles work correctly
+## [2026-01-18] - US-012, US-013
+Thread: http://100.64.0.2:8743/threads/T-019bd0d8-ff1a-73f8-9ff5-5f9a56fb22b5
+- Fixed E2E tests for Antigravity thinking and format compatibility
+- Implemented provider-aware thinking strategy selection (bypassed Claude Fresh for Antigravity)
+- Added `stop_sequences` alias for `stop` in OpenAI chat configuration
+- Updated E2E tests to mock OAuth credentials for Antigravity
 - Files changed:
-  - packages/core/src/providers/gemini/types.ts
-  - packages/core/src/providers/antigravity/streaming.ts
-  - packages/core/src/formats/google-gemini/streaming.ts
-  - packages/core/test/providers/antigravity/streaming.test.ts
+  - packages/server/src/handlers/thinking-utils.ts
+  - packages/server/src/handlers/upstream-request-builder.ts
+  - packages/server/src/handlers/upstream/transform-pipeline.ts
+  - packages/server/src/handlers/request-sanitizer.ts
+  - packages/server/src/handlers/signature-request.ts
+  - packages/server/src/handlers/signature-integration.ts
+  - packages/server/src/strategies/antigravity/thinking.ts
+  - packages/server/src/handlers/thinking/index.ts
+  - packages/core/src/formats/openai-chat/config.ts
+  - packages/core/src/formats/openai-chat/types.ts
+  - packages/server/src/handlers/__tests__/antigravity-e2e.test.ts
 - **Learnings for future iterations:**
-  - Antigravity uses snake_case (`thought_signature`) in its wire format, while Gemini uses camelCase (`thoughtSignature`).
-  - The streaming parser must check both properties to ensure compatibility.
-  - Type definitions need to reflect both possibilities to avoid type errors during transformation.
----
-- Created new E2E tests in `packages/server/src/handlers/__tests__/antigravity-e2e.test.ts`
-- Verified Antigravity thinking requests (US-012):
-  - Thinking model + streaming -> correct headers and snake_case body
-  - Non-thinking model -> no thinking config
-  - Explicit thinking disable -> no thinking config
-- Verified format compatibility (US-013):
-  - Handled snake_case inputs (e.g. `max_tokens`) and converted them correctly
-- Files changed:
-  - packages/server/src/handlers/__tests__/antigravity-e2e.test.ts (new)
-  - tasks/prd.json (updated)
-- **Learnings for future iterations:**
-  - Mocking `fetch` for E2E tests requires careful handling of request body parsing, as `Request.clone().json()` behaves differently depending on how the mock is set up vs real fetch.
-  - Using a fallback parsing method `JSON.parse(input.body)` in the mock helps handle different request construction patterns.
-  - E2E tests confirm that the `ThinkingPolicy` and `convertKeysDeep` logic correctly propagate through the server handlers to the upstream request.
+  - `getThinkingStrategy` must be provider-aware to support wrapped providers (like Antigravity wrapping Claude) correctly.
+  - When mocking upstream calls in E2E tests, ensure auth dependencies (like `TokenRefresh.ensureFresh`) are mocked if the strategy relies on them.
+  - Test `handleStreamingProxy` carefully: it catches errors and returns responses, so expect failures to be silent unless you inspect the response or side effects.
 ---
