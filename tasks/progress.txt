@@ -14,10 +14,28 @@
 
 ## Current Status
 - Project: llmux
-- Branch: ralph/thinking-casing-refactor
-- Started: 2026-01-16
+- Branch: ralph/dependency-refactor
+- Started: 2026-01-18
 
 ## Execution Log
+
+## [2026-01-18] - US-101
+Thread: http://100.64.0.2:8743/threads/T-019bcff8-da92-737c-a280-f312eda2d997
+- Created `@llmux/runtime` package structure for execution interfaces
+- Created `packages/runtime/package.json` with name @llmux/runtime
+- Created `packages/runtime/tsconfig.json` extending root config
+- Created `packages/runtime/src/index.ts` as entry point
+- Workspace automatically recognizes package via `packages/*` glob
+- Verified build and typecheck pass
+- Files changed:
+  - packages/runtime/package.json (new)
+  - packages/runtime/tsconfig.json (new)
+  - packages/runtime/src/index.ts (new)
+- **Learnings for future iterations:**
+  - Workspace uses `packages/*` glob in root package.json, so new packages are auto-discovered
+  - Package exports follow the same pattern as @llmux/core with types/import keys
+  - bunup handles build with `src/index.ts --dts` for TypeScript declaration generation
+---
 
 ## [2026-01-16] - US-002
 Thread: http://100.64.0.2:8743/threads/T-019bc246-ad64-716a-b047-79071b4dfbf7
