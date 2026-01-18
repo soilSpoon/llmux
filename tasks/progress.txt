@@ -204,3 +204,4 @@ Thread: http://100.64.0.2:8743/threads/T-019bd001-1b06-701d-b4eb-0e53c7bdf0b2
   - When using `convertKeysDeep`, preserve schema keys (`parameters`, `args`, `response`) to avoid corrupting user data.
   - Integration tests cover cross-provider round-trips and are critical for detecting format conversion issues.
 ---
+- Fixed `user_role` parsing in `AntigravityProvider.parse` to support snake_case envelope key
