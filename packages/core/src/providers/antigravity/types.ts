@@ -29,10 +29,12 @@ export interface AntigravityRequest {
   userAgent?: string
   requestType?: string
   userRole?: string
-  request: AntigravityInnerRequest | Record<string, unknown> // Relaxed type for wire format
-
-  // Metadata passed through (not injected into inner request)
+  request: AntigravityInnerRequest
   metadata?: AntigravityRequestMetadata
+}
+
+export interface AntigravityWireRequest extends Omit<AntigravityRequest, 'request'> {
+  request: AntigravityInnerRequest | Record<string, unknown>
 }
 
 /**
@@ -133,7 +135,7 @@ export interface AntigravityStreamChunk {
 /**
  * Check if value is an Antigravity request
  */
-export function isAntigravityRequest(value: unknown): value is AntigravityRequest {
+export function isAntigravityRequest(value: unknown): value is AntigravityWireRequest {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
   return (

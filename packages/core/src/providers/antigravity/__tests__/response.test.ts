@@ -31,7 +31,7 @@ describe('Antigravity Response Parsing', () => {
 
     const result = parseResponse(mockResponse)
     
-    if (!result.thinking) throw new Error('Thinking should be defined')
+    if (!result.thinking || !result.thinking[0]) throw new Error('Thinking should be defined')
     expect(result.thinking).toHaveLength(1)
     expect(result.thinking[0].text).toBe('Thinking process...')
     expect(result.thinking[0].signature).toBe('sig_12345')

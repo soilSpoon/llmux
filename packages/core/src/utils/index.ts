@@ -6,6 +6,7 @@ export {
   snakeToCamelKey,
 } from './casing'
 export {
+  recursiveStripSignatures,
   stripSignaturesFromContents,
   stripSignaturesFromMessages,
   stripThoughtSignatures,

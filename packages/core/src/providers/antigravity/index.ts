@@ -15,6 +15,7 @@ import { camelToSnakeKey, convertKeysDeep } from '../../utils/casing'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
 import { parseResponse, transformResponse } from './response'
+import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import {
   createInnerRequest,
   ensureToolConfig,

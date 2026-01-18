@@ -1,6 +1,6 @@
 
 import { describe, expect, it } from 'bun:test'
-import { RequestLogStore } from '../../src/stores/request-log-store'
+import { RequestLogStore } from '../request-log-store'
 
 describe('RequestLogStore Signature Stripping', () => {
   it('should strip thoughtSignature from logged requests', () => {
