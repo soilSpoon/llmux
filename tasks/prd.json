@@ -141,7 +141,7 @@
       ],
       "priority": 9,
       "passes": true,
-      "notes": "Implemented convertToWireFormat using convertKeysDeep with strict preservation of args/parameters. Verified with updated request-casing.test.ts."
+      "notes": "Implemented convertToWireFormat (restored) and verified snake_case conversion."
     },
     {
       "id": "US-010",
@@ -183,7 +183,7 @@
       ],
       "priority": 12,
       "passes": true,
-      "notes": "Verified with packages/server/src/handlers/__tests__/antigravity-e2e.test.ts"
+      "notes": "Verified with fixed E2E tests and thinking policy propagation."
     },
     {
       "id": "US-013",
@@ -198,7 +198,7 @@
       ],
       "priority": 13,
       "passes": true,
-      "notes": "Verified with packages/server/src/handlers/__tests__/antigravity-e2e.test.ts"
+      "notes": "Verified format compatibility, removed 64k token enforcement, and fixed OpenAI streaming format for thinking."
     }
   ]
 }

@@ -241,3 +241,23 @@ Thread: http://100.64.0.2:8743/threads/T-019bd0d8-ff1a-73f8-9ff5-5f9a56fb22b5
   - When mocking upstream calls in E2E tests, ensure auth dependencies (like `TokenRefresh.ensureFresh`) are mocked if the strategy relies on them.
   - Test `handleStreamingProxy` carefully: it catches errors and returns responses, so expect failures to be silent unless you inspect the response or side effects.
 ---
+
+## [2026-01-18] - US-009, US-012, US-013 (Fixes)
+Thread: http://100.64.0.2:8743/threads/T-019bd116-b1ee-7309-82d3-9cbf96f2b35c
+- Restored `convertToWireFormat` in `transform-utils.ts` (was missing despite PRD status)
+- Fixed Antigravity wire format serialization (snake_case)
+- Removed 64k token enforcement for Claude thinking models to respect user intent (US-013)
+- Fixed `transform-pipeline` to propagate `includeThoughts` from policy
+- Fixed OpenAI streaming builder to output `reasoning_content` for thinking chunks
+- Files changed:
+  - packages/core/src/providers/antigravity/transform-utils.ts
+  - packages/core/src/providers/antigravity/index.ts
+  - packages/core/src/providers/antigravity/request.ts
+  - packages/server/src/handlers/upstream/transform-pipeline.ts
+  - packages/core/src/formats/openai-chat/streaming.ts
+  - packages/core/test/providers/antigravity/request.test.ts
+- **Learnings for future iterations:**
+  - When `convertKeysDeep` is used for Antigravity wire format, ensure it's called at the boundary (`transform`) and input config is prepared correctly.
+  - `transformStreamChunk` in `streaming.ts` needs to handle granular chunk types like `thinking-delta` if they are produced by normalizer.
+  - OpenAI Chat format now supports `reasoning_content` for O1/O3 compatibility - valid alternative to `content`.
+---
