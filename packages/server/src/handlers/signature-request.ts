@@ -39,6 +39,7 @@ export interface ValidateSignatureOptions {
   targetProjectId: string
   signatureStore: SignatureStore
   model?: string
+  provider?: string
 }
 
 export interface ValidateSignatureResult {
@@ -50,10 +51,10 @@ export interface ValidateSignatureResult {
 export function validateAndStripSignatures(
   options: ValidateSignatureOptions
 ): ValidateSignatureResult {
-  const { contents, messages, targetProjectId, signatureStore, model } = options
+  const { contents, messages, targetProjectId, signatureStore, model, provider } = options
   let strippedCount = 0
 
-  const strategy = getThinkingStrategy(model)
+  const strategy = getThinkingStrategy(model, provider)
   const isClaudeFresh = strategy === 'claude-fresh'
   const isGeminiCache = strategy === 'gemini-cache'
 

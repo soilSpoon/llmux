@@ -594,12 +594,21 @@ function transformGenerationConfig(
     // Detect Gemini 3+ models to use thinkingLevel instead of budget
     // Model names like: gemini-3.0-flash, gemini-3-pro, etc.
     // NOTE: -preview models (like gemini-3-pro-preview) often don't support thinkingLevel yet
-    const isGemini3 = ctx?.model?.includes('gemini-3') && !ctx?.model?.includes('-preview')
+    // ALSO: Antigravity Claude models (specifically those with "thinking" in name) seem to use thinkingLevel
+    // or default to it, so we should treat them as Gemini 3 style to avoid "thinking_level MEDIUM not supported" errors
+    const isAntigravityClaude =
+      ctx?.provider === 'antigravity' &&
+      ctx?.model?.toLowerCase().includes('claude') &&
+      ctx?.model?.toLowerCase().includes('thinking')
+
+    const isGemini3 =
+      (ctx?.model?.includes('gemini-3') && !ctx?.model?.includes('-preview')) || isAntigravityClaude
 
     result.thinkingConfig = {
       includeThoughts: thinking.includeThoughts ?? true,
     }
 
+    // Only set budget/level for internal object, transform-utils.ts will handle stripping for unsupported models
     if (isGemini3) {
       // Gemini 3 uses thinkingLevel
       // Map budget to level if level is not explicitly set
@@ -615,6 +624,13 @@ function transformGenerationConfig(
       // Older models use thinkingBudget
       result.thinkingConfig.thinkingBudget = thinking.budget
     }
+
+    // Antigravity Compatibility
+    // AntigravityProvider converts everything to snake_case at the boundary using convertKeysDeep
+    // BUT we need to ensure the keys exist in the structure for the converter to pick them up
+    // The converter will see 'thinkingConfig' and convert to 'thinking_config'
+    // It will see 'thinkingBudget' and convert to 'thinking_budget'
+    // It will see 'includeThoughts' and convert to 'include_thoughts'
   }
 
   return Object.keys(result).length > 0 ? result : undefined

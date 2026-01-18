@@ -219,16 +219,33 @@ Thread: http://100.64.0.2:8743/threads/T-019bd010-cc39-758c-9862-10d3ae29a890
 ---
 
 ## [2026-01-18] - US-011
-Thread: http://100.64.0.2:8743/threads/T-019bd015-24c9-7059-acba-b0230ef905e7
-- Updated `parseStreamChunk` in `packages/core/src/providers/antigravity/streaming.ts` to support both `thoughtSignature` and `thought_signature`
-- Added unit tests in `packages/core/test/providers/antigravity/streaming.test.ts`
-- Fixed a typecheck error in `packages/core/src/providers/antigravity/index.ts` involving `AntigravityWireRequest` casting
+Thread: http://100.64.0.2:8743/threads/T-019bd08f-3dec-722d-b1df-c94668d89823
+- Updated streaming parsers to handle `thought_signature` (snake_case) alongside `thoughtSignature` (camelCase)
+- Updated `GeminiPart` type definition to include `thought_signature`
+- Updated `parseStreamChunk` in `packages/core/src/providers/antigravity/streaming.ts` and `packages/core/src/formats/google-gemini/streaming.ts`
+- Added tests verifying both casing styles work correctly
 - Files changed:
-  - packages/core/src/providers/antigravity/streaming.ts (modified)
-  - packages/core/test/providers/antigravity/streaming.test.ts (modified)
-  - packages/core/src/providers/antigravity/index.ts (modified)
+  - packages/core/src/providers/gemini/types.ts
+  - packages/core/src/providers/antigravity/streaming.ts
+  - packages/core/src/formats/google-gemini/streaming.ts
+  - packages/core/test/providers/antigravity/streaming.test.ts
 - **Learnings for future iterations:**
-  - Antigravity streaming chunks are loosely typed as `Record<string, unknown>` at parts level.
-  - When accessing optional keys in loose records, type casting or explicit checks are needed.
-  - Fix typecheck errors in related files (like index.ts) even if they seem unrelated, to ensure global stability.
+  - Antigravity uses snake_case (`thought_signature`) in its wire format, while Gemini uses camelCase (`thoughtSignature`).
+  - The streaming parser must check both properties to ensure compatibility.
+  - Type definitions need to reflect both possibilities to avoid type errors during transformation.
+---
+- Created new E2E tests in `packages/server/src/handlers/__tests__/antigravity-e2e.test.ts`
+- Verified Antigravity thinking requests (US-012):
+  - Thinking model + streaming -> correct headers and snake_case body
+  - Non-thinking model -> no thinking config
+  - Explicit thinking disable -> no thinking config
+- Verified format compatibility (US-013):
+  - Handled snake_case inputs (e.g. `max_tokens`) and converted them correctly
+- Files changed:
+  - packages/server/src/handlers/__tests__/antigravity-e2e.test.ts (new)
+  - tasks/prd.json (updated)
+- **Learnings for future iterations:**
+  - Mocking `fetch` for E2E tests requires careful handling of request body parsing, as `Request.clone().json()` behaves differently depending on how the mock is set up vs real fetch.
+  - Using a fallback parsing method `JSON.parse(input.body)` in the mock helps handle different request construction patterns.
+  - E2E tests confirm that the `ThinkingPolicy` and `convertKeysDeep` logic correctly propagate through the server handlers to the upstream request.
 ---

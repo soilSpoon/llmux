@@ -85,7 +85,8 @@ export async function buildUpstreamRequest(
     includeThoughts: typedBody.include_thoughts,
   }
 
-  const isClaudeFreshStrategy = getThinkingStrategy(currentModel) === 'claude-fresh'
+  const isClaudeFreshStrategy =
+    getThinkingStrategy(currentModel, effectiveProvider) === 'claude-fresh'
 
   const thinkingPolicy = computeThinkingPolicy({
     model: currentModel || '',

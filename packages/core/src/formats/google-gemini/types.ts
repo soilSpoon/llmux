@@ -164,6 +164,11 @@ export interface GeminiGenerationConfig {
   // Thinking configuration
   thinkingConfig?: GeminiThinkingConfig
 
+  // Antigravity / Claude compatibility (snake_case)
+  // Needed because Gemini format is used as intermediate format for Antigravity,
+  // and convertKeysDeep handles conversion to snake_case at the boundary.
+  thinking_config?: GeminiThinkingConfig
+
   // Speech output
   speechConfig?: {
     voiceConfig: {

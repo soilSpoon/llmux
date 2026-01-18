@@ -22,6 +22,7 @@ export interface OpenAIChatRequest {
   temperature?: number
   top_p?: number
   stop?: string | string[]
+  stop_sequences?: string | string[]
   stream?: boolean
 
   // Tool calling

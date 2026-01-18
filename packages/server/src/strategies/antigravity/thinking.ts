@@ -5,7 +5,7 @@ export class AntigravityThinkingStrategy implements ThinkingStrategyResolver {
   readonly strategyType = 'thinking'
 
   getMode(model: string): ThinkingMode {
-    return getThinkingStrategy(model)
+    return getThinkingStrategy(model, 'antigravity')
   }
 
   shouldStripSignatures(model: string): boolean {

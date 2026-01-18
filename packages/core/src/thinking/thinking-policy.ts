@@ -74,7 +74,7 @@ export function createDisabledThinkingPolicy(reason: string): ThinkingPolicy {
  */
 export function createEnabledThinkingPolicy(
   mode: ThinkingPolicy['mode'],
-  options: {
+  options?: {
     includeThoughtsInResponse?: boolean
     sendThinkingToUpstream?: boolean
     reason: string
@@ -83,9 +83,9 @@ export function createEnabledThinkingPolicy(
   return {
     enabled: true,
     mode,
-    includeThoughtsInResponse: options.includeThoughtsInResponse ?? true,
-    sendThinkingToUpstream: options.sendThinkingToUpstream ?? true,
-    reason: options.reason,
+    includeThoughtsInResponse: options?.includeThoughtsInResponse ?? true,
+    sendThinkingToUpstream: options?.sendThinkingToUpstream ?? true,
+    reason: options?.reason ?? 'Enabled by default',
   }
 }
 

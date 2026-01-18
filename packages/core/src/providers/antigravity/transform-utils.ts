@@ -94,16 +94,14 @@ export function ensureToolConfig(request: AntigravityInnerRequest, model: string
  * - Removes thinkingConfig for non-thinking models
  */
 export function normalizeGenerationConfig(request: AntigravityInnerRequest, model: string): void {
-  if (!isClaudeModel(model)) {
-    return
-  }
-
   const genConfig = request.generationConfig
   if (!genConfig) {
     return
   }
 
-  normalizeStopSequences(genConfig)
+  if (isClaudeModel(model)) {
+    normalizeStopSequences(genConfig)
+  }
 
   if (!isThinkingModel(model)) {
     removeThinkingConfig(genConfig)

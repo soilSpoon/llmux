@@ -66,6 +66,7 @@ export async function executeTransformPipeline(
     projectId: currentProjectId,
     signatureStore,
     reqId,
+    provider: effectiveProvider,
   })
 
   if (sanitizeResult.messages) {
@@ -94,6 +95,13 @@ export async function executeTransformPipeline(
       unifiedRequest.thinking.enabled = false
     } else {
       unifiedRequest.thinking = { enabled: false }
+    }
+  } else if (policyEnabled === true) {
+    // Ensure thinking is enabled in the unified request if policy dictates it
+    if (!unifiedRequest.thinking) {
+      unifiedRequest.thinking = { enabled: true }
+    } else {
+      unifiedRequest.thinking.enabled = true
     }
   }
 
