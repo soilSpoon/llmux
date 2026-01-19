@@ -4,6 +4,7 @@ import { detectFormat } from '../middleware/format'
 import type { RouteParams } from '../router'
 import type { Router } from '../routing'
 import type { UpstreamProxy } from '../upstream/proxy'
+import { AllCooldownError } from './error-utils'
 import { extractModel, type PathParams } from './model-extraction'
 import { applyModelMappingV2 } from './model-mapping'
 import { handleProxy } from './proxy'
@@ -37,6 +38,11 @@ export class FallbackHandler {
 
   wrap(handler: RouteHandler): RouteHandler {
     return async (request: Request, params?: RouteParams): Promise<Response> => {
+      const reqId =
+        request.headers.get('x-llmux-request-id') ||
+        request.headers.get('x-request-id') ||
+        Math.random().toString(36).slice(2, 8)
+
       // Read body as text immediately.
       // We use text because creating a new Request with string body allows safe cloning downstream,
       // whereas ArrayBuffer-based Requests can have issues with stream locking in Bun.
@@ -128,7 +134,22 @@ export class FallbackHandler {
           detectedProvider = resolution.provider
           hasProvider = true
           logger.info({ model, provider: detectedProvider }, 'Model resolved via ModelRouter')
-        } catch {
+        } catch (error) {
+          if (error instanceof AllCooldownError) {
+            return new Response(
+              JSON.stringify({
+                error: {
+                  message: error.message,
+                  type: 'rate_limit_error',
+                  code: 'all_providers_cooldown',
+                },
+              }),
+              {
+                status: 429,
+                headers: { 'Content-Type': 'application/json' },
+              }
+            )
+          }
           // Router failed
         }
       }
@@ -152,7 +173,7 @@ export class FallbackHandler {
 
           if (isStreaming) {
             logger.info(
-              { model, provider: detectedProvider, sourceFormat },
+              { model, provider: detectedProvider, sourceFormat, requestId: reqId },
               'Routing to streaming handler'
             )
 

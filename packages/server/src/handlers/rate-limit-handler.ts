@@ -221,8 +221,9 @@ export async function handleUpstreamError(
       areAllLimited = true
     }
 
-    if (areAllLimited) {
+    if (areAllLimited || (retryState.accountIndex === -1 && credentials.length === 0)) {
       // Router handling: Only mark the model as globally limited if ALL accounts are limited
+      // OR if we are using a generic provider (index -1) where we can't rotate accounts
       if (router && model) {
         router.handleRateLimit(model, effectiveRetryAfter)
       }

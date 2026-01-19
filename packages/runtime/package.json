@@ -1,0 +1,49 @@
+{
+  "name": "@llmux/runtime",
+  "version": "0.1.0",
+  "description": "LLM Provider Runtime - Execution interfaces and strategies for LLM provider operations",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "bunup src/index.ts --dts",
+    "typecheck": "tsc --noEmit",
+    "typecheck:only": "tsc --noEmit",
+    "test": "bun test",
+    "lint": "biome lint src",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "llm",
+    "ai",
+    "runtime",
+    "strategies",
+    "execution"
+  ],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.5",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {},
+  "dependencies": {
+    "@llmux/core": "workspace:*"
+  }
+
+}

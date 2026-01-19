@@ -4,7 +4,8 @@ import { isOAuthCredential } from '../types'
 import type { AuthMethod, AuthProvider, AuthResult } from './base'
 
 const PROVIDER_ID = 'github-copilot'
-const GITHUB_CLIENT_ID = 'Iv1.b507a08c87ecfe98'
+// Use opencode's client ID for GitHub Copilot OAuth
+const GITHUB_CLIENT_ID = 'Ov23li8tweQw6odWQebz'
 
 export interface DeviceCodeResponse {
   deviceCode: string
@@ -83,11 +84,13 @@ export async function pollForToken(deviceCode: string, interval: number): Promis
     }
 
     if (data.access_token) {
+      // GitHub Copilot tokens don't expire in the traditional sense
+      // Set expiresAt to 0 to indicate no expiration (like opencode)
       const credential: OAuthCredential = {
         type: 'oauth',
         accessToken: data.access_token,
-        refreshToken: data.refresh_token || '',
-        expiresAt: Date.now() + (data.expires_in || 28800) * 1000,
+        refreshToken: '', // GitHub Copilot doesn't provide refresh tokens
+        expiresAt: 0, // No expiration - token is long-lived
       }
       await CredentialStorage.set(PROVIDER_ID, credential)
       return { type: 'success', credential }
@@ -127,9 +130,12 @@ export const GithubCopilotProvider: AuthProvider = {
     if (!isOAuthCredential(credential)) {
       return {}
     }
+    // Match opencode's header format for GitHub Copilot API
     return {
       Authorization: `Bearer ${credential.accessToken}`,
-      'Editor-Version': 'llmux/1.0',
+      'User-Agent': 'llmux/1.0',
+      'Openai-Intent': 'conversation-edits',
+      'X-Initiator': 'user',
     }
   },
 
@@ -138,43 +144,8 @@ export const GithubCopilotProvider: AuthProvider = {
   },
 
   async refresh(credential: Credential): Promise<Credential> {
-    if (!isOAuthCredential(credential) || !credential.refreshToken) {
-      return credential
-    }
-
-    const response = await fetch('https://github.com/login/oauth/access_token', {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        client_id: GITHUB_CLIENT_ID,
-        grant_type: 'refresh_token',
-        refresh_token: credential.refreshToken,
-      }),
-    })
-
-    const data = (await response.json()) as {
-      error?: string
-      access_token?: string
-      refresh_token?: string
-      expires_in?: number
-    }
-
-    if (data.error) {
-      throw new Error(`Failed to refresh GitHub Copilot token: ${data.error}`)
-    }
-
-    if (data.access_token) {
-      return {
-        ...credential,
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token || credential.refreshToken,
-        expiresAt: Date.now() + (data.expires_in || 28800) * 1000,
-      }
-    }
-
-    throw new Error('Unknown error refreshing GitHub Copilot token')
+    // GitHub Copilot tokens are long-lived and don't require refresh
+    // Just return the existing credential
+    return credential
   },
 }

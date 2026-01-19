@@ -2,13 +2,24 @@ import type { StreamChunk } from '../../types/unified'
 import { normalizeStreamingOrder } from '../../util/stream-normalizer'
 import { transformStreamChunk } from './streaming'
 
+type State = {
+  model?: string
+  finished: boolean
+
+  normalization: {
+    hasThinkingStarted: boolean
+    hasThinkingEnded: boolean
+    hasTextStarted: boolean
+  }
+}
+
 /**
  * OpenAI Chat Streaming Builder
  *
  * Converts unified StreamChunks into OpenAI SSE events.
  */
 export class OpenAIChatStreamingBuilder {
-  private state = {
+  private state: State = {
     finished: false,
     // Stream normalization state
     normalization: {
@@ -16,6 +27,12 @@ export class OpenAIChatStreamingBuilder {
       hasThinkingEnded: false,
       hasTextStarted: false,
     },
+  }
+
+  constructor(model?: string) {
+    if (model) {
+      this.state.model = model
+    }
   }
 
   /**
@@ -31,7 +48,7 @@ export class OpenAIChatStreamingBuilder {
     const results: string[] = []
 
     for (const normalizedChunk of normalizedChunks) {
-      const output = transformStreamChunk(normalizedChunk)
+      const output = transformStreamChunk(normalizedChunk, this.state.model)
       if (output) {
         // In OpenAI format, each data line is followed by \n\n
         results.push(`${output}\n\n`)

@@ -54,7 +54,7 @@ describe("Antigravity Thinking Block Injection", () => {
       },
     });
 
-    const result = transform(unifiedRequest, 'gemini-2.5-pro') as AntigravityRequest;
+    const result = transform(unifiedRequest, 'gemini-2.0-flash-thinking') as AntigravityRequest;
 
     // Check the assistant message (index 1)
     const assistantMsg = result.request.contents[1];
@@ -97,7 +97,7 @@ describe("Antigravity Thinking Block Injection", () => {
       },
     });
 
-    const result = transform(unifiedRequest, 'gemini-2.5-pro') as AntigravityRequest;
+    const result = transform(unifiedRequest, 'gemini-2.0-flash-thinking') as AntigravityRequest;
     
     const assistantMsg = result.request.contents[0];
     // Thinking block is preserved, but signature is replaced if too short (<30 chars)

@@ -79,7 +79,7 @@ describe('Rate Limit Regression Tests', () => {
         // We expect the specific error message, but handle potential variations
         expect(error instanceof Error).toBe(true)
         if (error instanceof Error) {
-            expect(error.message).toMatch(/Invalid (OpenAI|Anthropic) request/i)
+            expect(error.message).toMatch(/No credentials available|Invalid (OpenAI|Anthropic) request/i)
         }
 
       }

@@ -6,18 +6,16 @@ import {
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { UnifiedRequest } from '../../types/unified'
-import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
+import { ANTIGRAVITY_SYSTEM_INSTRUCTION, SKIP_THOUGHT_SIGNATURE } from './constants'
 import {
   createInnerRequest,
   ensureToolConfig,
   extractMetadata,
   injectSystemInstruction,
-  isClaudeModel,
-  isThinkingModel,
-  normalizeGenerationConfig,
+  preprocessAntigravityRequest,
   preprocessTools,
 } from './transform-utils'
-import type { AntigravityRequest, ClaudeThinkingConfig, GeminiThinkingConfig } from './types'
+import type { AntigravityRequest } from './types'
 
 export function parse(request: AntigravityRequest): UnifiedRequest {
   const unified = parseGeminiRequest(request.request as GeminiRequest)
@@ -62,9 +60,11 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
 }
 
 export function transform(request: UnifiedRequest, model: string): AntigravityRequest {
-  const tools = preprocessTools(request.tools)
+  const preprocessed = preprocessAntigravityRequest(request, model)
+  const tools = preprocessTools(preprocessed.tools)
+
   const geminiRequest = buildGeminiRequest(
-    { ...request, tools },
+    { ...preprocessed, tools },
     {
       provider: 'antigravity',
       model,
@@ -76,82 +76,10 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
 
   injectSystemInstruction(innerRequest, ANTIGRAVITY_SYSTEM_INSTRUCTION, model)
   ensureToolConfig(innerRequest, model)
-  normalizeGenerationConfig(innerRequest, model)
 
-  // Handle thinking config mapping
-  let thinkingEnabled = false
-  if (request.thinking?.enabled) {
-    thinkingEnabled = true
-    // Ensure generationConfig exists
-    if (!innerRequest.generationConfig) {
-      innerRequest.generationConfig = {}
-    }
-    const genConfig = innerRequest.generationConfig
-
-    // Claude thinking models use camelCase config format
-    if (isClaudeModel(model) && isThinkingModel(model)) {
-      // Min output tokens for Claude thinking
-      if ((request.config?.maxTokens || 0) < 64000) {
-        genConfig.maxOutputTokens = 64000
-      }
-
-      genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts,
-        thinkingBudget: request.thinking.budget,
-      } as ClaudeThinkingConfig
-    } else if (model.toLowerCase().includes('gemini')) {
-      genConfig.thinkingConfig = {
-        includeThoughts: request.thinking.includeThoughts,
-        thinkingBudget: request.thinking.budget,
-      } as GeminiThinkingConfig
-    }
-  }
-
-  // Post-process contents for:
-  // 1. Tool name encoding (replace / with __)
-  // 2. Thought signature validation / skip sentinel
-  // 3. Inject thinking block if missing
+  // Post-process contents
   if (innerRequest.contents) {
-    for (const content of innerRequest.contents) {
-      // Encode tool names in functionResponse
-      if (content.parts) {
-        let hasToolCall = false
-        let hasThought = false
-
-        for (const part of content.parts) {
-          if (part.functionCall) {
-            hasToolCall = true
-            part.functionCall.name = encodeAntigravityToolName(part.functionCall.name)
-          }
-          if (part.functionResponse) {
-            part.functionResponse.name = encodeAntigravityToolName(part.functionResponse.name)
-          }
-          if (part.thought) {
-            hasThought = true
-          }
-
-          // Validate thoughtSignature
-          if (part.thoughtSignature) {
-            if (part.thoughtSignature.length < 30) {
-              part.thoughtSignature = 'skip_thought_signature_validator'
-            }
-          } else if (part.functionCall && thinkingEnabled) {
-            // If thinking enabled and tool call exists, defaulting to skip sentinel if missing
-            // This mimics the "B-option" test expectation
-            part.thoughtSignature = 'skip_thought_signature_validator'
-          }
-        }
-
-        // Inject thinking block if needed
-        if (content.role === 'model' && thinkingEnabled && hasToolCall && !hasThought) {
-          content.parts.unshift({
-            thought: true,
-            text: 'Thinking Process...',
-            thoughtSignature: 'skip_thought_signature_validator', // Mock signature or skip
-          })
-        }
-      }
-    }
+    processContentsForThinking(innerRequest.contents, preprocessed.thinking?.enabled || false)
   }
 
   // Random project ID matching /^[a-z]+-[a-z]+-[0-9a-f]{5}$/
@@ -168,5 +96,51 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
     request: innerRequest,
     metadata: extractMetadata(request.metadata),
     ...(request.metadata?.sessionId && { sessionId: request.metadata.sessionId }),
+  }
+}
+
+function processContentsForThinking(
+  contents: NonNullable<GeminiRequest['contents']>,
+  thinkingEnabled: boolean
+) {
+  for (const content of contents) {
+    if (!content.parts) continue
+
+    let hasToolCall = false
+    let hasThought = false
+
+    for (const part of content.parts) {
+      if (part.functionCall) {
+        hasToolCall = true
+        part.functionCall.name = encodeAntigravityToolName(part.functionCall.name)
+      }
+      if (part.functionResponse) {
+        part.functionResponse.name = encodeAntigravityToolName(part.functionResponse.name)
+      }
+      if (part.thought) {
+        hasThought = true
+      }
+
+      // Validate thoughtSignature
+      if (part.thoughtSignature) {
+        if (part.thoughtSignature.length < 30) {
+          part.thoughtSignature = SKIP_THOUGHT_SIGNATURE
+        }
+      } else if (part.functionCall && thinkingEnabled) {
+        // If thinking enabled and tool call exists, defaulting to skip sentinel if missing
+        // This mimics the "B-option" test expectation
+        part.thoughtSignature = SKIP_THOUGHT_SIGNATURE
+      }
+    }
+
+    // Inject thinking block if needed
+    // This invariant ensures downstream validators don't fail when a tool call happens without thinking
+    if (content.role === 'model' && thinkingEnabled && hasToolCall && !hasThought) {
+      content.parts.unshift({
+        thought: true,
+        text: 'Thinking Process...',
+        thoughtSignature: SKIP_THOUGHT_SIGNATURE, // Mock signature or skip
+      })
+    }
   }
 }

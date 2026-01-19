@@ -5,8 +5,8 @@
 
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
-import { isThinkingModel as isThinkingModelCore } from '../../thinking/model-capabilities'
-import type { JSONSchema, RequestMetadata, UnifiedTool } from '../../types/unified'
+import type { JSONSchema, RequestMetadata, UnifiedRequest, UnifiedTool } from '../../types/unified'
+import { CLAUDE_MIN_OUTPUT_TOKENS, DEFAULT_THINKING_BUDGET, THINKING_BUDGETS } from './constants'
 import type {
   AntigravityGenerationConfig,
   AntigravityInnerRequest,
@@ -30,7 +30,8 @@ export function isGemini3Model(model: string): boolean {
  * Delegates to the centralized model-capabilities module.
  */
 export function isThinkingModel(model: string): boolean {
-  return isThinkingModelCore(model, 'antigravity')
+  const m = model.toLowerCase()
+  return m.includes('thinking') || m.includes('gemini-3')
 }
 
 /**
@@ -89,47 +90,71 @@ export function ensureToolConfig(request: AntigravityInnerRequest, model: string
 }
 
 /**
- * Normalizes generation config for Claude models
- * - Converts snake_case stop_sequences to camelCase stopSequences
- * - Removes thinkingConfig for non-thinking models
+ * Pre-processes UnifiedRequest for Antigravity-specific constraints.
+ * - For Claude models: enforces min output tokens and sets default budgets.
+ * - Handles thinking config validation.
  */
-export function normalizeGenerationConfig(request: AntigravityInnerRequest, model: string): void {
-  if (!isClaudeModel(model)) {
-    return
+export function preprocessAntigravityRequest(
+  request: UnifiedRequest,
+  model: string
+): UnifiedRequest {
+  const isClaude = isClaudeModel(model)
+  const isThinking = isThinkingModel(model)
+  const thinkingEnabled = request.thinking?.enabled
+
+  // 1. If thinking is not supported or not enabled, strip thinking to prevent issues
+  if (!isThinking || !thinkingEnabled) {
+    if (request.thinking) {
+      const { thinking, ...rest } = request
+      return rest
+    }
+    return request
   }
 
-  const genConfig = request.generationConfig
-  if (!genConfig) {
-    return
+  // 2. If it is a thinking request, enforce policies (Min Tokens, Default Budget)
+  let newConfig = request.config
+  let newThinking = request.thinking
+  let modified = false
+
+  // 2.1 Enforce Min Output Tokens for Claude
+  // Claude thinking models require a minimum max_tokens setting
+  if (isClaude) {
+    const currentMaxTokens = newConfig?.maxTokens || 0
+    if (currentMaxTokens < CLAUDE_MIN_OUTPUT_TOKENS) {
+      newConfig = { ...newConfig, maxTokens: CLAUDE_MIN_OUTPUT_TOKENS }
+      modified = true
+    } else if (!newConfig) {
+      newConfig = { maxTokens: CLAUDE_MIN_OUTPUT_TOKENS }
+      modified = true
+    }
   }
 
-  normalizeStopSequences(genConfig)
+  // 2.2 Determine Budget if missing
+  // Antigravity requires an explicit budget if not provided by user
+  if (!newThinking?.budget) {
+    let budget = DEFAULT_THINKING_BUDGET
 
-  if (!isThinkingModel(model)) {
-    removeThinkingConfig(genConfig)
-  }
-}
+    const effort = newThinking?.effort
+    const level = newThinking?.level
 
-/**
- * Converts snake_case stop_sequences to camelCase stopSequences
- */
-function normalizeStopSequences(genConfig: AntigravityGenerationConfig): void {
-  const stopSeqs = (genConfig as { stop_sequences?: unknown }).stop_sequences
-  if (Array.isArray(stopSeqs) && !genConfig.stopSequences) {
-    genConfig.stopSequences = stopSeqs as string[]
-    delete (genConfig as { stop_sequences?: unknown }).stop_sequences
-  }
-}
+    if (effort && effort !== 'none') {
+      budget = THINKING_BUDGETS[effort] || budget
+    } else if (level && level !== 'minimal') {
+      budget = THINKING_BUDGETS[level] || budget
+    }
 
-/**
- * Removes thinkingConfig from generation config
- */
-function removeThinkingConfig(genConfig: AntigravityGenerationConfig): void {
-  if (genConfig.thinkingConfig) {
-    delete genConfig.thinkingConfig
+    newThinking = { ...newThinking, budget, enabled: true }
+    modified = true
   }
-  if ((genConfig as { thinking_config?: unknown }).thinking_config) {
-    delete (genConfig as { thinking_config?: unknown }).thinking_config
+
+  if (!modified) {
+    return request
+  }
+
+  return {
+    ...request,
+    config: newConfig,
+    thinking: newThinking,
   }
 }
 

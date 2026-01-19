@@ -88,6 +88,23 @@ export class AntigravityErrorStrategy implements ErrorHandlingStrategy {
     return null
   }
 
+  async handleNetworkError(
+    error: Error,
+    retryState: RetryState
+  ): Promise<ErrorHandlingAction | null> {
+    const isAbort = error.name === 'AbortError' || error.message.toLowerCase().includes('aborted')
+
+    if (isAbort) {
+      // Abort errors (timeouts) often mean the endpoint is flaky/overloaded
+      // Try next endpoint for same account first
+      const rotateResult = this.rotateEndpoint(retryState, undefined, 'Antigravity timeout/abort')
+      if (rotateResult) return rotateResult
+    }
+
+    // Default: retry with backoff (handled by dispatcher)
+    return null
+  }
+
   private rotateEndpoint(
     retryState: RetryState,
     reqId: string | undefined,

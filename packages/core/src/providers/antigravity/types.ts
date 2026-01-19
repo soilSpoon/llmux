@@ -10,6 +10,8 @@ import type {
   GeminiContent,
   GeminiGenerationConfig,
   GeminiResponse,
+  GeminiThinkingConfig,
+  GeminiThinkingConfigSnake,
   GeminiTool,
   GeminiToolConfig,
   GeminiUsageMetadata,
@@ -73,32 +75,18 @@ export interface AntigravitySystemInstruction {
 
 /**
  * Generation config with Antigravity extensions
+ * Now aliases GeminiGenerationConfig as it supports snake_case natively
  */
-export interface AntigravityGenerationConfig
-  extends Omit<GeminiGenerationConfig, 'thinkingConfig'> {
-  thinkingConfig?: AntigravityThinkingConfig
-}
-
-/**
- * Gemini-style thinking config (camelCase)
- */
-export interface GeminiThinkingConfig {
-  includeThoughts?: boolean
-  thinkingBudget?: number
-}
-
-/**
- * Claude-style thinking config via Antigravity (snake_case)
- */
-export interface ClaudeThinkingConfig {
-  includeThoughts?: boolean
-  thinkingBudget?: number
-}
+export type AntigravityGenerationConfig = GeminiGenerationConfig
 
 /**
  * Combined thinking config for Antigravity API
+ * Alias for backward compatibility or clarity
  */
-export type AntigravityThinkingConfig = GeminiThinkingConfig | ClaudeThinkingConfig
+export type AntigravityThinkingConfig = GeminiThinkingConfig | GeminiThinkingConfigSnake
+
+// Legacy aliases if needed by consumers, otherwise can be removed
+export type ClaudeThinkingConfig = GeminiThinkingConfigSnake
 
 // =============================================================================
 // Response Types
