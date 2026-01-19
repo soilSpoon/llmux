@@ -11,8 +11,8 @@ import { getThinkingStrategy as getStrategyName } from '../thinking-utils'
 import type { ThinkingStrategy } from './thinking-strategy'
 import { getThinkingStrategyByName } from './thinking-strategy'
 
-export function getThinkingStrategyForModel(model?: string): ThinkingStrategy {
-  const name = getStrategyName(model)
+export function getThinkingStrategyForModel(model?: string, provider?: string): ThinkingStrategy {
+  const name = getStrategyName(model, provider)
   const strategy = getThinkingStrategyByName(name)
   if (!strategy) {
     const noop = getThinkingStrategyByName('none')

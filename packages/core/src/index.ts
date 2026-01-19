@@ -235,8 +235,3 @@ export {
   type ImageData as GeminiImageData,
 } from './util/token-estimation'
 // Utilities
-export {
-  stripSignaturesFromContents,
-  stripSignaturesFromMessages,
-  stripThoughtSignatures,
-} from './utils'

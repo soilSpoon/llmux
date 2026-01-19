@@ -20,6 +20,7 @@ export interface SanitizeRequestOptions {
   projectId?: string
   signatureStore: SignatureStore
   reqId?: string
+  provider?: string
 }
 
 export interface SanitizeRequestResult {
@@ -37,9 +38,9 @@ export interface SanitizeRequestResult {
  * - All models: Validate and fix tool pairing
  */
 export function sanitizeRequestSignatures(options: SanitizeRequestOptions): SanitizeRequestResult {
-  const { messages, contents, model, projectId, signatureStore, reqId } = options
+  const { messages, contents, model, projectId, signatureStore, reqId, provider } = options
 
-  const strategy = getThinkingStrategy(model)
+  const strategy = getThinkingStrategy(model, provider)
   const isClaudeFresh = strategy === 'claude-fresh'
   let toolPairingFixed = false
 
@@ -59,6 +60,7 @@ export function sanitizeRequestSignatures(options: SanitizeRequestOptions): Sani
     targetProjectId: projectId || 'claude-no-project',
     signatureStore,
     model,
+    provider,
   })
 
   let processedMessages = validationResult.messages

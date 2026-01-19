@@ -179,7 +179,8 @@ export function shouldCacheSignatures(model?: string): boolean {
 export function ensureThinkingSignatures(
   requestBody: Record<string, unknown>,
   sessionKey: string,
-  model?: string
+  model?: string,
+  provider?: string
 ): void {
   const typedBody = requestBody as UnifiedRequestBody
 
@@ -187,7 +188,7 @@ export function ensureThinkingSignatures(
     return
   }
 
-  const strategy = getThinkingStrategy(model)
+  const strategy = getThinkingStrategy(model, provider)
 
   // Step 1: Gemini signature normalization (Claude skips this - already clean)
   if (strategy === 'gemini-cache') {

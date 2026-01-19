@@ -1,0 +1,16 @@
+# Progress Log
+
+## 2026-01-18
+- [x] **US-012**: Implemented Antigravity thinking signature fallback logic.
+  - Created `signature-strip.ts` utility.
+  - Integrated into `AntigravityProvider` and streaming handlers.
+  - Verified with `antigravity-thinking.integration.test.ts`.
+- [x] **US-013**: Enhanced Antigravity format compatibility.
+  - Improved transformation for OpenAI/Anthropic/Gemini formats.
+  - Added thinking config bidirectional transformation.
+  - Verified with `format-compatibility.integration.test.ts`.
+- [x] **Validation**:
+  - `bun run lint` passed.
+  - `bun run format` passed.
+  - `bun run typecheck` passed.
+  - Tests passed (including new integration tests).

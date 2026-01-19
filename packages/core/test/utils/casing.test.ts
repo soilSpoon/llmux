@@ -113,11 +113,11 @@ describe('Casing Utilities', () => {
     })
 
     it('should preserve primitive values unchanged', () => {
-      expect(convertKeysDeep('string', camelToSnakeKey)).toBe('string')
-      expect(convertKeysDeep(123, camelToSnakeKey)).toBe(123)
-      expect(convertKeysDeep(true, camelToSnakeKey)).toBe(true)
-      expect(convertKeysDeep(null, camelToSnakeKey)).toBe(null)
-      expect(convertKeysDeep(undefined, camelToSnakeKey)).toBe(undefined)
+      expect(convertKeysDeep<string>('string', camelToSnakeKey)).toBe('string')
+      expect(convertKeysDeep<number>(123, camelToSnakeKey)).toBe(123)
+      expect(convertKeysDeep<boolean>(true, camelToSnakeKey)).toBe(true)
+      expect(convertKeysDeep<null>(null, camelToSnakeKey)).toBe(null)
+      expect(convertKeysDeep<undefined>(undefined, camelToSnakeKey)).toBe(undefined)
     })
 
     it('should preserve specified keys with preserveKeys option', () => {
@@ -127,9 +127,9 @@ describe('Casing Utilities', () => {
         content: 'hello',
       }
 
-      const result = convertKeysDeep(input, camelToSnakeKey, {
+      const result = convertKeysDeep<Record<string, unknown>>(input, camelToSnakeKey, {
         preserveKeys: ['metadata', 'content'],
-      }) as unknown
+      })
 
       expect(result).toEqual({
         thinking_budget: 1024,
@@ -146,7 +146,7 @@ describe('Casing Utilities', () => {
         },
       }
 
-      const result = convertKeysDeep(input, snakeToCamelKey) as unknown
+      const result = convertKeysDeep<Record<string, unknown>>(input, snakeToCamelKey)
 
       expect(result).toEqual({
         thinkingBudget: 1024,
@@ -167,7 +167,7 @@ describe('Casing Utilities', () => {
         },
       }
 
-      const result = convertKeysDeep(input, camelToSnakeKey) as unknown
+      const result = convertKeysDeep<Record<string, unknown>>(input, camelToSnakeKey)
 
       expect(result).toEqual({
         level_one: {
@@ -181,8 +181,8 @@ describe('Casing Utilities', () => {
     })
 
     it('should handle empty objects and arrays', () => {
-      expect(convertKeysDeep({}, camelToSnakeKey)).toEqual({})
-      expect(convertKeysDeep([], camelToSnakeKey)).toEqual([])
+      expect(convertKeysDeep<Record<string, never>>({}, camelToSnakeKey)).toEqual({})
+      expect(convertKeysDeep<never[]>([], camelToSnakeKey)).toEqual([])
     })
 
     it('should handle mixed arrays with primitives and objects', () => {
@@ -190,7 +190,7 @@ describe('Casing Utilities', () => {
         mixedArray: [1, 'string', { nestedKey: true }, null],
       }
 
-      const result = convertKeysDeep(input, camelToSnakeKey) as unknown
+      const result = convertKeysDeep<Record<string, unknown>>(input, camelToSnakeKey)
 
       expect(result).toEqual({
         mixed_array: [1, 'string', { nested_key: true }, null],

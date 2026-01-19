@@ -225,3 +225,35 @@ Thread: http://100.64.0.2:8743/threads/T-019bc467-b507-76ca-b7a1-c2baa478e990
   - `accumulateGeminiResponse` now updates usage metadata with accurate input token counts including images.
   - Used explicit `GeminiContent[]` casting instead of `any` to satisfy biome linting rules.
 ---
+## 2026-01-16 - US-009
+Thread: http://100.64.0.2:8743/threads/T-019bc470-807a-7185-905a-064da257118d
+- Implemented thoughtSignature normalization for Antigravity response parsing
+- Updated `parseResponse` in `packages/core/src/providers/antigravity/response.ts` to map `thought_signature` (Antigravity/Claude specific) to `signature` in thinking blocks and content parts
+- Created unit tests in `packages/core/src/providers/antigravity/__tests__/thought-signature.test.ts` to verify:
+  - `thought_signature` parsing from thinking blocks
+  - `thought_signature` parsing from tool calls
+  - `thought_signature` parsing from text parts
+  - Handling of both `thoughtSignature` (camelCase) and `thought_signature` (snake_case)
+- Fixed type issues in `packages/core/src/providers/antigravity/transform-utils.ts` and `index.ts` related to snake_case conversions and type assertions
+- **Learnings for future iterations:**
+  - Antigravity API uses `thought_signature` (snake_case) for Claude models, while Gemini uses `thoughtSignature` (camelCase). Transformations must handle both.
+  - When using `convertKeysDeep`, careful typing is needed to avoid `unknown` type propagation errors.
+  - Biome linting is strict about unused imports and `any` usage.
+---
+## Fri Jan 16 02:59:16 PM KST 2026 - US-009
+Thread: http://100.64.0.2:8743/threads/T-019bc472-65ca-759b-808b-240f9e3a6cef
+- Added unit tests for Antigravity response parsing (US-009)
+- Verified existing implementation correctly handles thought signatures
+- Files changed: packages/core/src/providers/antigravity/__tests__/response.test.ts
+---
+
+## Fri Jan 16 02:59:16 PM KST 2026 - US-010
+Thread: http://100.64.0.2:8743/threads/T-019bc472-65ca-759b-808b-240f9e3a6cef
+- Implemented signature stripping in RequestLogStore to prevent leaking thoughtSignature in logs
+- Added recursive stripping helper that handles circular references
+- Added tests verifying stripping behavior for both CamelCase and snake_case signatures
+- Files changed: packages/server/src/stores/request-log-store.ts, packages/server/src/stores/__tests__/request-log-store.test.ts, packages/server/src/stores/__tests__/request-log-store-stripping.test.ts
+- **Learnings for future iterations:**
+  - RequestLogStore handles full request/response logging, so centralized stripping there is effective
+  - JSON stringification of objects with circular references needs careful handling
+---

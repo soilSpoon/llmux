@@ -153,35 +153,34 @@ describe('Antigravity Serialization', () => {
     }
 
     // claude-3-7-sonnet-thinking is a thinking model
-    const result = provider.transform(unifiedRequest, 'claude-3-7-sonnet-thinking')
-    const inner = result.request
+    const result = provider.transform(unifiedRequest, 'claude-3-7-sonnet-thinking') as Record<string, unknown>
+    const inner = result.request as Record<string, any>
 
-    // Check generation config
-    const genConfig = inner.generationConfig
+    // Check generation config (snake_case)
+    const genConfig = inner.generation_config
     if (genConfig) {
       expect(genConfig).toBeDefined()
-      // Expect snake_case keys for Claude models (Antigravity behavior)
-      if ('thinking_config' in genConfig && genConfig.thinking_config) {
-        expect(genConfig.thinking_config.thinking_budget).toBe(4000)
-        expect(genConfig.thinking_config.include_thoughts).toBe(true)
-      } else {
-        throw new Error('Expected thinking_config (snake_case) to be defined')
-      }
+      
+      expect(genConfig.thinking_config).toBeDefined()
+      expect(genConfig.thinking_config?.thinking_budget).toBe(4000)
+      expect(genConfig.thinking_config?.include_thoughts).toBe(true)
+      
+      expect(genConfig.thinkingConfig).toBeUndefined()
+    } else {
+        throw new Error('generation_config should be defined')
     }
 
     // Check tools casing
-    // toolConfig -> toolConfig
     const tools = inner.tools
     if (tools) {
       expect(tools).toBeDefined()
-      // UnifiedTool -> GeminiTool
-      // GeminiTool keys: functionDeclarations -> functionDeclarations
-      const funcDecl = tools[0]?.functionDeclarations
+      // functionDeclarations -> function_declarations
+      const funcDecl = tools[0]?.function_declarations
       if (funcDecl) {
         expect(funcDecl).toBeDefined()
         
         const firstDecl = funcDecl[0]
-        if (!firstDecl) throw new Error('functionDeclarations[0] is undefined')
+        if (!firstDecl) throw new Error('function_declarations[0] is undefined')
         
         expect(firstDecl.name).toContain('myTool')
 
@@ -189,11 +188,15 @@ describe('Antigravity Serialization', () => {
         if (params) {
           const props = params.properties
           if (props) {
-            expect(props.myParam).toBeDefined()
+            expect(props.myParam).toBeDefined() // User keys preserved
             expect(props.my_param).toBeUndefined()
           }
         }
+      } else {
+          throw new Error('function_declarations should be defined')
       }
+    } else {
+        throw new Error('tools should be defined')
     }
   })
 })

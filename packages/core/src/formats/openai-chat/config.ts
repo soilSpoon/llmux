@@ -24,6 +24,11 @@ export function parseConfig(request: OpenAIChatRequest): NonNullable<UnifiedRequ
   }
   if (request.stop !== undefined) {
     config.stopSequences = Array.isArray(request.stop) ? request.stop : [request.stop]
+  } else if (request.stop_sequences !== undefined) {
+    // Alias for stop, used by some clients/tools
+    config.stopSequences = Array.isArray(request.stop_sequences)
+      ? request.stop_sequences
+      : [request.stop_sequences]
   }
 
   if (request.logprobs !== undefined) {

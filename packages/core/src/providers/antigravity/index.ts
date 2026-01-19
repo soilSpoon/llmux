@@ -16,6 +16,7 @@ import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
 
+import { transform } from './request'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
 import {
   createInnerRequest,
@@ -25,7 +26,12 @@ import {
   preprocessAntigravityRequest,
   preprocessTools,
 } from './transform-utils'
-import { type AntigravityRequest, type AntigravityResponse, isAntigravityRequest } from './types'
+import {
+  type AntigravityRequest,
+  type AntigravityResponse,
+  type AntigravityWireRequest,
+  isAntigravityRequest,
+} from './types'
 
 /**
  * Extract the inner GeminiRequest from various Antigravity request formats.
@@ -163,42 +169,8 @@ export class AntigravityProvider extends BaseProvider {
    * Transform a UnifiedRequest into Antigravity request format.
    * Wraps the Gemini-style request with Antigravity envelope.
    */
-  transform(request: UnifiedRequest, model: string): AntigravityRequest {
-    // Pre-process request to handle Antigravity-specific constraints (e.g. Claude token limits/budgets)
-    // Note: Schema casing (thinking_config) is now handled by buildGeminiRequest based on provider/model context
-    const preprocessed = preprocessAntigravityRequest(request, model)
-    const tools = preprocessTools(preprocessed.tools)
-
-    const geminiRequest = buildGeminiRequest(
-      { ...preprocessed, tools },
-      {
-        provider: this.name,
-        model,
-      }
-    )
-
-    const sessionId = request.metadata?.sessionId || `session-${crypto.randomUUID()}`
-
-    const innerRequest = createInnerRequest(geminiRequest, sessionId)
-
-    injectSystemInstruction(innerRequest, ANTIGRAVITY_SYSTEM_INSTRUCTION, model)
-    ensureToolConfig(innerRequest, model)
-
-    // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
-    // Fallback values are used if metadata is missing entirely.
-    // NOTE: Client-Metadata should be sent via headers, not body.
-    // We expose it here for inspection, but clients should strip 'metadata' from body and send as headers.
-    return {
-      project: request.metadata?.project ?? '',
-      model,
-      requestType: 'agent',
-      userAgent: 'antigravity',
-      requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
-      userRole: request.userRole,
-      // Convert inner request to wire format (strip undefineds, handle keys)
-      request: innerRequest,
-      metadata: extractMetadata(request.metadata),
-    }
+  transform(request: UnifiedRequest, model: string): AntigravityRequest | AntigravityWireRequest {
+    return transform(request, model)
   }
 
   /**

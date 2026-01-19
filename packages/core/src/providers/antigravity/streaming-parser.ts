@@ -193,8 +193,8 @@ export class AntigravityStreamingParser {
           for (const part of content.parts) {
             const p = part as Record<string, unknown>
             if (p.text !== undefined && typeof p.text === 'string') {
-              // If it has thought, it's thinking delta
-              if (p.thought) {
+              // If it has thought (or thought_signature in snake_case wire format), it's thinking delta
+              if (p.thought || p.thought_signature || p.thoughtSignature) {
                 chunks.push({
                   type: 'thinking-delta',
                   delta: {

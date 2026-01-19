@@ -6,6 +6,7 @@ import {
 import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { UnifiedRequest } from '../../types/unified'
+import { camelToSnakeKey, convertKeysDeep, snakeToCamelKey } from '../../utils/casing'
 import { ANTIGRAVITY_SYSTEM_INSTRUCTION, SKIP_THOUGHT_SIGNATURE } from './constants'
 import {
   createInnerRequest,
@@ -15,26 +16,53 @@ import {
   preprocessAntigravityRequest,
   preprocessTools,
 } from './transform-utils'
-import type { AntigravityRequest } from './types'
+import type {
+  AntigravityInnerRequest,
+  AntigravityRequest,
+  AntigravityWireInnerRequest,
+  AntigravityWireRequest,
+} from './types'
 
-export function parse(request: AntigravityRequest): UnifiedRequest {
-  const unified = parseGeminiRequest(request.request as GeminiRequest)
+export function parse(request: AntigravityWireRequest | AntigravityRequest): UnifiedRequest {
+  // Convert snake_case keys to camelCase for Gemini parser compatibility if needed
+  // We assume request.request might be snake_case (wire) or camelCase (internal)
+  const innerRequest = convertKeysDeep<AntigravityInnerRequest>(request.request, snakeToCamelKey, {
+    preserveTree: ['parameters', 'args', 'response'],
+  })
+
+  const unified = parseGeminiRequest(innerRequest as GeminiRequest)
 
   // Extract metadata
+  let userAgent: string | undefined
+  if ('userAgent' in request) {
+    userAgent = request.userAgent
+  } else if ('user_agent' in request) {
+    userAgent = request.user_agent
+  }
+
+  let requestId: string | undefined
+  if ('requestId' in request) {
+    requestId = request.requestId
+  } else if ('request_id' in request) {
+    requestId = request.request_id
+  }
+
   unified.metadata = {
     ...unified.metadata,
     project: request.project,
     model: request.model,
-    userAgent: request.userAgent,
-    requestId: request.requestId,
+    userAgent,
+    requestId,
   }
 
-  if (request.request.sessionId) {
-    unified.metadata.sessionId = request.request.sessionId
+  if (innerRequest.sessionId) {
+    unified.metadata.sessionId = innerRequest.sessionId
+  } else if ('session_id' in request && request.session_id) {
+    unified.metadata.sessionId = request.session_id
   }
 
   // Handle system instruction concatenation if multiple parts
-  const sysParts = request.request.systemInstruction?.parts
+  const sysParts = innerRequest.systemInstruction?.parts
   if (sysParts && sysParts.length > 0) {
     if (sysParts.length > 1) {
       unified.system = sysParts.map((p) => p.text).join('\n')
@@ -44,7 +72,7 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
   }
 
   // Handle thinking config parsing
-  const genConfig = request.request.generationConfig
+  const genConfig = innerRequest.generationConfig
   if (genConfig?.thinkingConfig) {
     // Both are now camelCase in internal representation
     const thinking = genConfig.thinkingConfig
@@ -59,7 +87,7 @@ export function parse(request: AntigravityRequest): UnifiedRequest {
   return unified
 }
 
-export function transform(request: UnifiedRequest, model: string): AntigravityRequest {
+export function transform(request: UnifiedRequest, model: string): AntigravityWireRequest {
   const preprocessed = preprocessAntigravityRequest(request, model)
   const tools = preprocessTools(preprocessed.tools)
 
@@ -77,26 +105,45 @@ export function transform(request: UnifiedRequest, model: string): AntigravityRe
   injectSystemInstruction(innerRequest, ANTIGRAVITY_SYSTEM_INSTRUCTION, model)
   ensureToolConfig(innerRequest, model)
 
-  // Post-process contents
+  // Post-process contents for:
+  // 1. Tool name encoding (replace / with __)
+  // 2. Thought signature validation / skip sentinel
+  // 3. Inject thinking block if missing
   if (innerRequest.contents) {
     processContentsForThinking(innerRequest.contents, preprocessed.thinking?.enabled || false)
   }
 
-  // Random project ID matching /^[a-z]+-[a-z]+-[0-9a-f]{5}$/
-  // e.g. random-project-12345
   const project =
     request.metadata?.project || `random-project-${crypto.randomUUID().substring(0, 5)}`
 
-  return {
+  // Use convertKeysDeep to serialize the inner request to snake_case for Antigravity
+  // We MUST exclude 'contents' tree entirely because it contains user data where keys should be preserved
+  // and Gemini messages use camelCase which Antigravity expects.
+  // We also exclude 'tools' because parameter schemas are user-defined.
+  // However, Antigravity API expects snake_case for config fields.
+  const serializedRequest = convertKeysDeep<AntigravityWireInnerRequest>(
+    innerRequest,
+    camelToSnakeKey,
+    {
+      preserveTree: ['contents', 'parameters', 'args', 'response'],
+    }
+  )
+
+  // metadata is optional in UnifiedRequest, but required fields (if metadata exists) simplify this.
+  // Fallback values are used if metadata is missing entirely.
+  const result: AntigravityWireRequest = {
     project,
     model,
-    requestType: 'agent',
-    userAgent: 'antigravity',
-    requestId: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
-    request: innerRequest,
+    request_type: 'agent',
+    user_agent: 'antigravity',
+    request_id: request.metadata?.requestId ?? `agent-${crypto.randomUUID()}`,
+    user_role: request.userRole,
+    request: serializedRequest,
     metadata: extractMetadata(request.metadata),
-    ...(request.metadata?.sessionId && { sessionId: request.metadata.sessionId }),
+    ...(request.metadata?.sessionId && { session_id: request.metadata.sessionId }),
   }
+
+  return result
 }
 
 function processContentsForThinking(

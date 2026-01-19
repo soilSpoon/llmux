@@ -1,8 +1,14 @@
-import type { StreamChunk } from '../types'
+/**
+ * Stream Normalizer
+ *
+ * Ensures consistent ordering of streaming events, particularly for thinking models
+ * where thinking-end must come before text-delta.
+ */
+
+import type { StreamChunk } from '../types/unified'
 
 /**
- * State for normalizing streaming event order.
- * Ensures that reasoning-end always comes before text-start.
+ * State for tracking streaming order normalization
  */
 export interface StreamingState {
   hasThinkingStarted: boolean
@@ -11,46 +17,87 @@ export interface StreamingState {
 }
 
 /**
- * Normalizes streaming event order to ensure consistency across providers.
- *
- * Specifically enforces:
- * 1. reasoning-end must happen before text-start
- * 2. If text starts while thinking is ongoing, insert a synthetic thinking-end
- *
- * @param chunk The current stream chunk
- * @param state The mutable state object for this stream
- * @returns Array of normalized chunks (may include synthetic events)
+ * Result of normalizing streaming order
  */
-export function normalizeStreamingOrder(chunk: StreamChunk, state: StreamingState): StreamChunk[] {
-  // Initialize result array
-  const result: StreamChunk[] = []
+export interface NormalizeResult {
+  events: StreamChunk[]
+  newState: StreamingState
+}
 
-  // Update state based on current chunk type
-  if (chunk.type === 'thinking-start') {
-    state.hasThinkingStarted = true
-  } else if (chunk.type === 'thinking-end') {
-    state.hasThinkingEnded = true
-  } else if (chunk.type === 'text-delta') {
-    // CRITICAL: If text starts but thinking hasn't ended properly, force it to end
-    if (state.hasThinkingStarted && !state.hasThinkingEnded) {
-      // Create synthetic thinking-end chunk
-      const syntheticEnd: StreamChunk = {
-        type: 'thinking-end',
-        id: chunk.id,
-        blockIndex: chunk.blockIndex,
-        // Inherit other properties if available
-        model: chunk.model,
-      }
+/**
+ * Normalizes the order of streaming events to ensure correct sequencing.
+ *
+ * Key guarantees:
+ * - thinking-start always comes before thinking-delta
+ * - thinking-end always comes before text-delta
+ * - Events are reordered if necessary to maintain these invariants
+ *
+ * @param chunks - Array of stream chunks to normalize
+ * @param state - Current streaming state
+ * @returns Normalized events and updated state
+ */
+export function normalizeStreamingOrder(
+  chunks: StreamChunk[],
+  state: StreamingState
+): NormalizeResult {
+  const newState = { ...state }
+  const events: StreamChunk[] = []
+  let pendingThinkingEnd: StreamChunk | null = null
 
-      result.push(syntheticEnd)
-      state.hasThinkingEnded = true
+  for (const chunk of chunks) {
+    switch (chunk.type) {
+      case 'thinking-start':
+        newState.hasThinkingStarted = true
+        events.push(chunk)
+        break
+
+      case 'thinking-delta':
+        // If thinking hasn't started yet, inject a thinking-start
+        if (!newState.hasThinkingStarted) {
+          events.push({ type: 'thinking-start' })
+          newState.hasThinkingStarted = true
+        }
+        events.push(chunk)
+        break
+
+      case 'thinking-end':
+        newState.hasThinkingEnded = true
+        // Don't emit yet - we may need to reorder
+        pendingThinkingEnd = chunk
+        break
+
+      case 'text-delta':
+        // Before first text-delta, ensure thinking-end is emitted if thinking started
+        if (!newState.hasTextStarted) {
+          if (newState.hasThinkingStarted && !newState.hasThinkingEnded) {
+            // Force emit thinking-end before first text
+            events.push(pendingThinkingEnd ?? { type: 'thinking-end' })
+            newState.hasThinkingEnded = true
+            pendingThinkingEnd = null
+          } else if (pendingThinkingEnd) {
+            events.push(pendingThinkingEnd)
+            pendingThinkingEnd = null
+          }
+          newState.hasTextStarted = true
+        }
+        events.push(chunk)
+        break
+
+      default:
+        // For any other event, emit pending thinking-end first if present
+        if (pendingThinkingEnd) {
+          events.push(pendingThinkingEnd)
+          pendingThinkingEnd = null
+        }
+        events.push(chunk)
+        break
     }
-
-    state.hasTextStarted = true
   }
 
-  // Add the original chunk
-  result.push(chunk)
+  // Emit any remaining pending thinking-end
+  if (pendingThinkingEnd) {
+    events.push(pendingThinkingEnd)
+  }
 
-  return result
+  return { events, newState }
 }

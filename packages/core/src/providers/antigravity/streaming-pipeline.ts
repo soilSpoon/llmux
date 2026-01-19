@@ -1,5 +1,6 @@
 import { accumulateGeminiResponse } from '../../sse/accumulators'
 import type { StreamChunk, StreamingPipeline } from '../../types/unified'
+import type { StreamingState } from '../../util/stream-normalizer'
 import { type AntigravityBuilderState, AntigravityStreamingBuilder } from './streaming-builder'
 import { type AntigravityParserState, AntigravityStreamingParser } from './streaming-parser'
 
@@ -23,11 +24,11 @@ export function createAntigravityStreamingPipeline(model: string): StreamingPipe
     finishReason: null,
     finalUsage: null,
     messageStopEmitted: false,
-    normalization: {
+    streamingState: {
       hasThinkingStarted: false,
       hasThinkingEnded: false,
       hasTextStarted: false,
-    },
+    } as StreamingState,
   }
 
   const parser = new AntigravityStreamingParser(state)

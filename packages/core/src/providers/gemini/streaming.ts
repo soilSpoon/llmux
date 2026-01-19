@@ -180,13 +180,14 @@ function parseFunctionCallChunk(
   }
 
   // Include thoughtSignature in the delta if present (Gemini 3)
-  if (part.thoughtSignature) {
+  const signature = part.thoughtSignature || part.thought_signature
+  if (signature) {
     result.delta = {
       ...result.delta,
-      thoughtSignature: part.thoughtSignature,
+      thoughtSignature: signature,
       thinking: {
         text: '',
-        signature: part.thoughtSignature,
+        signature: signature,
       },
     }
   }
@@ -219,7 +220,7 @@ function parseThinkingChunk(
       type: 'thinking',
       thinking: {
         text: part.text ?? '',
-        signature: part.thoughtSignature,
+        signature: part.thoughtSignature || part.thought_signature,
       },
     },
   }

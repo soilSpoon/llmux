@@ -15,12 +15,12 @@ describe("AntigravityProvider Issue Fix (TDD)", () => {
         }
       });
 
-      const result = provider.transform(request, 'gemini-3-pro-preview') as any;
+      const result = provider.transform(request, 'gemini-3-pro-preview') as Record<string, unknown>;
  
-      // These fields SHOULD be at the top level of the AntigravityRequest
-      expect(result.userAgent).toBe("antigravity");
-      expect(result.requestId).toBe("custom-req-id");
-      expect(result.requestType).toBe("agent");
+      // These fields SHOULD be at the top level of the AntigravityRequest (snake_case in wire format)
+      expect(result.user_agent).toBe("antigravity");
+      expect(result.request_id).toBe("custom-req-id");
+      expect(result.request_type).toBe("agent");
       
       // Project and model should still be there as they are part of the envelope
       expect(result.project).toBe("test-project");

@@ -59,9 +59,11 @@ export function parseResponse(response: unknown): UnifiedResponse {
   for (const part of content.parts) {
     if (part.thought && part.text !== undefined) {
       // Thinking block
+      // Handle both thoughtSignature and thought_signature (Antigravity/Claude specific)
+      const thoughtSig = part.thoughtSignature || part.thought_signature
       thinkingBlocks.push({
         text: part.text,
-        signature: part.thoughtSignature || part.thought_signature,
+        signature: thoughtSig,
       })
     } else if (part.thought === true && (part.thoughtSignature || part.thought_signature)) {
       // Antigravity sometimes returns thought: true without text for signature-only blocks?
@@ -72,6 +74,7 @@ export function parseResponse(response: unknown): UnifiedResponse {
       })
     } else if (part.functionCall) {
       // Function call - decode tool name
+      // Handle both thoughtSignature and thought_signature
       const thoughtSig = part.thoughtSignature || part.thought_signature
       contentParts.push({
         type: 'tool_call',
@@ -84,6 +87,7 @@ export function parseResponse(response: unknown): UnifiedResponse {
       })
     } else if (part.text !== undefined) {
       // Text content
+      // Handle both thoughtSignature and thought_signature
       const thoughtSig = part.thoughtSignature || part.thought_signature
       contentParts.push({
         type: 'text',

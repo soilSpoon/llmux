@@ -8,6 +8,7 @@
 import type {
   GeminiCandidate,
   GeminiContent,
+  GeminiFunctionDeclaration,
   GeminiGenerationConfig,
   GeminiResponse,
   GeminiThinkingConfig,
@@ -16,6 +17,55 @@ import type {
   GeminiToolConfig,
   GeminiUsageMetadata,
 } from '../gemini/types'
+
+// =============================================================================
+// Wire Format Types (for serialization verification)
+// =============================================================================
+
+export interface AntigravityWireRequest {
+  project: string
+  model: string
+  request_type?: string
+  user_agent?: string
+  request_id?: string
+  user_role?: string
+  request: AntigravityWireInnerRequest
+  metadata?: AntigravityRequestMetadata
+  session_id?: string
+}
+
+export interface AntigravityWireInnerRequest {
+  contents: GeminiContent[]
+  system_instruction?: AntigravitySystemInstruction
+  tools?: AntigravityWireTool[]
+  tool_config?: AntigravityWireToolConfig
+  generation_config?: AntigravityWireGenerationConfig
+  session_id?: string
+}
+
+export interface AntigravityWireTool {
+  function_declarations?: GeminiFunctionDeclaration[]
+}
+
+export interface AntigravityWireToolConfig {
+  function_calling_config?: {
+    mode?: 'ANY' | 'NONE' | 'AUTO' | 'VALIDATED'
+    allowed_function_names?: string[]
+  }
+}
+
+export interface AntigravityWireGenerationConfig {
+  candidate_count?: number
+  stop_sequences?: string[]
+  max_output_tokens?: number
+  temperature?: number
+  top_p?: number
+  top_k?: number
+  thinking_config?: {
+    include_thoughts?: boolean
+    thinking_budget?: number
+  }
+}
 
 // =============================================================================
 // Request Types
