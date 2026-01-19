@@ -31,7 +31,7 @@ export interface ProviderStrategy {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /**
- * Options for upstream context preparation
+ * @deprecated Moved to @llmux/runtime
  */
 export interface PrepareUpstreamOptions {
   model: string
@@ -49,7 +49,7 @@ export interface PrepareUpstreamOptions {
 }
 
 /**
- * Prepared upstream context (provider-specific)
+ * @deprecated Moved to @llmux/runtime
  */
 export interface UpstreamContext {
   accountIndex: number
@@ -61,16 +61,7 @@ export interface UpstreamContext {
 }
 
 /**
- * Strategy for preparing provider-specific upstream request context
- *
- * Handles:
- * - Authentication header generation
- * - Endpoint selection (including retry/fallback logic)
- * - Project/account resolution
- * - Provider-specific metadata
- *
- * Used by: upstream-request-builder.ts
- * Implementations: AntigravityUpstreamStrategy, OpenAIWebUpstreamStrategy
+ * @deprecated Moved to @llmux/runtime
  */
 export interface UpstreamPreparationStrategy extends ProviderStrategy {
   readonly strategyType: 'upstream'

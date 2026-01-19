@@ -17,7 +17,6 @@ import { getRequestLogStore, type SignatureStore } from '../stores'
 import type { ProviderStreamContext } from './providers/provider-strategy'
 import { getProviderStrategy } from './providers/provider-strategy'
 import { handleEmptyResponse, logStreamMetrics, type StreamMetrics } from './stream-helpers'
-import { createStreamDebugLogger, shouldEnableDebugLogging } from './stream-helpers/stream-debug'
 import { getParserType, splitSSEEvents } from './stream-processor'
 
 const logger = createLogger({ service: 'stream-transformer' })
@@ -131,30 +130,14 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   // Get provider strategy for handling provider-specific stream logic
   const providerStrategy = getProviderStrategy(targetProvider)
 
-  const debugLogger = createStreamDebugLogger({
-    reqId: options.reqId,
-    targetProvider: targetProvider,
-    sourceFormat: sourceFormat,
-    enabled: shouldEnableDebugLogging(targetProvider),
-  })
-
   return new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
-      const chunkArrivalTime = Date.now()
       const text = decoder.decode(chunk, { stream: true })
       streamContext.totalBytes += text.length
       if (streamContext.accumulatedUpstream.length < MAX_STREAM_BUFFER_SIZE) {
         streamContext.accumulatedUpstream += text
       }
       buffer += text
-
-      // 디버깅: 업스트림에서 받은 청크 기록
-      logger.debug(
-        { reqId: options.reqId, chunkSize: text.length, time: chunkArrivalTime },
-        '[STREAM_TIMING] Upstream chunk arrived'
-      )
-
-      debugLogger.logChunk(text)
 
       parserType = getParserType(parsingProvider)
       const { events: rawEvents, remaining } = splitSSEEvents(buffer, parserType, text)
@@ -163,8 +146,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
 
       for (const rawEvent of rawEvents) {
         if (!rawEvent.trim()) continue
-
-        debugLogger.logEvent(rawEvent)
 
         // Provider Strategy: Handle raw stream event (e.g. signature extraction)
         if (providerStrategy?.handleStreamEvent) {
@@ -182,8 +163,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           if (streamingBuilder && formatParser?.parseStreamChunk) {
             // 1. Parse: Gemini SSE -> Unified StreamChunk
             const parsed = formatParser.parseStreamChunk(rawEvent)
-
-            debugLogger.logParseResult(rawEvent, parsed)
 
             // Debug: log parse result to main.log
 
@@ -243,16 +222,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 }
 
                 streamContext.chunkCount++
-                const enqueueTime = Date.now()
-                logger.debug(
-                  {
-                    reqId: options.reqId,
-                    chunkNum: streamContext.chunkCount,
-                    outputLen: output.length,
-                    time: enqueueTime,
-                  },
-                  '[STREAM_TIMING] Enqueuing output to client'
-                )
                 controller.enqueue(encoder.encode(output))
               }
             }
@@ -261,8 +230,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           else if (streamingPipeline) {
             // 1. Parse: Raw SSE → Unified StreamChunk
             const parsed = streamingPipeline.parse(rawEvent)
-
-            debugLogger.logParseResult(rawEvent, parsed)
 
             if (!parsed) {
               continue

@@ -1,6 +1,7 @@
 # Ralph Progress Tracker
 
 ## Codebase Patterns
+- Pattern: When migrating types to runtime, first duplicate in runtime and deprecate in core, then in a subsequent step update consumers and remove from core
 - Thinking logic in `transform-pipeline.ts` uses `isThinkingEnabled === false` (explicit disable) rather than `!== true`
 - Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
 - Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
@@ -14,10 +15,28 @@
 
 ## Current Status
 - Project: llmux
-- Branch: ralph/thinking-casing-refactor
-- Started: 2026-01-16
+- Branch: ralph/dependency-refactor
+- Started: 2026-01-18
 
 ## Execution Log
+
+## [2026-01-18] - US-101
+Thread: http://100.64.0.2:8743/threads/T-019bcff8-da92-737c-a280-f312eda2d997
+- Created `@llmux/runtime` package structure for execution interfaces
+- Created `packages/runtime/package.json` with name @llmux/runtime
+- Created `packages/runtime/tsconfig.json` extending root config
+- Created `packages/runtime/src/index.ts` as entry point
+- Workspace automatically recognizes package via `packages/*` glob
+- Verified build and typecheck pass
+- Files changed:
+  - packages/runtime/package.json (new)
+  - packages/runtime/tsconfig.json (new)
+  - packages/runtime/src/index.ts (new)
+- **Learnings for future iterations:**
+  - Workspace uses `packages/*` glob in root package.json, so new packages are auto-discovered
+  - Package exports follow the same pattern as @llmux/core with types/import keys
+  - bunup handles build with `src/index.ts --dts` for TypeScript declaration generation
+---
 
 ## [2026-01-16] - US-002
 Thread: http://100.64.0.2:8743/threads/T-019bc246-ad64-716a-b047-79071b4dfbf7
@@ -150,4 +169,23 @@ Thread: http://100.64.0.2:8743/threads/T-019bc406-c114-72c7-9b9b-049adb7a8fc8
   - `isClaudeFresh` is computed inside the pipeline (via `sanitizeRequestSignatures`) and also passed into policy computation in builder.
   - The pipeline uses a combined check: `policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false`.
   - This ensures that if the pipeline discovers we are in "Claude Fresh" mode (signature stripping), we force disable thinking even if the policy was initially enabled.
+---
+
+## [2026-01-18] - US-102
+Thread: http://100.64.0.2:8743/threads/T-019bcffa-f358-779c-a267-1cee02ab663b
+- Created `packages/runtime/src/strategies/upstream.ts`
+- Duplicated Upstream interfaces from Core to Runtime
+- Exported them from `@llmux/runtime`
+- Added `@llmux/core` as dependency to runtime
+- Deprecated original types in `packages/core/src/types/provider-strategies.ts`
+- Files changed:
+  - packages/runtime/package.json
+  - packages/runtime/src/strategies/upstream.ts (new)
+  - packages/runtime/src/strategies/index.ts (new)
+  - packages/runtime/src/index.ts
+  - packages/core/src/types/provider-strategies.ts
+- **Learnings for future iterations:**
+  - Runtime needs to depend on Core for shared types (ProviderName, ThinkingPolicy)
+  - Cannot remove types from Core yet because Server depends on them; deprecation strategy chosen
+  - Monorepo structure allows incremental migration via duplication + deprecation
 ---

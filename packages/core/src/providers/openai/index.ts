@@ -27,8 +27,17 @@ const OPENAI_CONFIG: ProviderConfig = {
  * OpenAI Provider implementation
  */
 export class OpenAIProvider extends BaseProvider {
-  readonly name: ProviderName = 'openai'
-  readonly config: ProviderConfig = OPENAI_CONFIG
+  readonly name: ProviderName
+  readonly config: ProviderConfig
+
+  constructor(name: ProviderName = 'openai') {
+    super()
+    this.name = name
+    this.config = {
+      ...OPENAI_CONFIG,
+      name,
+    }
+  }
 
   isSupportedRequest(request: unknown): boolean {
     if (!isOpenAIRequest(request)) return false

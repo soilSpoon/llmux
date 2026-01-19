@@ -136,15 +136,16 @@ export async function dispatchWithRetry(input: DispatchInput): Promise<DispatchR
 
       lastResponse = await fetch(request.endpoint, init)
 
-      if (!lastResponse.ok) {
+      if (!lastResponse || !lastResponse.ok) {
+        if (!lastResponse) throw new Error('Response is missing')
+
         // [Simplified] Avoid cloning response body to prevent any buffering risk
-        const errorText =
-          mode === 'streaming'
-            ? `Upstream Error ${lastResponse.status}`
-            : await lastResponse
-                .clone()
-                .text()
-                .catch(() => '')
+        // However, we MUST read the error body to assist with debugging
+        const res = lastResponse
+        const errorText = await res
+          .clone()
+          .text()
+          .catch(() => `Upstream Error ${res.status}`)
 
         // Log error details for debugging 403/4xx errors
         if (lastResponse.status === 403 || lastResponse.status === 400) {
