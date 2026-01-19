@@ -27,6 +27,7 @@ export async function handleCountTokens(
       body,
       options,
       mode: 'count_tokens',
+      signal: request.signal,
     })
 
     // Forward upstream response as-is without transformation
@@ -88,18 +89,21 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
       body,
       options,
       mode: 'non-streaming',
+      signal: request.signal,
     })
 
     const transformer = createJsonResponseTransformer({
       sourceFormat: options.sourceFormat,
       targetProvider: meta.provider as ProviderName,
-      model: meta.model,
+      model: meta.originalModel,
       reqId,
     })
 
     const response = await transformer(upstreamResponse)
 
+    // [Simplified] Disable response logging requiring clone() to prevent buffering
     // Log processed response
+    /*
     try {
       const responseClone = response.clone()
       const responseText = await responseClone.text()
@@ -119,6 +123,7 @@ export async function handleProxy(request: Request, options: ProxyOptions): Prom
     } catch (logErr) {
       logger.warn({ reqId, error: String(logErr) }, 'Failed to log transformed response')
     }
+    */
 
     // Ensure we have correct headers for the client
     const headers = buildResponseHeaders({

@@ -1,3 +1,4 @@
+import { createLogger } from '@llmux/core'
 import { generatePKCE } from '@openauthjs/openauth/pkce'
 import type { OAuthCredential } from '../types'
 import {
@@ -11,6 +12,8 @@ import {
 } from './antigravity-constants'
 import { startOAuthListener } from './antigravity-server'
 import type { AuthResult, AuthStep } from './base'
+
+const logger = createLogger({ service: 'auth', module: 'antigravity-oauth' })
 
 interface PkcePair {
   challenge: string
@@ -136,22 +139,38 @@ export async function loadManagedProject(
 
   for (const baseEndpoint of loadEndpoints) {
     try {
-      const response = await fetch(`${baseEndpoint}/v1internal:loadCodeAssist`, {
+      const url = `${baseEndpoint}/v1internal:loadCodeAssist`
+      logger.debug({ url }, 'Attempting to load code assist project')
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: loadHeaders,
         body: JSON.stringify(requestBody),
       })
 
       if (!response.ok) {
+        logger.warn(
+          { status: response.status, url, statusText: response.statusText },
+          'Failed to load code assist project'
+        )
+        // Specific handling for 404/403 could go here if we want to stop trying certain endpoints
+        // For now, we log and continue to fallback
         continue
       }
 
-      return (await response.json()) as LoadCodeAssistResponse
-    } catch {
+      const data = (await response.json()) as LoadCodeAssistResponse
+      logger.debug({ projectId: data.cloudaicompanionProject }, 'Successfully loaded project')
+      return data
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error), baseEndpoint },
+        'Error loading code assist project'
+      )
       // ignore
     }
   }
 
+  logger.error('All endpoints failed to load code assist project')
   return null
 }
 
@@ -173,7 +192,10 @@ export async function onboardManagedProject(
   // Use a subset of endpoints or just one for onboarding? opencode uses FALLBACKS
   for (const baseEndpoint of ANTIGRAVITY_ENDPOINT_FALLBACKS) {
     try {
-      const response = await fetch(`${baseEndpoint}/v1internal:onboardUser`, {
+      const url = `${baseEndpoint}/v1internal:onboardUser`
+      logger.debug({ url }, 'Attempting to onboard user')
+
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -184,21 +206,33 @@ export async function onboardManagedProject(
       })
 
       if (!response.ok) {
+        logger.warn(
+          { status: response.status, url, statusText: response.statusText },
+          'Failed to onboard user'
+        )
         continue
       }
 
       const payload = (await response.json()) as OnboardUserPayload
       const managedProjectId = payload.response?.cloudaicompanionProject?.id
       if (payload.done && managedProjectId) {
+        logger.info({ managedProjectId }, 'Successfully onboarded user (managed)')
         return managedProjectId
       }
       if (payload.done && projectId) {
+        logger.info({ projectId }, 'Successfully onboarded user (existing)')
         return projectId
       }
-    } catch {
+    } catch (error) {
+      logger.warn(
+        { error: error instanceof Error ? error.message : String(error), baseEndpoint },
+        'Error during onboarding'
+      )
       // ignore
     }
   }
+
+  logger.error('All endpoints failed to onboard user')
   return undefined
 }
 

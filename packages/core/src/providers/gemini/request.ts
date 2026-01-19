@@ -199,29 +199,77 @@ function parseGenerationConfig(config?: GeminiGenerationConfig) {
   if (config.topK !== undefined) {
     result.topK = config.topK
   }
-  if (config.stopSequences !== undefined) {
+  if (config.stopSequences) {
     result.stopSequences = config.stopSequences
+  }
+  if (config.responseMimeType === 'application/json') {
+    if (config.responseSchema) {
+      result.responseFormat = {
+        type: 'json_schema',
+        json_schema: {
+          name: 'response',
+          schema: config.responseSchema as Record<string, unknown>,
+        },
+      }
+    } else {
+      result.responseFormat = { type: 'json_object' }
+    }
+  } else if (config.responseFormat) {
+    // Legacy/Hybrid support: Pass through if already in Unified format structure
+    const format = config.responseFormat
+    if (format.type === 'json_schema' && format.json_schema) {
+      result.responseFormat = {
+        type: 'json_schema',
+        json_schema: format.json_schema,
+      }
+    } else if (format.type === 'json_object') {
+      result.responseFormat = { type: 'json_object' }
+    }
   }
 
   return Object.keys(result).length > 0 ? result : undefined
 }
 
 function parseThinkingConfig(config?: GeminiGenerationConfig) {
-  if (!config?.thinkingConfig) return undefined
+  if (!config) return undefined
 
-  const thinkingConfig = config.thinkingConfig
+  // Handle camelCase config (Standard Gemini)
+  if (config.thinkingConfig) {
+    const { includeThoughts, thinkingBudget, thinkingLevel } = config.thinkingConfig
+    if (
+      includeThoughts === undefined &&
+      thinkingBudget === undefined &&
+      thinkingLevel === undefined
+    ) {
+      return undefined
+    }
 
-  // Check both camelCase and snake_case variants (for Antigravity compatibility)
-  const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
-  const thinkingBudget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
-
-  if (!includeThoughts && !thinkingBudget && !thinkingConfig.thinkingLevel) return undefined
-
-  return {
-    enabled: includeThoughts ?? true,
-    budget: thinkingBudget,
-    level: thinkingConfig.thinkingLevel?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    return {
+      enabled: includeThoughts ?? true,
+      budget: thinkingBudget,
+      level: thinkingLevel?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    }
   }
+
+  // Handle snake_case config (Antigravity/Claude compatibility)
+  if (config.thinking_config) {
+    const { include_thoughts, thinking_budget, thinking_level } = config.thinking_config
+    if (
+      include_thoughts === undefined &&
+      thinking_budget === undefined &&
+      thinking_level === undefined
+    ) {
+      return undefined
+    }
+
+    return {
+      enabled: include_thoughts ?? true,
+      budget: thinking_budget,
+      level: thinking_level?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    }
+  }
+
+  return undefined
 }
 
 function parseTools(tools?: GeminiTool[]): UnifiedTool[] | undefined {

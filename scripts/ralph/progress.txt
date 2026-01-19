@@ -1,5 +1,229 @@
+## Codebase Patterns
+- **Pattern:** When testing mutable exported arrays (like `ZERO_COST_MODELS`), save state in `const original = [...ARRAY]`, clear in `beforeEach`, and restore in `afterAll`.
+- **Pattern:** `packages/core/test/providers` contains tests for providers logic, while `packages/core/src/util/__tests__` contains tests for util logic.
+- **Pattern:** When adding new fields to `UnifiedRequest`, ensure they are correctly mapped in ALL provider request transformers (`packages/core/src/providers/*/request.ts`) AND format transformers (`packages/core/src/formats/*/request.ts`).
+- **Pattern:** Use `createLogger({ service: '...', module: '...' })` for structured logging.
+- **Pattern:** For Antigravity auth, always iterate through `ANTIGRAVITY_ENDPOINT_FALLBACKS` and handle failures gracefully.
+- **Gotcha:** `biome` linting is strict about `any`. Use `// biome-ignore lint/suspicious/noExplicitAny: <reason>` when you genuinely need flexible types for protocol bridging or Discriminated Union workarounds.
+- **Pattern:** Thinking blocks should be stripped from conversation history in multi-turn scenarios (reference: opencode-antigravity-auth "Strip ALL thinking blocks" strategy).
+- **Pattern:** thoughtSignature must be stripped before logging for security.
+- **Pattern:** Model capability configs in `model-capabilities.ts` use regex patterns checked in order (first match wins). More specific patterns must come before general ones.
+- **Pattern:** OpenAI Chat format `reasoning_effort` only supports `none|low|medium|high`; filter `minimal|xhigh` when mapping from `ReasoningEffort`.
+- **Pattern:** Unit tests for `packages/core/src/providers/*` are located in `packages/core/test/providers/`, not colocated.
+- **Pattern:** `BackoffStrategy` logic should be kept separate from retry loop logic to allow for independent testing and reuse.
+- **Pattern:** Parsing `Retry-After` headers requires handling both seconds (number) and HTTP Date strings.
+
 # Ralph Progress Log
-Started: Fri Jan 16 08:15:37 AM KST 2026
+Started: Thu Jan 16 2026
+Feature: llmux Reasoning & Reliability Upgrade
+---
+
+## 2026-01-15 - US-001
+Thread: http://100.64.0.2:8743/threads/T-019bc214-c340-747c-98e7-b3700af852bc
+- Implemented `normalizeReasoningEffort(model: string, effort?: string)` function in `packages/core/src/util/model-capabilities.ts`
+- Added `ReasoningEffort` type: `'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'`
+- Created model-specific reasoning configs with regex pattern matching
+- Exported function and type from `packages/core/src/index.ts`
+- Added comprehensive unit tests in `packages/core/src/util/__tests__/model-capabilities.test.ts` (22 tests)
+- Files changed:
+  - `packages/core/src/util/model-capabilities.ts`
+  - `packages/core/src/index.ts`
+  - `packages/core/src/util/__tests__/model-capabilities.test.ts` (new)
+- **Learnings for future iterations:**
+  - Model-specific configs use regex patterns checked in order (first match wins)
+  - gpt-5.1-codex-max must be checked before gpt-5.1 to avoid false matches
+  - `ReasoningEffort` type is the superset of all valid values; individual models support subsets
+---
+
+## 2026-01-15 - US-002
+Thread: http://100.64.0.2:8743/threads/T-019bc220-3533-76f1-b98b-847799b612c5
+- Integrated `normalizeReasoningEffort` into `applyThinkingConfig` for OpenAI provider
+- Modified `packages/core/src/transform/thinking.ts` to extract model from `unified.metadata?.model`
+- Modified `packages/core/src/formats/openai-chat/config.ts` to normalize and filter effort values
+- Added type guard to filter out `minimal|xhigh` (unsupported in OpenAI Chat format)
+- Added comprehensive tests for transform/thinking.ts and openai-chat/config.ts
+- Files changed:
+  - `packages/core/src/transform/thinking.ts`
+  - `packages/core/src/formats/openai-chat/config.ts`
+  - `packages/core/test/transform/thinking.test.ts` (new)
+  - `packages/core/test/formats/openai-chat/config.test.ts` (updated)
+- **Learnings for future iterations:**
+  - OpenAI Chat format `reasoning_effort` only supports `none|low|medium|high`
+  - When normalizing across types with different value sets, use type guards to filter
+  - `unified.metadata?.model` is the source for model name in transforms
+---
+
+## 2026-01-15 - US-003
+Thread: http://100.64.0.2:8743/threads/T-019bc225-ab0b-72cc-937f-6381cff4e4d2
+- Implemented `RetryPolicy` interface and `getRetryPolicy` helper in `packages/core/src/providers/retry-policy.ts`
+- Default policy: 3 attempts, budgetCheckRequired: true
+- Exported from `packages/core/src/index.ts`
+- Added unit tests in `packages/core/test/providers/retry-policy.test.ts` (9 tests)
+- Files changed:
+  - `packages/core/src/providers/retry-policy.ts` (new)
+  - `packages/core/src/index.ts`
+  - `packages/core/test/providers/retry-policy.test.ts` (new)
+- **Learnings for future iterations:**
+  - `packages/core/src/providers` tests are located in `packages/core/test/providers`, unlike `util` which has colocated `__tests__`
+  - Use `_` prefix for unused parameters to satisfy biome/typescript checks
+---
+
+## 2026-01-16 - US-004
+Thread: http://100.64.0.2:8743/threads/T-019bc229-5f5f-70a3-8b33-63a43a55d957
+- Implemented `isZeroCostModel(model: string): boolean` in `packages/core/src/util/model-capabilities.ts`
+- Added `ZERO_COST_MODELS` allowlist (initially empty)
+- Updated `getRetryPolicy` in `packages/core/src/providers/retry-policy.ts` to disable budget checks for zero-cost models
+- Exported new utilities from `packages/core/src/index.ts`
+- Added unit tests in `packages/core/src/util/__tests__/model-capabilities.test.ts` and `packages/core/test/providers/retry-policy.test.ts`
+- Files changed:
+  - `packages/core/src/util/model-capabilities.ts`
+  - `packages/core/src/providers/retry-policy.ts`
+  - `packages/core/src/index.ts`
+  - `packages/core/src/util/__tests__/model-capabilities.test.ts`
+  - `packages/core/test/providers/retry-policy.test.ts`
+- **Learnings for future iterations:**
+  - `ZERO_COST_MODELS` is a mutable array exported as const, so tests must manage state (save/clear/restore)
+  - `packages/core/test/providers` contains tests for providers logic, while `packages/core/src/util/__tests__` contains tests for util logic.
+---
+
+
+## 2026-01-16 - US-005
+Thread: http://100.64.0.2:8743/threads/T-019bc22c-db7a-7758-a6e3-931a92ff0a9e
+- Implemented `stripThinkingFromMessages(messages: UnifiedMessage[])` in `packages/core/src/util/thinking-utils.ts`
+- Added unit tests in `packages/core/src/util/__tests__/thinking-utils.test.ts`
+- Exported from `packages/core/src/index.ts`
+- Files changed:
+  - `packages/core/src/util/thinking-utils.ts` (new)
+  - `packages/core/src/util/__tests__/thinking-utils.test.ts` (new)
+  - `packages/core/src/index.ts`
+- **Learnings for future iterations:**
+  - `ContentPart` is defined in `types/unified.ts`.
+  - TypeScript non-null assertions (`!`) are useful in tests when you've already asserted existence (e.g. `toHaveLength`).
+---
+
+## 2026-01-16 - US-006
+Thread: http://100.64.0.2:8743/threads/T-019bc231-c102-747c-a901-7e0a2c8bd1ee
+- Modified `packages/core/src/providers/anthropic/request.ts` to call `stripThinkingFromMessages` before building Anthropic messages array.
+- Added multi-turn test case in `packages/core/test/providers/anthropic/request-thinking.test.ts` verifying thinking isolation.
+- Files changed:
+  - `packages/core/src/providers/anthropic/request.ts`
+  - `packages/core/test/providers/anthropic/request-thinking.test.ts` (new)
+- **Learnings for future iterations:**
+  - `stripThinkingFromMessages` effectively removes thinking blocks from the conversation history, preventing leakage.
+  - TypeScript non-null assertions (`!`) are useful in tests when you've already asserted existence (e.g., `toHaveLength`).
+---
+
+## 2026-01-16 - US-007
+Thread: http://100.64.0.2:8743/threads/T-019bc231-c102-747c-a901-7e0a2c8bd1ee
+- Integrated `currentThinkingBlocks` state in `AnthropicStreamingBuilder`.
+- Reset thinking state on `message_start` events to prevent thinking leakage between streams.
+- Added `packages/core/test/formats/anthropic-streaming-builder-thinking.test.ts` to verify state reset behavior.
+- Files changed:
+  - `packages/core/src/formats/anthropic-messages/anthropic-streaming-builder.ts`
+  - `packages/core/test/formats/anthropic-streaming-builder-thinking.test.ts` (new)
+- **Learnings for future iterations:**
+  - Private state in classes is hard to test directly; verify behavior through public methods or side effects (like event output).
+  - TypeScript `noNonNullAssertion` rule is strict; check for null/undefined explicitly instead of using `!` when possible.
+---
+
+## 2026-01-16 - US-008
+Thread: http://100.64.0.2:8743/threads/T-019bc237-c1b9-711d-a635-fbfc66dc4229
+- Modified Gemini response parsing in `packages/core/src/providers/gemini/response.ts` to support both `thoughtSignature` (camelCase) and `thought_signature` (snake_case)
+- Added fallback logic to use whichever signature field is available (preferring camelCase)
+- Added unit tests in `packages/core/test/providers/gemini/response.test.ts` verifying correct mapping from both fields
+- Files changed:
+  - `packages/core/src/providers/gemini/response.ts`
+  - `packages/core/test/providers/gemini/response.test.ts`
+- **Learnings for future iterations:**
+  - Gemini parts can have both `thoughtSignature` and `thought_signature` fields depending on the API version or context
+  - Always provide fallbacks for snake_case vs camelCase fields when dealing with raw API responses
+---
+## [2026-01-16] - US-010
+Thread: https://ampcode.com/threads/T-019bc414-7e14-75ad-9b3b-3013d7517c35
+- Enforced signature stripping in logging entry points
+- Created `sanitizeForLogging` utility in `packages/server/src/utils/sanitize-for-logging.ts`
+- Applied sanitization in `RequestLogStore` (SQLite logs) and `StreamDebugLogger` (file debug logs)
+- Added comprehensive tests verifying sanitization works for nested objects and arrays
+- Files changed:
+  - packages/server/src/utils/sanitize-for-logging.ts
+  - packages/server/src/stores/request-log-store.ts
+  - packages/server/src/handlers/stream-helpers/stream-debug.ts
+  - packages/server/src/utils/__tests__/sanitize-for-logging.test.ts
+  - packages/server/src/stores/__tests__/log-sanitization.test.ts
+- **Learnings for future iterations:**
+  - When sanitizing logs, always strip both camelCase `thoughtSignature` and snake_case `thought_signature` to be safe.
+  - Apply sanitization at the edge (store/logger level) rather than relying on upstream callers to sanitize.
+  - TypeScript imports in tests need to align with `tsconfig` paths or relative paths correctly.
+---
+## 2026-01-16 - US-009
+Thread: http://100.64.0.2:8743/threads/T-019bc420-6ac2-70d9-bc40-f121c4513d87
+- Modified `packages/core/src/providers/antigravity/response.ts` to handle cases where `thought` is true but `text` is undefined, defaulting to an empty string.
+- This ensures that thinking blocks with just a `thoughtSignature` (common in Antigravity Claude responses) are correctly preserved.
+- Added a specific test case for this scenario in `packages/core/test/providers/antigravity/response.test.ts`.
+- Files changed:
+  - `packages/core/src/providers/antigravity/response.ts`
+  - `packages/core/test/providers/antigravity/response.test.ts` (updated)
+- **Learnings for future iterations:**
+  - Antigravity API responses can sometimes omit the `text` field for thinking parts if they only contain a signature. Always handle optional text fields gracefully.
+  - When modifying response parsing logic, ensure both `thoughtSignature` (camelCase) and `thought_signature` (snake_case) are checked, as different providers/versions may use either.
+---
+## 2026-01-16 - US-012
+Thread: http://100.64.0.2:8743/threads/T-019bc436-477a-7607-b115-b0303b05c316
+- Integrated `normalizeStreamingOrder` into all streaming builders:
+  - `AnthropicStreamingBuilder`
+  - `OpenAIChatStreamingBuilder`
+  - `OpenAIResponsesStreamingBuilder`
+  - `GeminiStreamingBuilder`
+  - `AntigravityStreamingBuilder` (via `streaming-pipeline.ts`)
+- Added comprehensive integration tests in `packages/core/test/formats/streaming-normalization-integration.test.ts`
+- Verified that builders now maintain internal normalization state and correct event sequences
+- Files changed:
+  - `packages/core/src/formats/anthropic-messages/anthropic-streaming-builder.ts`
+  - `packages/core/src/formats/openai-chat/openai-streaming-builder.ts`
+  - `packages/core/src/formats/openai-responses/streaming-builder.ts`
+  - `packages/core/src/formats/google-gemini/streaming-builder.ts`
+  - `packages/core/src/providers/antigravity/streaming-builder.ts`
+  - `packages/core/src/providers/antigravity/streaming-pipeline.ts`
+  - `packages/core/src/index.ts` (exported StreamingState type)
+  - `packages/core/src/util/stream-normalizer.ts` (exported StreamingState type)
+  - `packages/core/test/formats/streaming-normalization-integration.test.ts` (new)
+- **Learnings for future iterations:**
+  - When modifying builders that are initialized elsewhere (like Antigravity), ensure the state interface is updated and propagated correctly (e.g. `AntigravityParserState & AntigravityBuilderState`).
+  - Private state can be accessed in tests via casting to `any` for verification when public methods don't expose it directly.
+  - Consistent type exports (`type StreamingState`) are crucial when sharing state interfaces across modules.
+---
+
+## 2026-01-16 - US-013
+Thread: http://100.64.0.2:8743/threads/T-019bc43b-9c97-70ca-8325-21227227e529
+- Implemented `BackoffStrategy` interface and provider-specific strategies in `packages/core/src/providers/backoff.ts`:
+  - `DefaultBackoffStrategy`: Exponential backoff with jitter and Retry-After support
+  - `AnthropicBackoffStrategy`: Optimized defaults for Anthropic
+  - `GeminiBackoffStrategy`: Lower max delay cap
+- Exported strategies and `getBackoffStrategy` factory from `packages/core/src/index.ts`
+- Added comprehensive unit tests in `packages/core/src/providers/backoff.test.ts`
+- Files changed:
+  - `packages/core/src/providers/backoff.ts` (new)
+  - `packages/core/src/providers/backoff.test.ts` (new)
+  - `packages/core/src/index.ts`
+- **Learnings for future iterations:**
+  - `BackoffStrategy` logic should be kept separate from retry loop logic to allow for independent testing and reuse.
+  - Parsing `Retry-After` headers requires handling both seconds (number) and HTTP Date strings.
+---
+
+## 2026-01-16 - US-014
+Thread: http://100.64.0.2:8743/threads/T-019bc467-b507-76ca-b7a1-c2baa478e990
+- Implemented Gemini image token estimation
+- Created `estimateGeminiImageTokens` and `calculateGeminiTotalInputTokens` utilities in `packages/core/src/util/token-estimation.ts`
+- Updated `accumulateGeminiResponse` in `packages/core/src/sse/accumulators.ts` to include image tokens in usage metadata
+- Added unit tests for token estimation logic
+- Files changed:
+  - `packages/core/src/util/token-estimation.ts` (new)
+  - `packages/core/src/sse/accumulators.ts`
+  - `packages/core/src/index.ts`
+  - `packages/core/src/util/__tests__/token-estimation.test.ts` (new)
+- **Learnings for future iterations:**
+  - `accumulateGeminiResponse` now updates usage metadata with accurate input token counts including images.
+  - Used explicit `GeminiContent[]` casting instead of `any` to satisfy biome linting rules.
 ---
 ## 2026-01-16 - US-009
 Thread: http://100.64.0.2:8743/threads/T-019bc470-807a-7185-905a-064da257118d

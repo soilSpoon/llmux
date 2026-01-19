@@ -9,6 +9,18 @@ export class AllCooldownError extends Error {
   }
 }
 
+export class NonRetriableError extends Error {
+  errorInfo: UpstreamErrorInfo
+
+  constructor(errorText: string, status: number, provider?: string) {
+    const info = parseUpstreamError(errorText, status)
+    if (provider) info.provider = provider
+    super(info.message)
+    this.name = 'NonRetriableError'
+    this.errorInfo = info
+  }
+}
+
 export interface UpstreamErrorInfo {
   message: string
   type?: string

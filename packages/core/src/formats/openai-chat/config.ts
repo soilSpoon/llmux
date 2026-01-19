@@ -1,4 +1,5 @@
 import type { UnifiedRequest } from '../../types/unified'
+import { normalizeReasoningEffort } from '../../util/model-capabilities'
 import type { OpenAIChatRequest, OpenAIChatThinkingConfig } from './types'
 
 // =============================================================================
@@ -35,12 +36,19 @@ export function parseConfig(request: OpenAIChatRequest): NonNullable<UnifiedRequ
   }
   if (request.response_format) {
     // Basic mapping - expand if needed for strictJsonSchema
-    config.responseFormat = request.response_format.type === 'json_object' ? 'json' : undefined
-    if (request.response_format.type === 'json_object') {
-      config.responseFormat = 'json'
-    } else if (request.response_format.type !== 'text') {
-      // Keep raw if it's complex schema
-      config.responseFormat = request.response_format
+    const format = request.response_format
+
+    // Explicit type checks to satisfy TypeScript discriminated unions
+    if (format.type === 'json_object') {
+      config.responseFormat = { type: 'json_object' }
+    } else if (format.type === 'text') {
+      config.responseFormat = { type: 'text' }
+    } else if (format.type === 'json_schema') {
+      config.responseFormat = format
+    } else {
+      // Fallback for unknown types (Record<string, unknown>)
+      // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
+      config.responseFormat = format as any
     }
   }
   if (request.service_tier) {
@@ -110,10 +118,11 @@ export function transformToGLMThinking(
 
 /**
  * Apply thinking config for OpenAI format (localized version, no external dependency)
+ * Normalizes reasoning effort for model-specific constraints.
  */
 export function applyThinkingConfig(
   unified: UnifiedRequest,
-  _model: string,
+  model: string,
   targetRequest: OpenAIChatRequest
 ): void {
   const config = unified.thinking
@@ -122,7 +131,18 @@ export function applyThinkingConfig(
   }
 
   if (config.effort) {
-    targetRequest.reasoning_effort = config.effort
+    // Normalize effort for model-specific constraints
+    const normalizedEffort = normalizeReasoningEffort(model, config.effort)
+    // OpenAI Chat only supports none/low/medium/high - filter out minimal/xhigh
+    if (
+      normalizedEffort !== undefined &&
+      (normalizedEffort === 'none' ||
+        normalizedEffort === 'low' ||
+        normalizedEffort === 'medium' ||
+        normalizedEffort === 'high')
+    ) {
+      targetRequest.reasoning_effort = normalizedEffort
+    }
   }
   if (config.includeThoughts) {
     // For OpenAI, include reasoning.encrypted_content in the include array

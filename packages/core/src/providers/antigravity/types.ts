@@ -11,30 +11,12 @@ import type {
   GeminiFunctionDeclaration,
   GeminiGenerationConfig,
   GeminiResponse,
+  GeminiThinkingConfig,
+  GeminiThinkingConfigSnake,
   GeminiTool,
   GeminiToolConfig,
   GeminiUsageMetadata,
 } from '../gemini/types'
-
-// =============================================================================
-// Request Types
-// =============================================================================
-
-/**
- * Antigravity Wrapped Request
- */
-export interface AntigravityRequest {
-  project: string
-  model: string
-  requestId?: string
-  userAgent?: string
-  requestType?: string
-  userRole?: string
-  request: AntigravityInnerRequest
-  metadata?: AntigravityRequestMetadata
-
-  // Wire format keys (should not exist)
-}
 
 // =============================================================================
 // Wire Format Types (for serialization verification)
@@ -85,6 +67,26 @@ export interface AntigravityWireGenerationConfig {
   }
 }
 
+// =============================================================================
+// Request Types
+// =============================================================================
+
+/**
+ * Antigravity Wrapped Request
+ */
+export interface AntigravityRequest {
+  project: string
+  model: string
+  requestId?: string
+  userAgent?: string
+  requestType?: string
+  userRole?: string
+  request: AntigravityInnerRequest
+
+  // Metadata passed through (not injected into inner request)
+  metadata?: AntigravityRequestMetadata
+}
+
 /**
  * Inner request (Gemini-style with Antigravity extensions)
  */
@@ -123,34 +125,18 @@ export interface AntigravitySystemInstruction {
 
 /**
  * Generation config with Antigravity extensions
+ * Now aliases GeminiGenerationConfig as it supports snake_case natively
  */
-export interface AntigravityGenerationConfig
-  extends Omit<GeminiGenerationConfig, 'thinkingConfig' | 'thinking_config'> {
-  thinkingConfig?: AntigravityThinkingConfig
-
-  // Wire format keys (should not exist)
-}
-
-/**
- * Gemini-style thinking config (camelCase)
- */
-export interface GeminiThinkingConfig {
-  includeThoughts?: boolean
-  thinkingBudget?: number
-}
-
-/**
- * Claude-style thinking config via Antigravity (snake_case)
- */
-export interface ClaudeThinkingConfig {
-  includeThoughts?: boolean
-  thinkingBudget?: number
-}
+export type AntigravityGenerationConfig = GeminiGenerationConfig
 
 /**
  * Combined thinking config for Antigravity API
+ * Alias for backward compatibility or clarity
  */
-export type AntigravityThinkingConfig = GeminiThinkingConfig | ClaudeThinkingConfig
+export type AntigravityThinkingConfig = GeminiThinkingConfig | GeminiThinkingConfigSnake
+
+// Legacy aliases if needed by consumers, otherwise can be removed
+export type ClaudeThinkingConfig = GeminiThinkingConfigSnake
 
 // =============================================================================
 // Response Types
@@ -185,7 +171,7 @@ export interface AntigravityStreamChunk {
 /**
  * Check if value is an Antigravity request
  */
-export function isAntigravityRequest(value: unknown): value is AntigravityWireRequest {
+export function isAntigravityRequest(value: unknown): value is AntigravityRequest {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
   return (

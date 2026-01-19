@@ -21,6 +21,7 @@ import type {
   GeminiRequest,
   GeminiSchema,
   GeminiSystemInstruction,
+  GeminiThinkingConfig,
   GeminiTool,
   GeminiToolConfig,
 } from './types'
@@ -264,51 +265,55 @@ function parseGenerationConfig(config?: GeminiGenerationConfig) {
 
   const result: UnifiedRequest['config'] = {}
 
-  if (config.maxOutputTokens !== undefined) {
-    result.maxTokens = config.maxOutputTokens
-  }
-  if (config.temperature !== undefined) {
-    result.temperature = config.temperature
-  }
-  if (config.topP !== undefined) {
-    result.topP = config.topP
-  }
-  if (config.topK !== undefined) {
-    result.topK = config.topK
-  }
-  if (config.stopSequences !== undefined) {
-    result.stopSequences = config.stopSequences
-  }
+  if (config.maxOutputTokens !== undefined) result.maxTokens = config.maxOutputTokens
+  if (config.temperature !== undefined) result.temperature = config.temperature
+  if (config.topP !== undefined) result.topP = config.topP
+  if (config.topK !== undefined) result.topK = config.topK
+  if (config.stopSequences !== undefined) result.stopSequences = config.stopSequences
 
   return Object.keys(result).length > 0 ? result : undefined
 }
 
 function parseThinkingConfig(config?: GeminiGenerationConfig) {
-  if (!config?.thinkingConfig) return undefined
+  if (!config) return undefined
 
-  const thinkingConfig = config.thinkingConfig
+  // Handle camelCase config (Standard Gemini)
+  if (config.thinkingConfig) {
+    const { includeThoughts, thinkingBudget, thinkingLevel } = config.thinkingConfig
+    if (
+      includeThoughts === undefined &&
+      thinkingBudget === undefined &&
+      thinkingLevel === undefined
+    ) {
+      return undefined
+    }
 
-  // Check both camelCase and snake_case variants (for Antigravity compatibility)
-  const includeThoughts = thinkingConfig.includeThoughts ?? thinkingConfig.include_thoughts
-  const thinkingBudget = thinkingConfig.thinkingBudget ?? thinkingConfig.thinking_budget
-
-  if (
-    !includeThoughts &&
-    !thinkingBudget &&
-    !thinkingConfig.thinkingLevel &&
-    !thinkingConfig.thinking_level
-  )
-    return undefined
-
-  return {
-    enabled: includeThoughts ?? true,
-    budget: thinkingBudget,
-    level: (thinkingConfig.thinkingLevel ?? thinkingConfig.thinking_level)?.toLowerCase() as
-      | 'minimal'
-      | 'low'
-      | 'medium'
-      | 'high',
+    return {
+      enabled: includeThoughts ?? true,
+      budget: thinkingBudget,
+      level: thinkingLevel?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    }
   }
+
+  // Handle snake_case config (Antigravity/Claude)
+  if (config.thinking_config) {
+    const { include_thoughts, thinking_budget, thinking_level } = config.thinking_config
+    if (
+      include_thoughts === undefined &&
+      thinking_budget === undefined &&
+      thinking_level === undefined
+    ) {
+      return undefined
+    }
+
+    return {
+      enabled: include_thoughts ?? true,
+      budget: thinking_budget,
+      level: thinking_level?.toLowerCase() as 'minimal' | 'low' | 'medium' | 'high',
+    }
+  }
+
+  return undefined
 }
 
 function parseTools(tools?: GeminiTool[]): UnifiedTool[] | undefined {
@@ -478,23 +483,20 @@ function transformPart(
           // Use local thinking signature if present (rare/merged), otherwise use fallback
           thoughtSignature:
             part.thinking?.signature || fallbackSignature || 'skip_thought_signature_validator',
-          // Ensure snake_case is also populated for compatibility
-          thought_signature:
-            part.thinking?.signature || fallbackSignature || 'skip_thought_signature_validator',
         }
       }
       break
 
     case 'tool_result':
       if (part.toolResult) {
-        // Handle result payload: prefer 'content'
-        const rawResult = part.toolResult.content
-
         // Parse content if it's a JSON string, otherwise wrap in object
         // IMPORTANT: Antigravity requires response to be an object, not an array
         let response: Record<string, unknown>
         try {
-          const parsed = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult
+          const parsed =
+            typeof part.toolResult.content === 'string'
+              ? JSON.parse(part.toolResult.content)
+              : part.toolResult.content
 
           // Ensure response is always an object (not array or primitive)
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -503,17 +505,16 @@ function transformPart(
             response = { result: parsed }
           }
         } catch {
-          response = { result: rawResult }
+          response = { result: part.toolResult.content }
         }
 
         // Resolve original tool name from the map using toolCallId
-        const toolCallId = part.toolResult.toolCallId
-        const toolName = toolNameMap?.get(toolCallId) || toolCallId
+        const toolName = toolNameMap?.get(part.toolResult.toolCallId) || part.toolResult.toolCallId
 
         const functionResponse = {
           name: toolName,
           response,
-          id: toolCallId,
+          id: part.toolResult.toolCallId,
         } as const
 
         // If this was an error result and the response doesn't already have error field, add it
@@ -573,65 +574,84 @@ function transformGenerationConfig(
 
   // Transform generation config
   if (config) {
-    if (config.maxTokens !== undefined) {
-      result.maxOutputTokens = config.maxTokens
-    }
-    if (config.temperature !== undefined) {
-      result.temperature = config.temperature
-    }
-    if (config.topP !== undefined) {
-      result.topP = config.topP
-    }
-    if (config.topK !== undefined) {
-      result.topK = config.topK
-    }
-    if (config.stopSequences !== undefined) {
-      result.stopSequences = config.stopSequences
+    if (config.maxTokens !== undefined) result.maxOutputTokens = config.maxTokens
+    if (config.temperature !== undefined) result.temperature = config.temperature
+    if (config.topP !== undefined) result.topP = config.topP
+    if (config.topK !== undefined) result.topK = config.topK
+    if (config.stopSequences !== undefined) result.stopSequences = config.stopSequences
+
+    if (config.responseFormat !== undefined) {
+      // Handle response_format
+      if (
+        config.responseFormat.type === 'json_object' ||
+        (config.responseFormat.type === 'json_schema' && !config.responseFormat.json_schema)
+      ) {
+        // Plain JSON mode
+        result.responseMimeType = 'application/json'
+      } else if (
+        config.responseFormat.type === 'json_schema' &&
+        'json_schema' in config.responseFormat &&
+        config.responseFormat.json_schema
+      ) {
+        // Structured output with schema
+        result.responseMimeType = 'application/json'
+        const jsonSchema = config.responseFormat.json_schema as {
+          name: string
+          strict?: boolean
+          schema?: Record<string, unknown>
+          description?: string
+        }
+        if (jsonSchema.schema) {
+          result.responseSchema = transformSchema(jsonSchema.schema as JSONSchema)
+        }
+      }
     }
   }
 
   // Transform thinking config
-  if (thinking?.enabled) {
+  if (thinking) {
+    const model = ctx?.model?.toLowerCase() || ''
+    const isAntigravity = ctx?.provider === 'antigravity'
+
+    // Antigravity Claude thinking models use snake_case thinking_config
+    const isAntigravityClaudeThinking =
+      isAntigravity && model.includes('claude') && model.includes('thinking')
+
     // Detect Gemini 3+ models to use thinkingLevel instead of budget
-    // Model names like: gemini-3.0-flash, gemini-3-pro, etc.
-    // NOTE: -preview models (like gemini-3-pro-preview) often don't support thinkingLevel yet
-    // ALSO: Antigravity Claude models (specifically those with "thinking" in name) seem to use thinkingLevel
-    // or default to it, so we should treat them as Gemini 3 style to avoid "thinking_level MEDIUM not supported" errors
-    const isAntigravityClaude =
-      ctx?.provider === 'antigravity' &&
-      ctx?.model?.toLowerCase().includes('claude') &&
-      ctx?.model?.toLowerCase().includes('thinking')
+    const isGemini3 = model.includes('gemini-3')
 
-    const isGemini3 =
-      (ctx?.model?.includes('gemini-3') && !ctx?.model?.includes('-preview')) || isAntigravityClaude
+    const includeThoughts = thinking.includeThoughts ?? thinking.enabled
 
-    result.thinkingConfig = {
-      includeThoughts: thinking.includeThoughts ?? true,
-    }
-
-    // Only set budget/level for internal object, transform-utils.ts will handle stripping for unsupported models
-    if (isGemini3) {
-      // Gemini 3 uses thinkingLevel
-      // Map budget to level if level is not explicitly set
-      if (!thinking.level && thinking.budget) {
-        if (thinking.budget < 16384) result.thinkingConfig.thinkingLevel = 'LOW'
-        else if (thinking.budget < 32768) result.thinkingConfig.thinkingLevel = 'MEDIUM'
-        else result.thinkingConfig.thinkingLevel = 'HIGH'
-      } else {
-        result.thinkingConfig.thinkingLevel =
-          (thinking.level?.toUpperCase() as 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH') || 'MEDIUM'
+    if (isAntigravityClaudeThinking) {
+      // Use snake_case for Antigravity Claude
+      result.thinking_config = {
+        include_thoughts: includeThoughts,
+        thinking_budget: thinking.budget,
       }
     } else {
-      // Older models use thinkingBudget
-      result.thinkingConfig.thinkingBudget = thinking.budget
-    }
+      // Standard CamelCase for Gemini and others
+      const camelConfig: GeminiThinkingConfig = {
+        includeThoughts,
+      }
 
-    // Antigravity Compatibility
-    // AntigravityProvider converts everything to snake_case at the boundary using convertKeysDeep
-    // BUT we need to ensure the keys exist in the structure for the converter to pick them up
-    // The converter will see 'thinkingConfig' and convert to 'thinking_config'
-    // It will see 'thinkingBudget' and convert to 'thinking_budget'
-    // It will see 'includeThoughts' and convert to 'include_thoughts'
+      if (isGemini3) {
+        // Gemini 3 uses thinkingLevel
+        if (!thinking.level && thinking.budget) {
+          // Map budget to level
+          if (thinking.budget < 16384) camelConfig.thinkingLevel = 'LOW'
+          else if (thinking.budget < 32768) camelConfig.thinkingLevel = 'MEDIUM'
+          else camelConfig.thinkingLevel = 'HIGH'
+        } else {
+          camelConfig.thinkingLevel =
+            (thinking.level?.toUpperCase() as 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH') || 'MEDIUM'
+        }
+      } else {
+        // Older models use thinkingBudget
+        camelConfig.thinkingBudget = thinking.budget
+      }
+
+      result.thinkingConfig = camelConfig
+    }
   }
 
   return Object.keys(result).length > 0 ? result : undefined

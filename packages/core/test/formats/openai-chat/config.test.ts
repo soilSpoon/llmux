@@ -53,7 +53,7 @@ describe('OpenAI Chat Config', () => {
 
       const config = parseConfig(request)
 
-      expect(config.responseFormat).toBe('json')
+      expect(config.responseFormat).toEqual({ type: 'json_object' })
     })
 
     it('parses array of stop sequences', () => {
@@ -172,6 +172,60 @@ describe('OpenAI Chat Config', () => {
         }
 
         applyThinkingConfig(unified, 'o1', target)
+        expect(target.reasoning_effort).toBeUndefined()
+      })
+
+      it('normalizes unsupported effort for gpt-5-pro to high', () => {
+        const unified: UnifiedRequest = {
+          messages: [],
+          thinking: {
+            enabled: true,
+            effort: 'low',
+          },
+        }
+        const target: OpenAIChatRequest = {
+          model: 'gpt-5-pro',
+          messages: [],
+        }
+
+        applyThinkingConfig(unified, 'gpt-5-pro', target)
+        // gpt-5-pro only supports 'high', so 'low' should fallback to 'high'
+        expect(target.reasoning_effort).toBe('high')
+      })
+
+      it('passes through supported effort for gpt-5.1', () => {
+        const unified: UnifiedRequest = {
+          messages: [],
+          thinking: {
+            enabled: true,
+            effort: 'medium',
+          },
+        }
+        const target: OpenAIChatRequest = {
+          model: 'gpt-5.1',
+          messages: [],
+        }
+
+        applyThinkingConfig(unified, 'gpt-5.1', target)
+        expect(target.reasoning_effort).toBe('medium')
+      })
+
+      it('does not set reasoning_effort for unsupported values with no default', () => {
+        const unified: UnifiedRequest = {
+          messages: [],
+          thinking: {
+            enabled: true,
+            effort: 'none' as 'none' | 'low' | 'medium' | 'high',
+          },
+        }
+        const target: OpenAIChatRequest = {
+          model: 'unknown-model',
+          messages: [],
+        }
+
+        applyThinkingConfig(unified, 'unknown-model', target)
+        // 'none' is not in default supported efforts (low/medium/high)
+        // and defaultEffort is undefined, so nothing should be set
         expect(target.reasoning_effort).toBeUndefined()
       })
     })

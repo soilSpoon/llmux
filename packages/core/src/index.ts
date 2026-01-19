@@ -86,8 +86,14 @@ export type {
   AntigravityInnerRequest,
   AntigravityRequest,
   AntigravityResponse,
-  AntigravityWireRequest,
 } from './providers/antigravity/types'
+export type { BackoffContext, BackoffStrategy } from './providers/backoff'
+export {
+  AnthropicBackoffStrategy,
+  DefaultBackoffStrategy,
+  GeminiBackoffStrategy,
+  getBackoffStrategy,
+} from './providers/backoff'
 export type { AuthType, Provider, ProviderConfig, ProviderName } from './providers/base'
 // Provider base types
 export { BaseProvider, isValidProviderName } from './providers/base'
@@ -123,6 +129,8 @@ export {
   hasProvider,
   registerProvider,
 } from './providers/registry'
+export type { RetryPolicy } from './providers/retry-policy'
+export { getRetryPolicy } from './providers/retry-policy'
 // Responses API (OpenAI Responses API support)
 export type {
   ChatCompletionChunk,
@@ -207,17 +215,23 @@ export type {
 export { getHomeDir } from './util/home'
 // Logging
 export { createLogger, logger } from './util/logger'
+export type { ReasoningEffort } from './util/model-capabilities'
 // Model Capabilities & Utilities
 export {
   extractThinkingTier,
   hasThinkingTierSuffix,
   isGemini3WithTierSuffix,
+  isZeroCostModel,
+  normalizeReasoningEffort,
   supportsThinking,
+  ZERO_COST_MODELS,
 } from './util/model-capabilities'
 export { SSEParser } from './util/sse-parser'
+export { normalizeStreamingOrder, type StreamingState } from './util/stream-normalizer'
+export { stripThinkingFromMessages } from './util/thinking-utils'
 export {
-  type NormalizeResult,
-  normalizeStreamingOrder,
-  type StreamingState,
-} from './util/stream-normalizer'
+  calculateGeminiTotalInputTokens,
+  estimateGeminiImageTokens,
+  type ImageData as GeminiImageData,
+} from './util/token-estimation'
 // Utilities

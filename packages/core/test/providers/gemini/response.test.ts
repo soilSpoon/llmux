@@ -857,6 +857,55 @@ describe("Gemini Response Transformations", () => {
         );
       });
 
+      it("should map thoughtSignature from thought_signature field if present", () => {
+        const gemini: GeminiResponse = {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  {
+                    thought: true,
+                    text: "Thinking...",
+                    thought_signature: "sig_alt_123",
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+        };
+
+        const result = parseResponse(gemini);
+
+        expect(result.thinking![0]!.signature).toBe("sig_alt_123");
+      });
+
+      it("should prefer thoughtSignature over thought_signature if both present", () => {
+        const gemini: GeminiResponse = {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  {
+                    thought: true,
+                    text: "Thinking...",
+                    thoughtSignature: "primary_sig",
+                    thought_signature: "fallback_sig",
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+        };
+
+        const result = parseResponse(gemini);
+
+        expect(result.thinking![0]!.signature).toBe("primary_sig");
+      });
+
       it("should place thinking parts before content parts", () => {
         const unified = createUnifiedResponse({
           thinking: [{ text: "Thinking..." }],
@@ -869,6 +918,30 @@ describe("Gemini Response Transformations", () => {
         expect(result.candidates[0]!.content.parts[1]!.text).toBe("Answer");
       });
     });
+      it("should extract thoughtSignature from thought_signature on helper extractSignatureFromResponse", () => {
+        const gemini: GeminiResponse = {
+          candidates: [
+            {
+              content: {
+                role: "model",
+                parts: [
+                  {
+                    thought: true,
+                    text: "Thinking...",
+                    thought_signature: "sig_alt_123",
+                  },
+                ],
+              },
+              finishReason: "STOP",
+            },
+          ],
+        };
+
+        const { extractSignatureFromResponse } = require("../../../src/providers/gemini/response");
+        const sig = extractSignatureFromResponse(gemini);
+        expect(sig).toBe("sig_alt_123");
+      });
+
   });
 
   describe("round-trip transformations", () => {

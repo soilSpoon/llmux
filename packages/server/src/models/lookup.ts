@@ -30,9 +30,9 @@ function getProviderAuthType(provider: ModelProvider): AuthType {
 
 export interface ModelLookup {
   /**
+
    * Get provider for a given model ID.
    * Returns the provider name if found, undefined otherwise.
-   * Supports prefix matching.
    */
   getProviderForModel(modelId: string): Promise<ModelProvider | undefined>
 
@@ -47,10 +47,6 @@ export interface ModelLookup {
   refresh(): Promise<void>
 }
 
-/**
- * Find provider for a model using exact matching only.
- * Exported for testing.
- */
 export function findProviderExact(
   modelId: string,
   modelCache: Map<string, ModelProvider>
@@ -132,12 +128,6 @@ export function createModelLookup(credentialProvider: CredentialProvider): Model
             // OAuth takes priority over apiKey
             if (existingAuthType === 'oauth' && newAuthType === 'apiKey') {
               continue // Keep existing OAuth provider
-            }
-            if (existingAuthType === 'apiKey' && newAuthType === 'oauth') {
-              logger.debug(
-                { modelId: model.id, oldProvider: existingProvider, newProvider: model.provider },
-                'OAuth provider taking priority over apiKey provider'
-              )
             }
           }
           newCache.set(model.id, model.provider)

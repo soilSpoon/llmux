@@ -10,12 +10,7 @@ export {
   patchStopReasonForToolUse,
   processAnthropicEvent,
 } from './anthropic-stream-adapter'
-export {
-  createStreamDebugLogger,
-  type StreamDebugLogger,
-  type StreamDebugOptions,
-  shouldEnableDebugLogging,
-} from './stream-debug'
+
 export {
   createStreamMetrics,
   handleEmptyResponse,

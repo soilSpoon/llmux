@@ -4,7 +4,7 @@ import {
   type ProviderName,
   type ThinkingStrategyResolver,
 } from '@llmux/core'
-import { createErrorResponse } from './error-utils'
+import { createErrorResponse, parseUpstreamError } from './error-utils'
 import { createStreamTransformer, type StreamContext } from './stream-transformer'
 import { getSignatureCache } from './thinking/cache-instance'
 import type { ProxyOptions } from './types'
@@ -50,6 +50,7 @@ export async function handleStreamingProxy(
       body,
       options,
       mode: 'streaming',
+      signal: request.signal,
       onBeforeAttempt: (attempt, requestMeta) => {
         // Generic debug log for Fresh requests
         try {
@@ -96,7 +97,8 @@ export async function handleStreamingProxy(
 
     if (!response.ok) {
       const text = await response.text().catch(() => '')
-      const errorPayload = { error: { message: text || 'Upstream error', status: response.status } }
+      const errorInfo = parseUpstreamError(text, response.status)
+      const errorPayload = createErrorResponse(errorInfo)
       const sseBody = `data: ${JSON.stringify(errorPayload)}\n\n`
 
       return new Response(sseBody, {

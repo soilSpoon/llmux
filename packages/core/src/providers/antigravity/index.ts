@@ -5,16 +5,65 @@
  * Antigravity wraps Gemini-style requests/responses with additional metadata.
  */
 
-import type { GeminiRequest } from '../../formats/google-gemini/types'
+import crypto from 'node:crypto'
+import { buildWireRequest as buildGeminiRequest } from '../../formats/google-gemini/request'
+import type { GeminiRequest, GeminiResponse } from '../../formats/google-gemini/types'
+import { isGeminiRequest } from '../../formats/google-gemini/types'
 import { getFormat } from '../../formats/registry'
 import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
-import { convertKeysDeep, snakeToCamelKey } from '../../utils/casing'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
-import { transform as transformRequest } from './request'
-import { parseResponse, transformResponse } from './response'
+
+import { ANTIGRAVITY_SYSTEM_INSTRUCTION } from './constants'
+
+import { transform } from './request'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
-import { type AntigravityResponse, isAntigravityRequest } from './types'
+import {
+  createInnerRequest,
+  ensureToolConfig,
+  extractMetadata,
+  injectSystemInstruction,
+  preprocessAntigravityRequest,
+  preprocessTools,
+} from './transform-utils'
+import {
+  type AntigravityRequest,
+  type AntigravityResponse,
+  type AntigravityWireRequest,
+  isAntigravityRequest,
+} from './types'
+
+/**
+ * Extract the inner GeminiRequest from various Antigravity request formats.
+ * Returns the inner request and optional metadata if the input is valid.
+ */
+function extractGeminiRequest(request: unknown): {
+  geminiRequest: GeminiRequest
+  project?: string
+  model?: string
+  userRole?: string
+} | null {
+  // Case 1: Wrapped Antigravity request { project, model, request: {...} }
+  if (isAntigravityRequest(request)) {
+    const inner = request.request
+    // AntigravityInnerRequest is compatible with GeminiRequest
+    if (isGeminiRequest(inner)) {
+      return {
+        geminiRequest: inner,
+        project: request.project,
+        model: request.model,
+        userRole: request.userRole,
+      }
+    }
+  }
+
+  // Case 2: Raw GeminiRequest (unwrapped)
+  if (isGeminiRequest(request)) {
+    return { geminiRequest: request }
+  }
+
+  return null
+}
 
 export class AntigravityProvider extends BaseProvider {
   readonly name: ProviderName
@@ -28,7 +77,7 @@ export class AntigravityProvider extends BaseProvider {
       supportsStreaming: true,
       supportsThinking: true,
       supportsTools: true,
-      defaultStreamParser: 'sse-standard',
+      defaultStreamParser: 'sse-line-delimited',
     }
   }
 
@@ -74,40 +123,25 @@ export class AntigravityProvider extends BaseProvider {
    * Handles both wrapped ({ request: { contents: ... } }) and unwrapped formats.
    */
   parse(request: unknown): UnifiedRequest {
-    // Unwrap Antigravity envelope if present
-    let geminiRequest: Record<string, unknown>
-    let project: string | undefined
-    let model: string | undefined
+    // Use type guard to extract and validate the inner GeminiRequest
+    const extracted = extractGeminiRequest(request)
 
-    let userRole: string | undefined
-
-    if (isAntigravityRequest(request)) {
-      geminiRequest = request.request as unknown as Record<string, unknown>
-      project = request.project
-      model = request.model
-      userRole = request.user_role
-    } else {
-      // Fallback or unwrapped
-      geminiRequest = request as Record<string, unknown>
+    if (!extracted) {
+      // Fallback for invalid/unknown formats - let parseRequest handle the error
+      throw new Error('Invalid Antigravity request: missing or invalid contents')
     }
 
-    // Convert snake_case keys to camelCase for Gemini parser compatibility
-    // Preserve 'parameters', 'args', 'response' trees to avoid corrupting data/schema keys
-    geminiRequest = convertKeysDeep(geminiRequest, snakeToCamelKey, {
-      preserveTree: ['parameters', 'args', 'response'],
-    }) as Record<string, unknown>
+    const { geminiRequest, project, model, userRole } = extracted
 
-    // Antigravity's inner request is exactly GeminiRequest
-    const unified = getFormat('google-gemini').parseRequest(
-      geminiRequest as unknown as GeminiRequest
-    )
+    // Parse the validated GeminiRequest - no type assertion needed
+    const unified = getFormat('google-gemini').parseRequest(geminiRequest)
 
     if (userRole) {
       unified.userRole = userRole
     }
 
     // Extract non-standard fields from geminiRequest into metadata
-    const standardGeminiFields = [
+    const standardGeminiFields = new Set([
       'contents',
       'systemInstruction',
       'generationConfig',
@@ -115,15 +149,15 @@ export class AntigravityProvider extends BaseProvider {
       'toolConfig',
       'safetySettings',
       'cachedContent',
-    ]
+    ])
     const metadata: Record<string, unknown> = { ...unified.metadata }
 
     if (project) metadata.project = project
     if (model) metadata.model = model
 
     for (const key of Object.keys(geminiRequest)) {
-      if (!standardGeminiFields.includes(key)) {
-        metadata[key] = geminiRequest[key]
+      if (!standardGeminiFields.has(key)) {
+        metadata[key] = geminiRequest[key as keyof GeminiRequest]
       }
     }
 
@@ -135,8 +169,8 @@ export class AntigravityProvider extends BaseProvider {
    * Transform a UnifiedRequest into Antigravity request format.
    * Wraps the Gemini-style request with Antigravity envelope.
    */
-  transform(request: UnifiedRequest, model: string): unknown {
-    return transformRequest(request, model)
+  transform(request: UnifiedRequest, model: string): AntigravityRequest | AntigravityWireRequest {
+    return transform(request, model)
   }
 
   /**
@@ -144,7 +178,19 @@ export class AntigravityProvider extends BaseProvider {
    * Handles both wrapped ({ response: { candidates: ... } }) and unwrapped formats.
    */
   parseResponse(response: unknown): UnifiedResponse {
-    return parseResponse(response)
+    // Unwrap Antigravity envelope if present
+    let geminiResponse = response
+    if (
+      response &&
+      typeof response === 'object' &&
+      'response' in response &&
+      (response as Record<string, unknown>).response &&
+      typeof (response as Record<string, unknown>).response === 'object'
+    ) {
+      geminiResponse = (response as Record<string, unknown>).response
+    }
+
+    return getFormat('google-gemini').parseResponse(geminiResponse as unknown as GeminiResponse)
   }
 
   /**
@@ -152,7 +198,12 @@ export class AntigravityProvider extends BaseProvider {
    * Wraps the Gemini-style response with Antigravity envelope.
    */
   transformResponse(response: UnifiedResponse): AntigravityResponse {
-    return transformResponse(response)
+    const geminiResponse = getFormat('google-gemini').buildWireResponse(response, {
+      provider: 'antigravity',
+      model: response.model || 'gemini-2.0-flash',
+    }) as GeminiResponse
+
+    return { response: geminiResponse }
   }
 
   /**

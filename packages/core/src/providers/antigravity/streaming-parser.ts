@@ -71,8 +71,11 @@ export class AntigravityStreamingParser {
           }
           if (blockType === 'tool_use') {
             this.state.hasToolUseBlock = true
-            const id = contentBlock?.id as string
-            const name = contentBlock?.name as string
+            const id = (contentBlock?.id as string) || `call_${crypto.randomUUID()}`
+            // Ensure we decode the tool name just like we do for Gemini format
+            const rawName = (contentBlock?.name as string) || 'unknown'
+            const name = decodeAntigravityToolName(rawName)
+
             return {
               type: 'tool-call-start',
               toolCall: { id, name },
@@ -116,7 +119,22 @@ export class AntigravityStreamingParser {
         }
 
         if (parsed.type === 'content_block_stop') {
-          return { type: 'block_stop' }
+          const index = (parsed.index as number) || 0
+
+          // If the current block was a tool use, we MUST emit tool-call-end
+          // so that the pipeline knows the tool call is complete.
+          if (this.state.currentBlockType === 'tool_use') {
+            this.state.currentBlockType = null // Reset
+            return {
+              type: 'tool-call-end',
+              blockIndex: index,
+            }
+          }
+
+          // For other blocks (text, thinking), generic block_stop is fine
+          // (or could be specific if StreamChunk supports it)
+          this.state.currentBlockType = null // Reset
+          return { type: 'block_stop', blockIndex: index }
         }
 
         if (parsed.type === 'message_delta') {

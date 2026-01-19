@@ -65,6 +65,13 @@ export function parseResponse(response: unknown): UnifiedResponse {
         text: part.text,
         signature: thoughtSig,
       })
+    } else if (part.thought === true && (part.thoughtSignature || part.thought_signature)) {
+      // Antigravity sometimes returns thought: true without text for signature-only blocks?
+      // Or handle cases where text is empty string but present.
+      thinkingBlocks.push({
+        text: part.text || '',
+        signature: part.thoughtSignature || part.thought_signature,
+      })
     } else if (part.functionCall) {
       // Function call - decode tool name
       // Handle both thoughtSignature and thought_signature
@@ -140,7 +147,9 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
         parts.push({ text: part.text || '' })
         break
 
-      case 'tool_call':
+      case 'tool_call': {
+        // Add thoughtSignature for Claude compatibility
+        const signature = part.thoughtSignature || 'skip_thought_signature_validator'
         parts.push({
           functionCall: {
             name: encodeAntigravityToolName(part.toolCall?.name ?? ''),
@@ -150,11 +159,11 @@ export function transformResponse(response: UnifiedResponse): AntigravityRespons
                 : (part.toolCall?.arguments ?? {}),
             id: part.toolCall?.id,
           },
-          // Add thoughtSignature for Claude compatibility
-          thoughtSignature: 'skip_thought_signature_validator',
-          thought_signature: 'skip_thought_signature_validator',
+          thoughtSignature: signature,
+          thought_signature: signature,
         })
         break
+      }
 
       case 'thinking':
         // Already handled above, but handle inline thinking too

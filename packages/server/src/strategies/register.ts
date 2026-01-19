@@ -10,12 +10,13 @@ import { AntigravityMetadataStrategy } from './antigravity/metadata'
 import { AntigravityRateLimitStrategy } from './antigravity/rate-limit'
 import { AntigravityThinkingStrategy } from './antigravity/thinking'
 import { AntigravityUpstreamStrategy } from './antigravity/upstream'
+import { GithubCopilotErrorStrategy } from './github-copilot/error'
 import { OpencodeZenErrorStrategy } from './opencode-zen/error'
 
 const logger = createLogger({ service: 'strategy-registry' })
 
 export function registerServerStrategies() {
-  const providersToRegister = ['antigravity', 'gemini-cli', 'opencode-zen']
+  const providersToRegister = ['antigravity', 'gemini-cli', 'opencode-zen', 'github-copilot']
 
   for (const providerId of providersToRegister) {
     try {
@@ -48,6 +49,10 @@ export function registerServerStrategies() {
 
       if (providerId === 'opencode-zen') {
         baseProvider.registerStrategy(new OpencodeZenErrorStrategy())
+      }
+
+      if (providerId === 'github-copilot') {
+        baseProvider.registerStrategy(new GithubCopilotErrorStrategy())
       }
 
       logger.debug({ provider: providerId }, 'Registered server strategies for provider')

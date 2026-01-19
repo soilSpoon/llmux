@@ -1,204 +1,252 @@
 {
   "project": "llmux",
-  "branchName": "ralph/thinking-casing-refactor",
-  "description": "Thinking & Casing Refactor - Centralize case conversion and thinking logic, remove forced thinking, and enforce snake_case serialization only at provider boundaries.",
+  "branchName": "ralph/dependency-refactor",
+  "description": "Refactor llmux Dependency Architecture (Hub-and-Spoke Alignment) - Purify @llmux/core into a provider-agnostic transformation layer, move execution concerns to @llmux/runtime, and eliminate hardcoded provider dependencies.",
   "userStories": [
     {
-      "id": "US-001",
-      "title": "Rollback forced thinking logic",
-      "description": "As a developer, I want to remove the forced thinking budget/includeThoughts logic so that user intent is respected.",
+      "id": "US-101",
+      "title": "Create @llmux/runtime package structure",
+      "description": "As a developer, I want a dedicated package for execution interfaces so that Core remains focused on data transformation.",
       "acceptanceCriteria": [
-        "Remove forced `budget: 1024` setting in `transform-pipeline.ts`",
-        "Remove forced `includeThoughts: true` setting in `transform-pipeline.ts`",
-        "Retain only disable logic for `isThinkingEnabled === false || isClaudeFresh`",
-        "Typecheck passes",
-        "Tests pass"
+        "Create `packages/runtime` directory",
+        "Create `packages/runtime/package.json` with name @llmux/runtime",
+        "Create `packages/runtime/tsconfig.json` extending root config",
+        "Create `packages/runtime/src/index.ts` as entry point",
+        "Configure workspace (bun) to recognize the new package",
+        "Verify package builds successfully with `bun run build`",
+        "Typecheck passes"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "Changed isThinkingEnabled !== true to isThinkingEnabled === false to respect user intent"
+      "notes": ""
     },
     {
-      "id": "US-002",
-      "title": "Create casing utilities",
-      "description": "As a developer, I want reusable case conversion utilities so that I don't duplicate conversion logic across providers.",
+      "id": "US-102",
+      "title": "Migrate UpstreamPreparationStrategy to runtime",
+      "description": "As a developer, I want to move upstream preparation types out of Core to maintain separation of concerns.",
       "acceptanceCriteria": [
-        "Create `@llmux/core/src/utils/casing.ts`",
-        "Implement `camelToSnakeKey(key: string): string`",
-        "Implement `snakeToCamelKey(key: string): string`",
-        "Test basic conversion (thinkingBudget -> thinking_budget)",
-        "Test consecutive uppercase (XMLParser -> xml_parser)",
-        "Export from `@llmux/core` index",
+        "Create `packages/runtime/src/strategies/upstream.ts`",
+        "Move `UpstreamContext` interface from `core/src/types/provider-strategies.ts`",
+        "Move `PrepareUpstreamOptions` interface from `core/src/types/provider-strategies.ts`",
+        "Move `UpstreamPreparationStrategy` interface from `core/src/types/provider-strategies.ts`",
+        "Export moved types from `@llmux/runtime`",
         "Typecheck passes"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Verified with tests"
+      "notes": "Types duplicated in runtime and deprecated in core to maintain build stability until US-105"
     },
     {
-      "id": "US-003",
-      "title": "Create deep key conversion utility",
-      "description": "As a developer, I want a deep key conversion utility so that I can transform entire request objects at provider boundaries.",
+      "id": "US-103",
+      "title": "Migrate RateLimitStrategy to runtime",
+      "description": "As a developer, I want to move rate limit types out of Core since they are execution concerns.",
       "acceptanceCriteria": [
-        "Implement `convertKeysDeep<T>(value: T, converter: KeyConverter, options?): T`",
-        "Test nested object conversion",
-        "Test object inside array conversion",
-        "Test preservation of null, undefined, primitive values",
-        "Test `preserveKeys` option to exclude specific keys",
+        "Create `packages/runtime/src/strategies/rate-limit.ts`",
+        "Move `RateLimitContext` interface from `core/src/types/provider-strategies.ts`",
+        "Move `RateLimitStrategy` interface from `core/src/types/provider-strategies.ts`",
+        "Export moved types from `@llmux/runtime`",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Implemented convertKeysDeep with full test coverage"
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-004",
-      "title": "Define ThinkingPolicy type",
-      "description": "As a developer, I want a single ThinkingPolicy type so that thinking decisions are centralized and explicit.",
+      "id": "US-104",
+      "title": "Migrate ErrorHandlingStrategy to runtime",
+      "description": "As a developer, I want to move error handling types out of Core since they are execution concerns.",
       "acceptanceCriteria": [
-        "Create `@llmux/core/src/thinking/thinking-policy.ts`",
-        "Define `ThinkingPolicy` type (enabled, mode, includeThoughtsInResponse, sendThinkingToUpstream, reason)",
-        "Export type from `@llmux/core`",
+        "Create `packages/runtime/src/strategies/error-handling.ts`",
+        "Move `ErrorHandlingOptions` interface from `core/src/types/provider-strategies.ts`",
+        "Move `ErrorHandlingAction` interface from `core/src/types/provider-strategies.ts`",
+        "Move `ErrorHandlingStrategy` interface from `core/src/types/provider-strategies.ts`",
+        "Export moved types from `@llmux/runtime`",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Created ThinkingPolicy type with enabled, mode, includeThoughtsInResponse, sendThinkingToUpstream, reason fields. Added factory functions for convenience."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-005",
-      "title": "Implement isThinkingModel helper",
-      "description": "As a developer, I want model capability detection to be table-driven so that string matching heuristics are not scattered.",
+      "id": "US-105",
+      "title": "Update @llmux/server to import from runtime",
+      "description": "As a developer, I want server package to use runtime package for execution types.",
       "acceptanceCriteria": [
-        "Create `@llmux/core/src/thinking/model-capabilities.ts`",
-        "Implement `isThinkingModel(model: string, provider: string): boolean`",
-        "Define capabilities table (regex/prefix based)",
-        "Replace existing `includes('thinking')` calls with new helper",
-        "Test claude-3-7-sonnet-thinking -> true",
-        "Test gemini-3-pro -> true",
-        "Test gpt-4o -> false",
-        "Typecheck passes"
+        "Add @llmux/runtime as dependency in `packages/server/package.json`",
+        "Update imports in `packages/server/src/providers/*.ts` to use @llmux/runtime",
+        "Update imports in `packages/server/src/handlers/*.ts` to use @llmux/runtime",
+        "Update imports in `packages/server/src/strategies/*.ts` to use @llmux/runtime",
+        "Remove deprecated exports from @llmux/core for moved types",
+        "Typecheck passes across monorepo"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Created table-driven model-capabilities.ts with 28 tests. Updated transform-utils.ts and request.ts to use centralized helper."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-006",
-      "title": "Implement computeThinkingPolicy function",
-      "description": "As a developer, I want a function that computes thinking policy from inputs so that I don't scatter thinking logic across layers.",
+      "id": "US-201",
+      "title": "Add validateUnifiedRequest hook to SchemaFormat",
+      "description": "As a developer, I want formats to validate requests so that provider-specific validation is not in core transform.",
       "acceptanceCriteria": [
-        "Implement `computeThinkingPolicy()` function",
-        "Inputs: model, mode, clientThinking, optionsThinking, isClaudeFresh, sourceFormat, targetProvider",
-        "Test Claude Fresh -> enabled: false",
-        "Test thinking model + streaming -> interleaved mode",
-        "Test explicit client thinking config priority",
-        "Test non-thinking model -> enabled: false",
+        "Add optional `validateUnifiedRequest?(request: UnifiedRequest, ctx: FormatContext): void` to SchemaFormat interface",
+        "Document the hook purpose in interface comments",
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Implemented computeThinkingPolicy with 20 tests covering all scenarios"
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-007",
-      "title": "Update PrepareUpstreamOptions to use ThinkingPolicy",
-      "description": "As a developer, I want upstream options to use ThinkingPolicy so that providers receive structured decisions.",
+      "id": "US-202",
+      "title": "Move Gemini schema validation to GoogleGeminiFormat",
+      "description": "As a developer, I want Gemini-specific validation in the Gemini format so that core transform is provider-agnostic.",
       "acceptanceCriteria": [
-        "Remove `PrepareUpstreamOptions.isThinkingEnabled`",
-        "Add `PrepareUpstreamOptions.thinkingPolicy?: ThinkingPolicy`",
-        "Update call sites (upstream-request-builder, strategies)",
+        "Implement `validateUnifiedRequest` in `packages/core/src/formats/google-gemini/index.ts`",
+        "Move JSON schema anyOf validation from `transform/request.ts` to GoogleGeminiFormat",
+        "Remove `targetProvider === 'gemini' || targetProvider === 'antigravity'` check from `transform/request.ts`",
+        "Update `transformRequest` to call format's validateUnifiedRequest hook",
+        "Existing tests pass",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Updated PrepareUpstreamOptions to include thinkingPolicy. Updated upstream-request-builder to compute and pass policy. All tests passed."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-008",
-      "title": "Use ThinkingPolicy in transform-pipeline",
-      "description": "As a developer, I want the transform pipeline to use ThinkingPolicy so that thinking overrides are policy-driven.",
+      "id": "US-203",
+      "title": "Relocate Gemini-specific utils to provider directory",
+      "description": "As a developer, I want Gemini-specific utilities in the Gemini provider directory.",
       "acceptanceCriteria": [
-        "Update `executeTransformPipeline` signature: `isThinkingEnabled` -> `thinkingPolicy`",
-        "Implement policy-based thinking disable/enable logic",
-        "Change `removeThinkingFromBody` calls to be policy-based",
+        "Create `packages/core/src/providers/gemini/utils.ts`",
+        "Move `isGemini3WithTierSuffix` from `core/src/util/model-capabilities.ts`",
+        "Move `extractThinkingTier` from `core/src/util/model-capabilities.ts`",
+        "Move `hasThinkingTierSuffix` from `core/src/util/model-capabilities.ts`",
+        "Update imports in consumers",
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Updated TransformPipelineInput to use thinkingPolicy. Integrated effective policy check combining thinkingPolicy and isClaudeFresh."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-009",
-      "title": "Serialize snake_case in Antigravity provider",
-      "description": "As a developer, I want Antigravity provider to serialize to snake_case at the boundary so that conversion is not scattered.",
+      "id": "US-204",
+      "title": "Relocate token estimation utils to Gemini provider",
+      "description": "As a developer, I want Gemini token estimation utilities in the Gemini provider directory.",
       "acceptanceCriteria": [
-        "Remove `convertToSnakeCaseThinkingConfig()` call in `transform-utils.ts`",
-        "Use `convertKeysDeep()` in Antigravity transform for final serialization",
-        "Ensure `thinking_config`, `include_thoughts`, `thinking_budget` exist only in wire format",
-        "Verify request format matches opencode-antigravity-auth library",
+        "Move `calculateGeminiTotalInputTokens` from `core/src/util/token-estimation.ts` to `core/src/providers/gemini/utils.ts`",
+        "Move `estimateGeminiImageTokens` from `core/src/util/token-estimation.ts` to `core/src/providers/gemini/utils.ts`",
+        "Update exports in `core/index.ts` to expose via `providers/gemini` namespace or deprecate root export",
+        "Update imports in consumers",
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": true,
-      "notes": "Implemented convertToWireFormat (restored) and verified snake_case conversion."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-010",
-      "title": "Update anthropic-beta header logic",
-      "description": "As a developer, I want anthropic-beta header logic to use ThinkingPolicy so that header decisions are centralized.",
+      "id": "US-205",
+      "title": "Move BackoffStrategies to runtime package",
+      "description": "As a developer, I want backoff strategies in runtime since they are execution concerns.",
       "acceptanceCriteria": [
-        "Remove `model.includes('thinking')` logic in `antigravity.ts`",
-        "Add anthropic-beta header when `thinkingPolicy.mode === 'interleaved'`",
-        "Ensure header logic is only in upstream strategy",
+        "Create `packages/runtime/src/backoff/index.ts`",
+        "Move `BackoffContext` type from `core/src/providers/backoff.ts`",
+        "Move `BackoffStrategy` interface from `core/src/providers/backoff.ts`",
+        "Move `DefaultBackoffStrategy` from `core/src/providers/backoff.ts`",
+        "Move `GeminiBackoffStrategy` from `core/src/providers/backoff.ts`",
+        "Move `AnthropicBackoffStrategy` from `core/src/providers/backoff.ts`",
+        "Move `getBackoffStrategy` function from `core/src/providers/backoff.ts`",
+        "Update imports in server package",
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": true,
-      "notes": "Added anthropic-beta header injection in AntigravityUpstreamStrategy.prepare() when thinkingPolicy.mode === 'interleaved'. No model.includes('thinking') logic was present to remove."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-011",
-      "title": "Maintain thoughtSignature compatibility",
-      "description": "As a developer, I want streaming parser to handle both camelCase and snake_case thoughtSignature so that responses are correctly parsed.",
+      "id": "US-301",
+      "title": "Configure ESLint boundary rules for formats",
+      "description": "As an architect, I want linting rules to prevent formats from importing providers.",
       "acceptanceCriteria": [
-        "Maintain `thoughtSignature || thought_signature` logic in `streaming.ts`",
-        "Test streaming response parsing",
-        "Typecheck passes"
+        "Add `no-restricted-imports` rule to biome.json or create eslint override",
+        "Rule: `packages/core/src/formats/**` must NOT import from `../providers/**`",
+        "Verify linter catches a test violation",
+        "Remove test violation",
+        "Lint passes"
       ],
       "priority": 11,
-      "passes": true,
-      "notes": "Verified support for thoughtSignature (legacy), thought_signature (snake_case), and thought (legacy) fields in Antigravity streaming parser."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-012",
-      "title": "E2E Test - Antigravity thinking requests",
-      "description": "As a developer, I want E2E tests verifying Antigravity thinking requests so that the refactor doesn't break production.",
+      "id": "US-302",
+      "title": "Configure ESLint boundary rules for core",
+      "description": "As an architect, I want linting rules to prevent core from importing server/runtime.",
       "acceptanceCriteria": [
-        "E2E test: thinking model + streaming -> correct headers/body",
-        "E2E test: non-thinking model -> no thinking config",
-        "E2E test: Claude Fresh -> thinking disabled",
-        "Verify request format matches opencode-antigravity-auth",
-        "Tests pass"
+        "Add rule: `packages/core` must NOT import from `@llmux/server`",
+        "Add rule: `packages/core` must NOT import from `@llmux/runtime`",
+        "Verify linter catches violations",
+        "Lint passes"
       ],
       "priority": 12,
-      "passes": true,
-      "notes": "Verified with fixed E2E tests and thinking policy propagation."
+      "passes": false,
+      "notes": ""
     },
     {
-      "id": "US-013",
-      "title": "E2E Test - Format Compatibility",
-      "description": "As a developer, I want E2E tests verifying format compatibility so that existing clients continue to work.",
+      "id": "US-303",
+      "title": "Remove console.log from core registry",
+      "description": "As a developer, I want consistent logging in core without console.log.",
       "acceptanceCriteria": [
-        "E2E test: OpenAI format -> Antigravity conversion",
-        "E2E test: Anthropic format -> Antigravity conversion",
-        "E2E test: Gemini CLI format conversion",
-        "Verify compatibility with patterns from ai, litellm, opencode",
-        "Tests pass"
+        "Replace `console.log` in `packages/core/src/providers/registry.ts` with `logger.debug`",
+        "Ensure no other `console.log` calls exist in core/src (excluding test files)",
+        "Typecheck passes"
       ],
       "priority": 13,
-      "passes": true,
-      "notes": "Verified format compatibility, removed 64k token enforcement, and fixed OpenAI streaming format for thinking."
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-304",
+      "title": "Clean up core/index.ts exports",
+      "description": "As a developer, I want core public API to not expose provider-specific utilities at root level.",
+      "acceptanceCriteria": [
+        "Remove or deprecate root-level exports for Gemini-specific utils",
+        "Remove or deprecate root-level exports for BackoffStrategies",
+        "Add JSDoc @deprecated annotations if keeping for backward compatibility",
+        "Document new import paths in ARCHITECTURE.md",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-305",
+      "title": "Verify zero circular dependencies",
+      "description": "As a developer, I want to ensure there are no circular dependencies in the monorepo.",
+      "acceptanceCriteria": [
+        "Run `madge --circular packages/` or equivalent tool",
+        "Zero circular dependencies reported",
+        "Document any intentional shared types"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-306",
+      "title": "Final integration test",
+      "description": "As a developer, I want all existing tests to pass after the refactor.",
+      "acceptanceCriteria": [
+        "Run `bun run test` across all packages",
+        "All tests pass",
+        "Run `bun run typecheck`",
+        "Typecheck passes",
+        "Run `bun run lint`",
+        "Lint passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

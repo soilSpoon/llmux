@@ -190,12 +190,14 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
  * Transform a StreamChunk into an OpenAI SSE chunk string.
  *
  * @param chunk - The StreamChunk to transform
+ * @param modelOverride - Optional model name to use instead of chunk.model or default
  * @returns The SSE-formatted string
  */
-export function transformStreamChunk(chunk: StreamChunk): string {
+export function transformStreamChunk(chunk: StreamChunk, modelOverride?: string): string {
   const id = `chatcmpl-${generateId()}`
   const created = Math.floor(Date.now() / 1000)
   const index = chunk.blockIndex ?? 0
+  const model = modelOverride || chunk.model
 
   switch (chunk.type) {
     case 'content':
@@ -203,7 +205,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4',
+        model,
         choices: [
           {
             index,
@@ -218,7 +220,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4',
+        model,
         choices: [
           {
             index,
@@ -233,7 +235,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4',
+        model,
         choices: [
           {
             index,
@@ -248,7 +250,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4',
+        model,
         choices: [
           {
             index,
@@ -268,7 +270,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4',
+        model,
         choices: [],
         usage: transformUsage(chunk.usage),
       })
@@ -280,7 +282,7 @@ export function transformStreamChunk(chunk: StreamChunk): string {
         id,
         object: 'chat.completion.chunk',
         created,
-        model: 'gpt-4',
+        model,
         choices: [
           {
             index,

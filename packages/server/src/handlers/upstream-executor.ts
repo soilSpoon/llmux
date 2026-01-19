@@ -1,10 +1,8 @@
 import { SignatureStore } from '../stores'
+import { NonRetriableError } from './error-utils'
 import type { ProxyOptions } from './types'
-import {
-  dispatchWithRetry,
-  NonRetriableError,
-  type UpstreamRequestMeta,
-} from './upstream-dispatcher'
+import { dispatchWithRetry, type UpstreamRequestMeta } from './upstream-dispatcher'
+
 import { buildUpstreamRequest } from './upstream-request-builder'
 
 // 공유 SignatureStore 인스턴스
@@ -25,6 +23,7 @@ export interface ExecuteUpstreamOptions {
   timeoutMs?: number
   networkErrorBaseDelayMs?: number
   networkErrorMaxDelayMs?: number
+  signal?: AbortSignal
 }
 
 export interface ExecuteUpstreamResult {
@@ -55,6 +54,7 @@ export async function executeUpstream(
     timeoutMs: opts.timeoutMs,
     networkErrorBaseDelayMs: opts.networkErrorBaseDelayMs,
     networkErrorMaxDelayMs: opts.networkErrorMaxDelayMs,
+    signal: opts.signal,
   })
 
   if (!dispatchResult.response) {

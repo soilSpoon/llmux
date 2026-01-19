@@ -22,11 +22,28 @@ export function getProvider(name: ProviderName): Provider {
 /**
  * Register a provider
  */
-export function registerProvider(provider: Provider): void {
-  console.log(
-    `[Registry] Registering provider: ${provider.name} (class: ${provider.constructor.name})`
-  )
-  providers.set(provider.name, provider)
+export function registerProvider(
+  nameOrProvider: Provider | ProviderName,
+  providerInstance?: Provider
+): void {
+  let name: ProviderName
+  let provider: Provider
+
+  if (typeof nameOrProvider === 'string') {
+    // Overload: registerProvider(name, provider)
+    if (!providerInstance) {
+      throw new Error('Provider instance required when registering by name')
+    }
+    name = nameOrProvider
+    provider = providerInstance
+  } else {
+    // Overload: registerProvider(provider) - name taken from provider.name
+    provider = nameOrProvider
+    name = provider.name
+  }
+
+  console.log(`[Registry] Registering provider: ${name} (class: ${provider.constructor.name})`)
+  providers.set(name, provider)
 }
 
 /**

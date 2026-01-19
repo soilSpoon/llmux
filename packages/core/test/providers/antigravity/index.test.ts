@@ -256,12 +256,12 @@ describe("AntigravityProvider", () => {
         },
       });
 
-      const result = provider.transform(request, 'claude-sonnet-4-5') as Record<string, unknown>;
+      const result = provider.transform(request, 'claude-sonnet-4-5') as AntigravityRequest;
 
       expect(result.project).toBe("custom-project");
       expect(result.model).toBe("claude-sonnet-4-5");
-      // sessionId is part of Gemini request (converted to snake_case in wire format)
-      expect((result.request as Record<string, unknown>).session_id).toBe("session-xyz");
+      // sessionId is part of Gemini request
+      expect((result.request as Record<string, any>).sessionId).toBe("session-xyz");
     });
 
     it("should transform system to systemInstruction", () => {
@@ -270,13 +270,11 @@ describe("AntigravityProvider", () => {
         system: "You are helpful.",
       });
 
-      const result = provider.transform(request, 'gemini-3-pro') as Record<string, unknown>;
+      const result = provider.transform(request, 'gemini-3-pro') as AntigravityRequest;
 
       // Antigravity provider injects default system instruction at the beginning
-      // So our instruction should be appended (wire format uses snake_case)
-      const innerRequest = result.request as Record<string, unknown>;
-      const sysInstruction = innerRequest.system_instruction as { parts?: Array<{ text: string }> };
-      const parts = sysInstruction?.parts;
+      // So our instruction should be appended
+      const parts = result.request.systemInstruction?.parts;
       expect(parts).toBeDefined();
       expect(parts!.length).toBeGreaterThan(1);
       
@@ -300,21 +298,23 @@ describe("AntigravityProvider", () => {
       }
     });
 
-    it("should use snake_case thinking config in wire format for Claude models", () => {
+    it("should use snake_case thinking config for Claude models", () => {
       const request = createUnifiedRequest({
         messages: [createUnifiedMessage("user", "Hello")],
         thinking: { enabled: true, budget: 16384, includeThoughts: true },
         metadata: { model: "claude-sonnet-4-5-thinking" },
       });
 
-      const result = provider.transform(request, 'claude-sonnet-4-5-thinking') as Record<string, unknown>;
+      const result = provider.transform(request, 'claude-sonnet-4-5-thinking') as AntigravityRequest;
 
-      // Wire format uses snake_case (convertKeysDeep applied at provider boundary)
-      const innerRequest = result.request as Record<string, unknown>;
-      const genConfig = innerRequest.generation_config as Record<string, unknown>;
-      const thinkingConfig = genConfig?.thinking_config as Record<string, unknown>;
-      expect(thinkingConfig?.include_thoughts).toBe(true);
-      expect(thinkingConfig?.thinking_budget).toBe(16384);
+      // Thinking config fields use snake_case
+      const genConfig = result.request.generationConfig;
+      if (genConfig && 'thinking_config' in genConfig && genConfig.thinking_config) {
+        expect(genConfig.thinking_config.include_thoughts).toBe(true);
+        expect(genConfig.thinking_config.thinking_budget).toBe(16384);
+      } else {
+        throw new Error("Expected thinking_config to be defined");
+      }
     });
   });
 

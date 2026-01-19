@@ -124,6 +124,51 @@ export function transform(request: UnifiedRequest, model?: string): AnthropicReq
     result.metadata = { user_id: request.metadata.userId }
   }
 
+  // Handle structured output (Anthropic)
+  if (request.config?.responseFormat) {
+    // If it's a JSON schema request, Anthropic handles this via tool use enforcement
+    if (
+      typeof request.config.responseFormat === 'object' &&
+      request.config.responseFormat.type === 'json_schema' &&
+      request.config.responseFormat.json_schema
+    ) {
+      // Extract schema
+      const jsonSchema = request.config.responseFormat.json_schema as {
+        name: string
+        schema: Record<string, unknown>
+        strict?: boolean
+      }
+
+      const toolName = jsonSchema.name || 'print_json'
+
+      // Add a required tool for the schema
+      if (!result.tools) result.tools = []
+
+      // Check if tool already exists
+      const existingToolIndex = result.tools.findIndex((t) => t.name === toolName)
+      const newTool: AnthropicTool = {
+        name: toolName,
+        description: 'Output the result in this JSON structure',
+        input_schema: {
+          type: 'object',
+          properties: jsonSchema.schema as Record<string, unknown>,
+          // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
+          required: (jsonSchema.schema as any).required,
+          // Anthropic doesn't support 'strict' in the same way, but we pass valid JSON schema
+        },
+      }
+
+      if (existingToolIndex >= 0) {
+        result.tools[existingToolIndex] = newTool
+      } else {
+        result.tools.push(newTool)
+      }
+
+      // Force tool use
+      result.tool_choice = { type: 'tool', name: toolName }
+    }
+  }
+
   return result
 }
 

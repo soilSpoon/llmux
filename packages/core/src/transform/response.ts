@@ -18,7 +18,7 @@ export function transformResponse(response: unknown, options: TransformResponseO
 
   const unified = sourceProvider.parseResponse(response)
 
-  if (options.model && !unified.model) {
+  if (options.model) {
     unified.model = options.model
   }
 

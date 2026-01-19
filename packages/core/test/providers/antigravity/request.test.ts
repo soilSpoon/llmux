@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { parse, transform } from "../../../src/providers/antigravity/request";
-import type { AntigravityRequest, AntigravityWireRequest } from "../../../src/providers/antigravity/types";
+import type { AntigravityRequest } from "../../../src/providers/antigravity/types";
 import {
   createUnifiedRequest,
   createUnifiedMessage,
@@ -426,13 +426,13 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.project).toBeDefined();
         expect(result.model).toBeDefined();
-        expect(result.user_agent).toBe("antigravity");
-        expect(result.request_type).toBe("agent"); // CLIProxyAPI v6.6.89+ compatibility
-        expect(result.request_id).toMatch(/^agent-/);
+        expect(result.userAgent).toBe("antigravity");
+        expect(result.requestType).toBe("agent"); // CLIProxyAPI v6.6.89+ compatibility
+        expect(result.requestId).toMatch(/^agent-/);
         expect(result.request.contents).toHaveLength(1);
         expect(result.request.contents[0]!.role).toBe("user");
         expect(result.request.contents[0]!.parts[0]!.text).toBe("Hello");
@@ -443,7 +443,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest, 'gemini-3-pro-high') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-3-pro-high') as AntigravityRequest;
 
         expect(result.model).toBe("gemini-3-pro-high");
       });
@@ -453,7 +453,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest, 'claude-3-5-sonnet-high') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'claude-3-5-sonnet-high') as AntigravityRequest;
 
         expect(result.model).toBe("claude-3-5-sonnet-high");
       });
@@ -467,7 +467,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.contents).toHaveLength(3);
         expect(result.request.contents[0]!.role).toBe("user");
@@ -480,7 +480,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("assistant", "Hello from assistant")],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.contents[0]!.role).toBe("model");
       });
@@ -493,11 +493,11 @@ describe("Antigravity Request Transformations", () => {
           system: "You are a helpful assistant.",
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.request.system_instruction).toBeDefined();
-        expect(result.request.system_instruction?.parts).toHaveLength(1);
-        expect(result.request.system_instruction?.parts[0]!.text).toBe(
+        expect(result.request.systemInstruction).toBeDefined();
+        expect(result.request.systemInstruction?.parts).toHaveLength(1);
+        expect(result.request.systemInstruction?.parts[0]!.text).toBe(
           "You are a helpful assistant."
         );
       });
@@ -516,13 +516,13 @@ describe("Antigravity Request Transformations", () => {
           },
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.request.generation_config?.temperature).toBe(0.7);
-        expect(result.request.generation_config?.top_p).toBe(0.9);
-        expect(result.request.generation_config?.top_k).toBe(40);
-        expect(result.request.generation_config?.max_output_tokens).toBe(1000);
-        expect(result.request.generation_config?.stop_sequences).toEqual(["END"]);
+        expect(result.request.generationConfig?.temperature).toBe(0.7);
+        expect(result.request.generationConfig?.topP).toBe(0.9);
+        expect(result.request.generationConfig?.topK).toBe(40);
+        expect(result.request.generationConfig?.maxOutputTokens).toBe(1000);
+        expect(result.request.generationConfig?.stopSequences).toEqual(["END"]);
       });
     });
 
@@ -537,14 +537,14 @@ describe("Antigravity Request Transformations", () => {
           },
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.5-pro') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.5-pro') as AntigravityRequest;
 
-        const thinkingConfig = result.request.generation_config?.thinking_config;
+        const thinkingConfig = result.request.generationConfig?.thinkingConfig;
         if (thinkingConfig && 'includeThoughts' in thinkingConfig) {
-          expect(thinkingConfig.include_thoughts).toBe(true);
+          expect(thinkingConfig.includeThoughts).toBe(true);
         }
         if (thinkingConfig && 'thinkingBudget' in thinkingConfig) {
-          expect(thinkingConfig.thinking_budget).toBe(8192);
+          expect(thinkingConfig.thinkingBudget).toBe(8192);
         }
       });
 
@@ -558,18 +558,18 @@ describe("Antigravity Request Transformations", () => {
           },
         });
 
-        const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityRequest;
 
-        const thinkingConfig = result.request.generation_config?.thinking_config;
-        if (thinkingConfig && 'include_thoughts' in thinkingConfig) {
-          expect(thinkingConfig.include_thoughts).toBe(true);
+        const thinkingConfig = result.request.generationConfig?.thinkingConfig;
+        if (thinkingConfig && 'includeThoughts' in thinkingConfig) {
+          expect(thinkingConfig.includeThoughts).toBe(true);
         }
-        if (thinkingConfig && 'thinking_budget' in thinkingConfig) {
-          expect(thinkingConfig.thinking_budget).toBe(16384);
+        if (thinkingConfig && 'thinkingBudget' in thinkingConfig) {
+          expect(thinkingConfig.thinkingBudget).toBe(16384);
         }
       });
 
-      it("should preserve maxOutputTokens for Claude thinking models (respect user intent)", () => {
+      it("should set minimum maxOutputTokens for Claude thinking models", () => {
         const unifiedRequest = createUnifiedRequest({
           messages: [createUnifiedMessage("user", "Hello")],
           thinking: {
@@ -581,9 +581,11 @@ describe("Antigravity Request Transformations", () => {
           },
         });
 
-        const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'claude-3-5-sonnet-thinking') as AntigravityRequest;
 
-        expect(result.request.generation_config?.max_output_tokens).toBe(1000);
+        expect(
+          result.request.generationConfig?.maxOutputTokens
+        ).toBeGreaterThanOrEqual(64000);
       });
     });
 
@@ -602,11 +604,11 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.tools).toHaveLength(1);
-        expect(result.request.tools![0]!.function_declarations).toHaveLength(1);
-        expect(result.request.tools![0]!.function_declarations![0]!.name).toBe(
+        expect(result.request.tools![0]!.functionDeclarations).toHaveLength(1);
+        expect(result.request.tools![0]!.functionDeclarations![0]!.name).toBe(
           "get_weather"
         );
       });
@@ -617,9 +619,9 @@ describe("Antigravity Request Transformations", () => {
           tools: [createUnifiedTool("test_tool", "A test tool")],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.request.tool_config).toBeUndefined();
+        expect(result.request.toolConfig).toBeUndefined();
       });
 
       it("should enforce VALIDATED mode in toolConfig for Claude models", () => {
@@ -628,9 +630,9 @@ describe("Antigravity Request Transformations", () => {
           tools: [createUnifiedTool("test_tool", "A test tool")],
         });
 
-        const result = transform(unifiedRequest, 'claude-sonnet-4-5') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'claude-sonnet-4-5') as AntigravityRequest;
 
-        expect(result.request.tool_config?.function_calling_config?.mode).toBe(
+        expect(result.request.toolConfig?.functionCallingConfig?.mode).toBe(
           "VALIDATED"
         );
       });
@@ -662,7 +664,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         // Thinking blocks are now preserved (server's ensureThinkingSignatures handles filtering)
         // Thinking is at index 0, tool_call at index 1
@@ -706,7 +708,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
         
         // Should be functionCall with skip sentinel (not downgraded to text)
         const part = result.request.contents[0]!.parts[0]!;
@@ -748,7 +750,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
         
         // Tool Call should be functionCall with skip sentinel
         expect(result.request.contents[0]!.parts[0]!.functionCall).toBeDefined();
@@ -785,7 +787,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         // Index 1 because we added a message
         expect(
@@ -821,7 +823,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         // Index 1 because we added a message
         expect(
@@ -853,7 +855,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         // Thinking block is preserved (server handles stripping invalid ones)
         expect(result.request.contents[0]!.parts).toHaveLength(2);
@@ -889,7 +891,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         // Both thinking block and tool call preserved, with signature propagated to tool
         expect(result.request.contents[0]!.parts).toHaveLength(2);
@@ -907,9 +909,9 @@ describe("Antigravity Request Transformations", () => {
           metadata: { sessionId: "session-abc123" },
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
-        expect(result.request.session_id).toBe("session-abc123");
+        expect(result.request.sessionId).toBe("session-abc123");
       });
 
       it("should use model from argument (ignoring metadata override)", () => {
@@ -918,7 +920,7 @@ describe("Antigravity Request Transformations", () => {
           metadata: { model: "claude-sonnet-4-5-ignored" },
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.model).toBe("gemini-2.0-flash");
       });
@@ -929,7 +931,7 @@ describe("Antigravity Request Transformations", () => {
           metadata: { project: "my-project" },
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.project).toBe("my-project");
       });
@@ -939,7 +941,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.model).toBe("gemini-2.0-flash");
       });
@@ -949,7 +951,7 @@ describe("Antigravity Request Transformations", () => {
           messages: [createUnifiedMessage("user", "Hello")],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.project).toMatch(/^[a-z]+-[a-z]+-[0-9a-f]{5}$/);
       });
@@ -972,7 +974,7 @@ describe("Antigravity Request Transformations", () => {
           ],
         });
 
-        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityWireRequest;
+        const result = transform(unifiedRequest, 'gemini-2.0-flash') as AntigravityRequest;
 
         expect(result.request.contents[0]!.parts[0]!.inlineData?.mimeType).toBe(
           "image/png"

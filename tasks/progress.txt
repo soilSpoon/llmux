@@ -1,11 +1,11 @@
 # Ralph Progress Tracker
 
 ## Codebase Patterns
+- Pattern: When migrating types to runtime, first duplicate in runtime and deprecate in core, then in a subsequent step update consumers and remove from core
 - Thinking logic in `transform-pipeline.ts` uses `isThinkingEnabled === false` (explicit disable) rather than `!== true`
 - Default fallbacks for thinking (budget: 1024, includeThoughts: true) are in `@llmux/core/src/transform/thinking.ts`
 - Use `camelToSnakeKey` and `snakeToCamelKey` from `@llmux/core/src/utils/casing.ts` for key conversion
 - Use `convertKeysDeep()` from `@llmux/core` for recursive key transformation at provider boundaries
-- When using `convertKeysDeep` for Gemini/Antigravity, use `preserveTree: ['parameters', 'args', 'response']` to protect user-defined keys
 - ThinkingMode type is in `types/provider-strategies.ts` - reuse it for mode definitions
 - ThinkingPolicy interface is in `@llmux/core/src/thinking/thinking-policy.ts` - central source of truth for thinking decisions
 - Use `isThinkingModel()` from `@llmux/core/src/thinking/model-capabilities.ts` for table-driven model capability detection
@@ -15,10 +15,28 @@
 
 ## Current Status
 - Project: llmux
-- Branch: ralph/thinking-casing-refactor
-- Started: 2026-01-16
+- Branch: ralph/dependency-refactor
+- Started: 2026-01-18
 
 ## Execution Log
+
+## [2026-01-18] - US-101
+Thread: http://100.64.0.2:8743/threads/T-019bcff8-da92-737c-a280-f312eda2d997
+- Created `@llmux/runtime` package structure for execution interfaces
+- Created `packages/runtime/package.json` with name @llmux/runtime
+- Created `packages/runtime/tsconfig.json` extending root config
+- Created `packages/runtime/src/index.ts` as entry point
+- Workspace automatically recognizes package via `packages/*` glob
+- Verified build and typecheck pass
+- Files changed:
+  - packages/runtime/package.json (new)
+  - packages/runtime/tsconfig.json (new)
+  - packages/runtime/src/index.ts (new)
+- **Learnings for future iterations:**
+  - Workspace uses `packages/*` glob in root package.json, so new packages are auto-discovered
+  - Package exports follow the same pattern as @llmux/core with types/import keys
+  - bunup handles build with `src/index.ts --dts` for TypeScript declaration generation
+---
 
 ## [2026-01-16] - US-002
 Thread: http://100.64.0.2:8743/threads/T-019bc246-ad64-716a-b047-79071b4dfbf7
@@ -153,120 +171,21 @@ Thread: http://100.64.0.2:8743/threads/T-019bc406-c114-72c7-9b9b-049adb7a8fc8
   - This ensures that if the pipeline discovers we are in "Claude Fresh" mode (signature stripping), we force disable thinking even if the policy was initially enabled.
 ---
 
-## [2026-01-16] - US-009
-Thread: http://100.64.0.2:8743/threads/T-019bc471-c8ad-762f-a72e-edcc1e698f76
-- Implemented `convertToWireFormat` in `transform-utils.ts` using `convertKeysDeep`
-- Configured strict preservation of `parameters`, `args`, and `response` keys to protect user-defined schemas and data
-- Updated `AntigravityProvider.transform` to use `convertToWireFormat` at the boundary and return snake_case object
-- Changed `transform` return type to `unknown` to reflect dynamic snake_case structure
-- Updated `request-casing.test.ts` to assert snake_case keys and verify parameter preservation
+## [2026-01-18] - US-102
+Thread: http://100.64.0.2:8743/threads/T-019bcffa-f358-779c-a267-1cee02ab663b
+- Created `packages/runtime/src/strategies/upstream.ts`
+- Duplicated Upstream interfaces from Core to Runtime
+- Exported them from `@llmux/runtime`
+- Added `@llmux/core` as dependency to runtime
+- Deprecated original types in `packages/core/src/types/provider-strategies.ts`
 - Files changed:
-  - packages/core/src/providers/antigravity/transform-utils.ts (modified)
-  - packages/core/src/providers/antigravity/index.ts (modified)
-  - packages/core/src/providers/antigravity/request-casing.test.ts (modified)
+  - packages/runtime/package.json
+  - packages/runtime/src/strategies/upstream.ts (new)
+  - packages/runtime/src/strategies/index.ts (new)
+  - packages/runtime/src/index.ts
+  - packages/core/src/types/provider-strategies.ts
 - **Learnings for future iterations:**
-  - When converting to wire format using `convertKeysDeep`, use `preserveTree: ['parameters', 'args', 'response']` for Gemini-based providers to prevent corrupting user-defined parameter names.
-  - Changing provider transform return type to `unknown` is safe as `BaseProvider` defines it as `unknown`, but requires casting if used internally with specific types.
+  - Runtime needs to depend on Core for shared types (ProviderName, ThinkingPolicy)
+  - Cannot remove types from Core yet because Server depends on them; deprecation strategy chosen
+  - Monorepo structure allows incremental migration via duplication + deprecation
 ---
-
-## [2026-01-18] - US-009
-Thread: http://100.64.0.2:8743/threads/T-019bd001-1b06-701d-b4eb-0e53c7bdf0b2
-- Implemented snake_case serialization for Antigravity provider wire format
-- Created `AntigravityWireRequest` type for strict typing of wire format
-- Updated tests to verify snake_case keys in `transform()` output
-- Restored missing `stream-normalizer.ts` file
-- Fixed export issues in `packages/core/src/utils/index.ts`
-- Files changed:
-  - packages/core/src/providers/antigravity/index.ts
-  - packages/core/src/providers/antigravity/types.ts
-  - packages/core/test/providers/antigravity/index.test.ts
-  - packages/core/test/providers/antigravity/issue-fix.test.ts
-  - packages/core/src/utils/stream-normalizer.ts (new)
-  - packages/core/src/utils/index.ts
-  - packages/core/src/providers/antigravity/__tests__/response.test.ts
-  - packages/server/src/stores/__tests__/request-log-store-stripping.test.ts
-- **Learnings for future iterations:**
-  - Antigravity uses a dual-format approach: camelCase for internal logic (Gemini-compatible), snake_case for wire format.
-  - `isAntigravityRequest` type guard now checks for wire format structure.
-  - Tests checking wire format must cast to `Record<string, unknown>` or `AntigravityWireRequest`.
-  - Missing exports in core can cause obscure build failures in server package.
----
-
-## [2026-01-18] - US-009 (Additional Fixes)
-Thread: http://100.64.0.2:8743/threads/T-019bd001-1b06-701d-b4eb-0e53c7bdf0b2
-- Fixed bidirectional key conversion using `convertKeysDeep` with `snakeToCamelKey`
-- Removed manual `normalizeRequestKeys` method (replaced by generic utility)
-- Integration tests for antigravity provider now pass
-- Files changed:
-  - packages/core/src/providers/antigravity/index.ts
-- **Learnings for future iterations:**
-  - Bidirectional format conversion requires symmetry: `transform` uses `camelToSnakeKey`, `parse` must use `snakeToCamelKey`.
-  - When using `convertKeysDeep`, preserve schema keys (`parameters`, `args`, `response`) to avoid corrupting user data.
-  - Integration tests cover cross-provider round-trips and are critical for detecting format conversion issues.
----
-- Fixed `user_role` parsing in `AntigravityProvider.parse` to support snake_case envelope key
-
-## [2026-01-18] - US-010
-Thread: http://100.64.0.2:8743/threads/T-019bd010-cc39-758c-9862-10d3ae29a890
-- Updated AntigravityUpstreamStrategy to add anthropic-beta header based on ThinkingPolicy.mode
-- Header is now added when `thinkingPolicy.mode === 'interleaved'` instead of checking model name
-- Files changed:
-  - packages/server/src/strategies/antigravity/upstream.ts (modified)
-- **Learnings for future iterations:**
-  - ThinkingPolicy.mode can be 'interleaved' (streaming thinking), 'standard', 'none', 'claude-fresh', or 'gemini-cache'
-  - The anthropic-beta header `output-128k-2025-02-19` is required for interleaved thinking mode
-  - No `model.includes('thinking')` logic was present in antigravity.ts to remove - the acceptance criteria assumed legacy code that didn't exist
----
-
-## [2026-01-18] - US-012, US-013
-Thread: http://100.64.0.2:8743/threads/T-019bd0d8-ff1a-73f8-9ff5-5f9a56fb22b5
-- Fixed E2E tests for Antigravity thinking and format compatibility
-- Implemented provider-aware thinking strategy selection (bypassed Claude Fresh for Antigravity)
-- Added `stop_sequences` alias for `stop` in OpenAI chat configuration
-- Updated E2E tests to mock OAuth credentials for Antigravity
-- Files changed:
-  - packages/server/src/handlers/thinking-utils.ts
-  - packages/server/src/handlers/upstream-request-builder.ts
-  - packages/server/src/handlers/upstream/transform-pipeline.ts
-  - packages/server/src/handlers/request-sanitizer.ts
-  - packages/server/src/handlers/signature-request.ts
-  - packages/server/src/handlers/signature-integration.ts
-  - packages/server/src/strategies/antigravity/thinking.ts
-  - packages/server/src/handlers/thinking/index.ts
-  - packages/core/src/formats/openai-chat/config.ts
-  - packages/core/src/formats/openai-chat/types.ts
-  - packages/server/src/handlers/__tests__/antigravity-e2e.test.ts
-- **Learnings for future iterations:**
-  - `getThinkingStrategy` must be provider-aware to support wrapped providers (like Antigravity wrapping Claude) correctly.
-  - When mocking upstream calls in E2E tests, ensure auth dependencies (like `TokenRefresh.ensureFresh`) are mocked if the strategy relies on them.
-  - Test `handleStreamingProxy` carefully: it catches errors and returns responses, so expect failures to be silent unless you inspect the response or side effects.
----
-
-## [2026-01-18] - US-011
-Thread: http://100.64.0.2:8743/threads/T-019bd121-a3ae-726a-9dd2-da84a36036a2
-- Updated `AntigravityStreamingParser` to accept `thought`, `thoughtSignature`, and `thought_signature` fields in streaming candidates
-- Added unit tests verifying parsing for all three field variations
-- Removed unused `camelToSnakeKey` import in `providers/antigravity/index.ts`
-- Files changed:
-  - packages/core/src/providers/antigravity/streaming-parser.ts
-  - packages/core/test/providers/antigravity/streaming-parser.test.ts (new)
-  - packages/core/src/providers/antigravity/index.ts
-- **Learnings for future iterations:**
-  - Streaming parsers often need to support multiple variations of fields (legacy vs new vs snake_case wire format) to be robust against different upstream versions or format transformations.
-  - When fixing lint errors, ensure typechecks run across all packages to catch propagated issues (like missing exports or unused imports in dependent files).
----
-
-## [2026-01-18] - US-009
-Thread: http://100.64.0.2:8743/threads/T-019bd12d-8698-712f-a101-e50806f16176
-- Verified snake_case conversion in Antigravity provider using `convertKeysDeep`
-- Confirmed `thinking_config`, `include_thoughts`, `thinking_budget` exist only in wire format (snake_case)
-- Confirmed request format matches opencode-antigravity-auth expectations via integration test
-- `convertToSnakeCaseThinkingConfig` was already removed/not present
-- Files verified:
-  - packages/core/src/providers/antigravity/transform-utils.ts
-  - packages/core/src/providers/antigravity/index.ts
-  - packages/server/src/__tests__/antigravity-thinking.integration.test.ts
-- **Learnings for future iterations:**
-  - `thinkingConfig` is maintained in camelCase internally within Antigravity provider until the final `transform` step
-  - `convertToWireFormat` handles the deep conversion to snake_case just before sending
-  - Integration tests mock the provider transform output effectively for format verification

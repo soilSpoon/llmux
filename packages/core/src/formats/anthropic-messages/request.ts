@@ -53,7 +53,7 @@ export function parseRequest(request: unknown): UnifiedRequest {
     tools: parseTools(anthropic.tools),
     toolChoice: parseToolChoice(anthropic.tool_choice),
     config: parseConfig(anthropic),
-    thinking: parseThinking(anthropic.thinking),
+    thinking: parseThinking(anthropic.thinking, anthropic.model, anthropic.max_tokens),
     stream: anthropic.stream,
     metadata: {
       ...parseMetadata(anthropic.metadata),
@@ -137,6 +137,46 @@ export function transformRequest(request: UnifiedRequest, model?: string): Anthr
   }
   if (request.config?.stopSequences && request.config.stopSequences.length > 0) {
     result.stop_sequences = request.config.stopSequences
+  }
+
+  // Handle response_format
+  if (request.config?.responseFormat) {
+    const format = request.config.responseFormat
+    if (format.type === 'json_object') {
+      // Force tool use to guarantee JSON output
+      // Note: Anthropic doesn't have a native "JSON mode" like OpenAI,
+      // so we use tool enforcement if strict JSON is required.
+      // However, for generic "json_object" mode, we usually just prompt engineering.
+      // But if user asks for specific schema via json_schema, we MUST use tool use.
+    } else if (format.type === 'json_schema' && 'json_schema' in format && format.json_schema) {
+      // Structured output via tool use enforcement
+      const jsonSchema = format.json_schema as {
+        name: string
+        strict?: boolean
+        schema?: Record<string, unknown>
+        description?: string
+      }
+      const schema = jsonSchema.schema as Record<string, unknown>
+      const name = jsonSchema.name || 'print_json'
+      const description = jsonSchema.description || 'Print JSON response'
+
+      if (schema) {
+        // Add a dedicated tool for structure enforcement
+        if (!result.tools) result.tools = []
+        result.tools.push({
+          name,
+          description,
+          input_schema: {
+            type: 'object',
+            properties: schema.properties as Record<string, unknown>,
+            required: schema.required as string[],
+          },
+        })
+
+        // Force use of this tool
+        result.tool_choice = { type: 'tool', name }
+      }
+    }
   }
 
   // Add thinking config
@@ -331,18 +371,33 @@ function parseConfig(anthropic: AnthropicRequest): GenerationConfig {
 }
 
 function parseThinking(
-  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'disabled' }
+  thinking?: { type: 'enabled'; budget_tokens: number } | { type: 'disabled' },
+  model?: string,
+  maxTokens?: number
 ): ThinkingConfig | undefined {
-  if (!thinking) return undefined
-
-  if (thinking.type === 'disabled') {
-    return { enabled: false }
+  if (thinking) {
+    if (thinking.type === 'disabled') {
+      return { enabled: false }
+    }
+    return {
+      enabled: true,
+      budget: thinking.budget_tokens,
+    }
   }
 
-  return {
-    enabled: true,
-    budget: thinking.budget_tokens,
+  // Infer thinking from model name if not explicitly provided
+  if (model?.includes('thinking')) {
+    // Default budget if not specified but model implies thinking
+    // Use a safe default relative to maxTokens or a fixed default
+    const budget = maxTokens && maxTokens > 16384 ? 16384 : 8192
+
+    return {
+      enabled: true,
+      budget,
+    }
   }
+
+  return undefined
 }
 
 function parseMetadata(metadata?: { user_id?: string }): { userId?: string } | undefined {
