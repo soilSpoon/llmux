@@ -72,18 +72,18 @@ export function snakeToCamelKey(key: string): string {
  * // { thinking_budget: 1024, nested_config: { include_thoughts: true } }
  * ```
  */
-export function convertKeysDeep<T>(
-  value: T,
+export function convertKeysDeep<R = unknown>(
+  value: unknown,
   converter: KeyConverter,
   options?: ConvertKeysDeepOptions
-): T {
+): R {
   // Handle null, undefined, and primitives
   if (value === null || value === undefined) {
-    return value
+    return value as R
   }
 
   if (typeof value !== 'object') {
-    return value
+    return value as R
   }
 
   const preserveKeys = options?.preserveKeys ?? []
@@ -91,7 +91,7 @@ export function convertKeysDeep<T>(
 
   // Handle arrays
   if (Array.isArray(value)) {
-    return value.map((item) => convertKeysDeep(item, converter, options)) as T
+    return value.map((item) => convertKeysDeep(item, converter, options)) as R
   }
 
   // Handle objects
@@ -108,5 +108,5 @@ export function convertKeysDeep<T>(
     result[newKey] = convertKeysDeep(originalValue, converter, options)
   }
 
-  return result as T
+  return result as R
 }

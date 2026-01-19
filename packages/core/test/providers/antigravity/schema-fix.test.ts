@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { transform } from "../../../src/providers/antigravity/request";
 import { createUnifiedRequest, createUnifiedMessage } from "../_utils/fixtures";
-import type { AntigravityRequest } from "../../../src/providers/antigravity/types";
+import type { AntigravityWireRequest } from "../../../src/providers/antigravity/types";
 
 describe("Antigravity Schema Fix", () => {
   it("should remove 'custom' from required array when 'custom' property is sanitized", () => {
@@ -23,10 +23,10 @@ describe("Antigravity Schema Fix", () => {
       ],
     });
 
-    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityRequest;
+    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityWireRequest;
     
     const tool = result.request.tools?.[0];
-    const fn = tool?.functionDeclarations?.[0];
+    const fn = tool?.function_declarations?.[0];
     const params = fn?.parameters;
 
     expect(params?.properties).toBeDefined();
@@ -57,10 +57,10 @@ describe("Antigravity Schema Fix", () => {
       ],
     });
 
-    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityRequest;
+    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityWireRequest;
     
     const tool = result.request.tools?.[0];
-    const fn = tool?.functionDeclarations?.[0];
+    const fn = tool?.function_declarations?.[0];
     const params = fn?.parameters;
 
     expect(params?.properties?.active).toBeDefined();
@@ -97,10 +97,12 @@ describe("Antigravity Schema Fix", () => {
         ],
       });
   
-      const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityRequest;
-      
-      const tool = result.request.tools?.[0];
-      const fn = tool?.functionDeclarations?.[0];
+    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityWireRequest;
+    
+    // console.log('DEBUG: result.request.tools:', JSON.stringify(result.request.tools, null, 2))
+
+    const tool = result.request.tools?.[0];
+      const fn = tool?.function_declarations?.[0];
       const outerParams = fn?.parameters;
       const innerParams = (outerParams?.properties?.outer as any);
   

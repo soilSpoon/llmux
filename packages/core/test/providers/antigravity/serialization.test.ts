@@ -153,7 +153,7 @@ describe('Antigravity Serialization', () => {
     }
 
     // claude-3-7-sonnet-thinking is a thinking model
-    const result = provider.transform(unifiedRequest, 'claude-3-7-sonnet-thinking')
+    const result = provider.transform(unifiedRequest, 'claude-3-7-sonnet-thinking') as Record<string, unknown>
     const inner = result.request as Record<string, any>
 
     // Check generation config (snake_case)

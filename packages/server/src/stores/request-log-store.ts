@@ -11,7 +11,7 @@
 
 import { Database } from 'bun:sqlite'
 import type { ProviderName } from '@llmux/core'
-import { createLogger, recursiveStripSignatures } from '@llmux/core'
+import { createLogger } from '@llmux/core'
 
 const logger = createLogger({ service: 'request-log-store' })
 
@@ -162,8 +162,8 @@ export class RequestLogStore {
         input.targetProvider,
         input.targetModel,
         input.targetEndpoint,
-        safeStringify(recursiveStripSignatures(input.preTransformRequest)),
-        safeStringify(recursiveStripSignatures(input.postTransformRequest)),
+        safeStringify(input.preTransformRequest),
+        safeStringify(input.postTransformRequest),
         input.isStreaming ? 1 : 0
       )
       logger.debug({ requestId: input.requestId }, 'Request logged')
@@ -185,8 +185,8 @@ export class RequestLogStore {
   logResponse(input: LogResponseInput): void {
     try {
       this.updateResponseStmt.run(
-        safeStringify(recursiveStripSignatures(input.preTransformResponse)),
-        safeStringify(recursiveStripSignatures(input.postTransformResponse)),
+        safeStringify(input.preTransformResponse),
+        safeStringify(input.postTransformResponse),
         input.statusCode,
         input.durationMs,
         input.errorMessage ?? null,
@@ -225,10 +225,8 @@ export class RequestLogStore {
         const val = updates[k as keyof RequestLogEntry]
         if (val === undefined) return null
 
-        // Strip signatures from object values
         if (typeof val === 'object' && val !== null) {
-          const stripped = stripSignaturesForLog(val)
-          return safeStringify(stripped)
+          return safeStringify(val)
         }
 
         if (typeof val === 'boolean') return val ? 1 : 0
@@ -302,32 +300,6 @@ function safeStringify(value: unknown, limit = 0): string {
   } catch {
     return String(value)
   }
-}
-
-function stripSignaturesForLog(obj: unknown, seen = new WeakSet()): unknown {
-  if (!obj || typeof obj !== 'object') return obj
-
-  if (seen.has(obj)) {
-    return '[Circular]'
-  }
-  seen.add(obj)
-
-  if (Array.isArray(obj)) {
-    return obj.map((item) => stripSignaturesForLog(item, seen))
-  }
-
-  const newObj: Record<string, unknown> = {}
-  const source = obj as Record<string, unknown>
-
-  for (const key in source) {
-    if (key === 'thoughtSignature' || key === 'thought_signature') {
-      newObj[key] = '[REDACTED]'
-    } else {
-      newObj[key] = stripSignaturesForLog(source[key], seen)
-    }
-  }
-
-  return newObj
 }
 
 let globalLogStore: RequestLogStore | null = null

@@ -27,7 +27,7 @@ describe("Antigravity Request Compliance", () => {
       const result = transformRequest(request, 'test-model');
 
       // Tool name should be encoded
-      const toolDecl = result.request.tools?.[0]?.functionDeclarations?.[0];
+      const toolDecl = result.request.tools?.[0]?.function_declarations?.[0];
       expect(toolDecl?.name).toBe("mcp__slash__read_file");
     });
 
@@ -98,7 +98,7 @@ describe("Antigravity Request Compliance", () => {
       const result = transformRequest(request, 'test-model');
 
       // const should be converted to enum: [value]
-      const toolDecl = result.request.tools?.[0]?.functionDeclarations?.[0];
+      const toolDecl = result.request.tools?.[0]?.function_declarations?.[0];
       const typeParam = toolDecl?.parameters?.properties?.type;
       expect(typeParam?.enum).toEqual(["email"]);
       // Verify 'const' key is not present in the transformed schema

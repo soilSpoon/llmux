@@ -487,14 +487,14 @@ function transformPart(
 
     case 'tool_result':
       if (part.toolResult) {
+        // Handle result payload: prefer 'content'
+        const rawResult = part.toolResult.content
+
         // Parse content if it's a JSON string, otherwise wrap in object
         // IMPORTANT: Antigravity requires response to be an object, not an array
         let response: Record<string, unknown>
         try {
-          const parsed =
-            typeof part.toolResult.content === 'string'
-              ? JSON.parse(part.toolResult.content)
-              : part.toolResult.content
+          const parsed = typeof rawResult === 'string' ? JSON.parse(rawResult) : rawResult
 
           // Ensure response is always an object (not array or primitive)
           if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
@@ -503,16 +503,17 @@ function transformPart(
             response = { result: parsed }
           }
         } catch {
-          response = { result: part.toolResult.content }
+          response = { result: rawResult }
         }
 
         // Resolve original tool name from the map using toolCallId
-        const toolName = toolNameMap?.get(part.toolResult.toolCallId) || part.toolResult.toolCallId
+        const toolCallId = part.toolResult.toolCallId
+        const toolName = toolNameMap?.get(toolCallId) || toolCallId
 
         const functionResponse = {
           name: toolName,
           response,
-          id: part.toolResult.toolCallId,
+          id: toolCallId,
         } as const
 
         // If this was an error result and the response doesn't already have error field, add it

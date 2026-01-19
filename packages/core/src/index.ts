@@ -86,6 +86,7 @@ export type {
   AntigravityInnerRequest,
   AntigravityRequest,
   AntigravityResponse,
+  AntigravityWireRequest,
 } from './providers/antigravity/types'
 export type { AuthType, Provider, ProviderConfig, ProviderName } from './providers/base'
 // Provider base types
@@ -220,9 +221,3 @@ export {
   type StreamingState,
 } from './util/stream-normalizer'
 // Utilities
-export {
-  recursiveStripSignatures,
-  stripSignaturesFromContents,
-  stripSignaturesFromMessages,
-  stripThoughtSignatures,
-} from './utils'
