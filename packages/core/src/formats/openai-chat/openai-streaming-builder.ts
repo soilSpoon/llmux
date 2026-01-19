@@ -2,15 +2,25 @@ import type { StreamChunk } from '../../types/unified'
 import { normalizeStreamingOrder } from '../../util/stream-normalizer'
 import { transformStreamChunk } from './streaming'
 
+type State = {
+  model?: string
+  finished: boolean
+
+  normalization: {
+    hasThinkingStarted: boolean
+    hasThinkingEnded: boolean
+    hasTextStarted: boolean
+  }
+}
+
 /**
  * OpenAI Chat Streaming Builder
  *
  * Converts unified StreamChunks into OpenAI SSE events.
  */
 export class OpenAIChatStreamingBuilder {
-  private state = {
+  private state: State = {
     finished: false,
-    model: 'unknown',
     // Stream normalization state
     normalization: {
       hasThinkingStarted: false,

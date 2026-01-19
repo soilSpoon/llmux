@@ -95,13 +95,6 @@ export class AnthropicBackoffStrategy extends DefaultBackoffStrategy {
   }
 
   getDelayMs(context: BackoffContext): number {
-    // Anthropic specific logic if any different from default
-    // They strongly recommend respecting retry-after headers.
-    // Default implementation already does this.
-
-    // Specifically check for 'retry-after' or 'x-should-retry-after' if Anthropic uses that (rarely).
-    // Standard Retry-After is sufficient.
-
     return super.getDelayMs(context)
   }
 }
