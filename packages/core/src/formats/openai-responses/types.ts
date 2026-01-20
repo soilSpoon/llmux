@@ -5,6 +5,8 @@
  * Similar to Chat Completions but with specific fields for input/output text and thinking.
  */
 
+import type { JsonObject, JsonValue } from '../../types/json'
+
 // import type { OpenAIChatFunctionParameters as OpenAIFunctionParameters } from '../openai-chat/types'
 
 // Re-use standard OpenAI types where compatible
@@ -101,20 +103,24 @@ export type OpenAIResponsesInputItem =
 
 // Responses API Streaming Types
 
-export interface ResponsesOutputItem {
+export interface ResponsesOutputContentItem extends JsonObject {
+  type: string
+  text?: string
+  annotations?: JsonValue[]
+}
+
+export interface ResponsesOutputSummaryItem extends JsonObject {
+  type: string
+  text?: string
+}
+
+export interface ResponsesOutputItem extends JsonObject {
   id?: string
   type: 'message' | 'reasoning' | 'function_call'
   role?: string
   status?: string
-  content?: Array<{
-    type: string
-    text?: string
-    annotations?: unknown[]
-  }>
-  summary?: Array<{
-    type: string
-    text?: string
-  }>
+  content?: ResponsesOutputContentItem[]
+  summary?: ResponsesOutputSummaryItem[]
   name?: string
   call_id?: string
   arguments?: string
@@ -147,11 +153,11 @@ export interface ResponsesResponse {
     type: string
     name?: string
     description?: string
-    parameters?: Record<string, unknown>
+    parameters?: JsonObject
     function?: {
       name: string
       description?: string
-      parameters?: Record<string, unknown>
+      parameters?: JsonObject
     }
   }>
   tool_choice?: string | { type: string; name?: string; function?: { name: string } }
@@ -193,7 +199,7 @@ export interface ResponsesResponse {
     reason?: string
   } | null
 
-  metadata?: Record<string, unknown>
+  metadata?: JsonObject
   user?: string
 }
 

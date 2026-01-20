@@ -1,8 +1,7 @@
 
 import { describe, expect, it } from 'bun:test'
-import { transform } from '../../../src/providers/antigravity/request'
+import { AntigravityProvider } from '../../../src/providers/antigravity'
 import type { UnifiedRequest } from '../../../src/types/unified'
-import type { ClaudeThinkingConfig } from '../../../src/providers/antigravity/types'
 
 describe('Antigravity Thinking Budget Mapping', () => {
   const baseRequest: UnifiedRequest = {
@@ -13,7 +12,7 @@ describe('Antigravity Thinking Budget Mapping', () => {
     }
   }
 
-  const model = 'claude-sonnet-4-5-thinking'
+  const model = 'gemini-2.0-flash-thinking'
 
   it('should map reasoning_effort="low" to 8192 tokens', () => {
     const request: UnifiedRequest = {
@@ -24,11 +23,12 @@ describe('Antigravity Thinking Budget Mapping', () => {
       }
     }
 
-    const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
+    const provider = new AntigravityProvider()
+    const result = provider.transform(request, model) as any
+    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinking_budget).toBe(8192)
+    expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(8192)
   })
 
   it('should map reasoning_effort="medium" to 16384 tokens', () => {
@@ -40,11 +40,12 @@ describe('Antigravity Thinking Budget Mapping', () => {
       }
     }
 
-    const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
+    const provider = new AntigravityProvider()
+    const result = provider.transform(request, model) as any
+    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinking_budget).toBe(16384)
+    expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(16384)
   })
 
   it('should map reasoning_effort="high" to 32768 tokens', () => {
@@ -56,11 +57,12 @@ describe('Antigravity Thinking Budget Mapping', () => {
       }
     }
 
-    const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
+    const provider = new AntigravityProvider()
+    const result = provider.transform(request, model) as any
+    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinking_budget).toBe(32768)
+    expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(32768)
   })
 
   it('should prioritize explicit budget over effort', () => {
@@ -73,14 +75,15 @@ describe('Antigravity Thinking Budget Mapping', () => {
       }
     }
 
-    const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
+    const provider = new AntigravityProvider()
+    const result = provider.transform(request, model) as any
+    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinking_budget).toBe(20000)
+    expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(20000)
   })
 
-  it('should default to 16000 tokens when no budget or effort is provided', () => {
+  it('should default to 8192 tokens when no budget or effort is provided', () => {
     const request: UnifiedRequest = {
       ...baseRequest,
       thinking: {
@@ -88,10 +91,11 @@ describe('Antigravity Thinking Budget Mapping', () => {
       }
     }
 
-    const result = transform(request, model)
-    const thinkingConfig = result.request.generationConfig?.thinking_config as ClaudeThinkingConfig
+    const provider = new AntigravityProvider()
+    const result = provider.transform(request, model) as any
+    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
-    expect(thinkingConfig.thinking_budget).toBe(16384)
+    expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(8192)
   })
 })

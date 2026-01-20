@@ -3,6 +3,8 @@
  * Based on docs/reference/anthropic-api-schema.md
  */
 
+import type { JsonObject } from '../../types/json'
+
 // =============================================================================
 // Request Types
 // =============================================================================
@@ -106,7 +108,7 @@ export interface AnthropicToolUseBlock {
   type: 'tool_use'
   id: string
   name: string
-  input: Record<string, unknown>
+  input: JsonObject
   cache_control?: { type: 'ephemeral' }
 }
 
@@ -247,7 +249,7 @@ export interface AnthropicContentBlockStartEvent {
   index: number
   content_block:
     | { type: 'text'; text: string }
-    | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+    | { type: 'tool_use'; id: string; name: string; input: JsonObject }
     | { type: 'thinking'; thinking: string }
 }
 

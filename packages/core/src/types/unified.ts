@@ -1,3 +1,13 @@
+import type {
+  JSONSchemaProperty as JSONSchema,
+  JSONSchemaProperty,
+  JsonObject,
+  JsonRecord,
+  JsonValue,
+} from './json-schema.js'
+
+export type { JSONSchemaProperty, JSONSchema, JsonRecord, JsonValue, JsonObject }
+
 /**
  * UnifiedRequest - Central hub format for all provider transformations
  */
@@ -12,6 +22,7 @@ export interface UnifiedRequest {
   userRole?: string // User role for Antigravity (user_role)
   metadata?: RequestMetadata
   stream?: boolean // Preserves stream parameter
+  model?: string // Unified model identifier
 }
 
 /**
@@ -80,10 +91,10 @@ export interface ImageData {
 /**
  * ToolCall - Represents a tool/function call
  */
-export interface ToolCall {
+export interface ToolCall<TArgs = JsonRecord> {
   id: string
   name: string
-  arguments: Record<string, unknown> | string
+  arguments: TArgs | string
 }
 
 /**
@@ -109,7 +120,7 @@ export interface ThinkingBlock {
 /**
  * GenerationConfig - Common generation parameters
  */
-export interface GenerationConfig {
+export interface GenerationConfig extends JsonObject {
   maxTokens?: number
   temperature?: number
   topP?: number
@@ -127,12 +138,12 @@ export interface GenerationConfig {
         json_schema: {
           name: string
           strict?: boolean
-          schema?: Record<string, unknown>
+          schema?: JSONSchema
           description?: string
         }
       }
-    // Relaxed type to allow unknown properties during migration/expansion
-    | (Record<string, unknown> & { type?: string; json_schema?: unknown })
+    // Relaxed type for migration, but using JSONSchemaProperty for structure
+    | (JSONSchema & { type: string; json_schema?: JSONSchema })
   serviceTier?: 'auto' | 'flex' | 'priority'
   parallelToolCalls?: boolean
   maxToolCalls?: number
@@ -142,11 +153,7 @@ export interface GenerationConfig {
   promptCacheKey?: string
 }
 
-/**
- * ThinkingConfig - Extended thinking/reasoning configuration
- * Unified configuration for thinking/reasoning across different providers
- */
-export interface ThinkingConfig {
+export interface ThinkingConfig extends JsonObject {
   enabled: boolean
   budget?: number
   effort?: 'none' | 'low' | 'medium' | 'high'
@@ -175,7 +182,7 @@ export interface SystemBlock {
 /**
  * RequestMetadata - Additional request metadata
  */
-export interface RequestMetadata {
+export interface RequestMetadata extends JsonObject {
   // Common metadata
   userId?: string
   sessionId?: string
@@ -199,6 +206,7 @@ export interface RequestMetadata {
   ideType?: string
   platform?: string
   pluginType?: string
+  location?: string // GCP location (e.g., us-central1)
 
   // OpenAI specific
   serviceTier?: string
@@ -206,7 +214,8 @@ export interface RequestMetadata {
 
   // Other observed fields
   model?: string
-  customField?: unknown // For tests
+  customField?: JsonValue // For tests
+  [key: string]: JsonValue | undefined
 }
 
 /**
@@ -263,41 +272,11 @@ export interface FinishReason {
 /**
  * UnifiedTool - Tool/function definition
  */
-export interface UnifiedTool {
+export interface UnifiedTool extends JsonObject {
   name: string
   description?: string
   parameters: JSONSchema
-  custom?: Record<string, unknown> // For tools with custom input_schema (e.g., OpenCode format)
-}
-
-/**
- * JSONSchema - Simplified JSON Schema for tool parameters
- */
-export interface JSONSchema {
-  [key: string]: unknown // Allow additional JSON Schema keywords
-  type: 'object' | 'string' | 'number' | 'integer' | 'boolean' | 'array'
-  properties?: Record<string, JSONSchemaProperty>
-  required?: string[]
-  description?: string
-  items?: JSONSchemaProperty
-  enum?: (string | number | boolean)[]
-  additionalProperties?: boolean | JSONSchemaProperty
-}
-
-/**
- * JSONSchemaProperty - Individual property in a JSON Schema
- */
-export interface JSONSchemaProperty {
-  type?: 'object' | 'string' | 'number' | 'integer' | 'boolean' | 'array' | 'null'
-  description?: string
-  enum?: (string | number | boolean | null)[]
-  items?: JSONSchemaProperty
-  properties?: Record<string, JSONSchemaProperty>
-  required?: string[]
-  additionalProperties?: boolean | JSONSchemaProperty
-  anyOf?: JSONSchemaProperty[]
-  oneOf?: JSONSchemaProperty[]
-  allOf?: JSONSchemaProperty[]
+  custom?: JsonRecord // For tools with custom input_schema (e.g., OpenCode format)
 }
 
 /**
@@ -309,7 +288,7 @@ export interface JSONSchemaProperty {
  * This is the unified format used across the system, using camelCase.
  */
 export interface ResponseMetadata {
-  [key: string]: unknown // Allow any additional fields for lossless round-trip
+  [key: string]: JsonValue | undefined // Allow any additional fields for lossless round-trip
   responseId?: string
   id?: string // Alias for responseId
   object?: 'response' | string
@@ -352,7 +331,7 @@ export interface ResponseMetadata {
     type: string
     name?: string
     description?: string
-    parameters?: Record<string, unknown> | JSONSchema
+    parameters?: JsonObject | JSONSchema
   }>
   tool_choice?: string | { type: string; name?: string }
 
@@ -369,7 +348,7 @@ export interface ResponseMetadata {
     total_tokens?: number
     input_tokens_details?: Record<string, number>
     output_tokens_details?: Record<string, number>
-    [key: string]: unknown
+    [key: string]: JsonValue | undefined
   }
 
   reasoning?: {
@@ -389,7 +368,7 @@ export interface ResponseMetadata {
     verbosity?: string
   }
 
-  output?: unknown[]
+  output?: JsonValue[]
   input?: string[]
 
   error?: {
@@ -402,7 +381,7 @@ export interface ResponseMetadata {
     reason?: 'max_output_tokens' | 'time' | 'content_filter' | 'stop' | string
   } | null
 
-  metadata?: Record<string, unknown>
+  metadata?: JsonObject
   user?: string
 }
 

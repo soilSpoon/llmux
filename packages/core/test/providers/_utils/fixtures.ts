@@ -6,6 +6,7 @@ import type {
   UnifiedResponse,
   UnifiedTool,
 } from "../../../src/types/unified";
+import type { JsonObject } from "../../../src/types/json-schema.js";
 
 /**
  * Creates a unified message with text content
@@ -31,7 +32,7 @@ export function createUnifiedToolCall(
   return {
     id,
     name,
-    arguments: args,
+    arguments: args as JsonObject,
   };
 }
 

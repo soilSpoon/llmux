@@ -8,7 +8,7 @@
 export { AnthropicMessagesFormat } from './anthropic-messages'
 // Base types and interfaces
 export type { FormatContext, FormatId, SchemaFormat } from './base'
-export { GoogleGeminiFormat } from './google-gemini/index'
+export { GeminiFormat } from './gemini/index'
 export { OpenAIChatFormat } from './openai-chat'
 export { OpenAIResponsesFormat } from './openai-responses'
 

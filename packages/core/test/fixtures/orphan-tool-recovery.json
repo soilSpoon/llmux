@@ -1,0 +1,61 @@
+{
+  "description": "Orphan tool recovery scenario: Tool result ID does not match any call ID, but name matches",
+  "input": {
+    "messages": [
+      {
+        "role": "assistant",
+        "parts": [
+          {
+            "type": "tool_call",
+            "toolCall": {
+              "id": "call_12345",
+              "name": "get_weather",
+              "arguments": { "location": "Seoul" }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "parts": [
+          {
+            "type": "tool_result",
+            "toolResult": {
+              "toolCallId": "call_mismatch_999",
+              "content": "{\"temp\": 20}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "messages": [
+      {
+        "role": "assistant",
+        "parts": [
+          {
+            "type": "tool_call",
+            "toolCall": {
+              "id": "call_12345",
+              "name": "get_weather",
+              "arguments": { "location": "Seoul" }
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "parts": [
+          {
+            "type": "tool_result",
+            "toolResult": {
+              "toolCallId": "call_12345",
+              "content": "{\"temp\": 20}"
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

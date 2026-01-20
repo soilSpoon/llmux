@@ -79,7 +79,7 @@ export function transformResponse(response: UnifiedResponse): AnthropicResponse 
     id: response.id || generateMessageId(),
     type: 'message',
     role: 'assistant',
-    model: response.model || 'claude-sonnet-4-20250514',
+    model: response.model || '',
     content,
     stop_reason: transformStopReason(stopReason),
     stop_sequence: null,

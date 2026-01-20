@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { parseResponse } from '../../../src/providers/antigravity/response'
+import { AntigravityProvider } from '../../../src/providers/antigravity'
+
+const provider = new AntigravityProvider()
+const parseResponse = (res: any) => provider.parseResponse(res)
 
 describe('Antigravity Response Parsing', () => {
   it('should parse thinking block with thoughtSignature', () => {

@@ -278,32 +278,34 @@ export interface OpenAIChatUsage {
 // Type Guards
 // =============================================================================
 
+import { isJsonRecord } from '../../types/json-schema'
+
 /**
  * Check if value is an OpenAI Chat request
  */
 export function isOpenAIChatRequest(value: unknown): value is OpenAIChatRequest {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  return typeof obj.model === 'string' && (Array.isArray(obj.messages) || Array.isArray(obj.input))
+  if (!isJsonRecord(value)) return false
+  return (
+    typeof value.model === 'string' && (Array.isArray(value.messages) || Array.isArray(value.input))
+  )
 }
 
 /**
  * Check if value is an OpenAI Chat message
  */
 export function isOpenAIChatMessage(value: unknown): value is OpenAIChatMessage {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
+  if (!isJsonRecord(value)) return false
+  if (typeof value.role !== 'string') return false
   const validRoles = ['system', 'developer', 'user', 'assistant', 'tool']
-  return typeof obj.role === 'string' && validRoles.includes(obj.role)
+  return validRoles.includes(value.role)
 }
 
 /**
  * Check if value is an OpenAI Chat response
  */
 export function isOpenAIChatResponse(value: unknown): value is OpenAIChatResponse {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  return obj.object === 'chat.completion' && Array.isArray(obj.choices)
+  if (!isJsonRecord(value)) return false
+  return value.object === 'chat.completion' && Array.isArray(value.choices)
 }
 
 // =============================================================================
@@ -359,11 +361,10 @@ export interface OpenAIChatDeltaToolCall {
  * Check if value is an OpenAI stream chunk
  */
 export function isOpenAIChatStreamChunk(value: unknown): value is OpenAIChatStreamChunk {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
+  if (!isJsonRecord(value)) return false
   return (
-    typeof obj.id === 'string' &&
-    obj.object === 'chat.completion.chunk' &&
-    Array.isArray(obj.choices)
+    typeof value.id === 'string' &&
+    value.object === 'chat.completion.chunk' &&
+    Array.isArray(value.choices)
   )
 }

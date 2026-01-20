@@ -1,0 +1,16 @@
+{
+  "description": "Empty schema scenario: Schema with no properties should have placeholder added",
+  "input": {
+    "type": "object",
+    "properties": {}
+  },
+  "expected": {
+    "type": "OBJECT",
+    "properties": {
+      "_placeholder": {
+        "type": "STRING",
+        "description": "Empty object placeholder"
+      }
+    }
+  }
+}

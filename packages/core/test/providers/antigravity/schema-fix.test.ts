@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { transform } from "../../../src/providers/antigravity/request";
+import { AntigravityProvider } from "../../../src/providers/antigravity";
 import { createUnifiedRequest, createUnifiedMessage } from "../_utils/fixtures";
-import type { AntigravityWireRequest } from "../../../src/providers/antigravity/types";
+
+const provider = new AntigravityProvider();
+const transform = (req: any, model: string) => provider.transform(req, model) as any;
 
 describe("Antigravity Schema Fix", () => {
   it("should remove 'custom' from required array when 'custom' property is sanitized", () => {
@@ -23,10 +25,10 @@ describe("Antigravity Schema Fix", () => {
       ],
     });
 
-    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityWireRequest;
+    const result = transform(unifiedRequest, "gemini-3-pro-high");
     
     const tool = result.request.tools?.[0];
-    const fn = tool?.function_declarations?.[0];
+    const fn = tool?.functionDeclarations?.[0];
     const params = fn?.parameters;
 
     expect(params?.properties).toBeDefined();
@@ -57,10 +59,10 @@ describe("Antigravity Schema Fix", () => {
       ],
     });
 
-    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityWireRequest;
+    const result = transform(unifiedRequest, "gemini-3-pro-high");
     
     const tool = result.request.tools?.[0];
-    const fn = tool?.function_declarations?.[0];
+    const fn = tool?.functionDeclarations?.[0];
     const params = fn?.parameters;
 
     expect(params?.properties?.active).toBeDefined();
@@ -97,14 +99,17 @@ describe("Antigravity Schema Fix", () => {
         ],
       });
   
-    const result = transform(unifiedRequest, "gemini-3-pro-high") as AntigravityWireRequest;
+    const result = transform(unifiedRequest, "gemini-3-pro-high");
     
     // console.log('DEBUG: result.request.tools:', JSON.stringify(result.request.tools, null, 2))
 
     const tool = result.request.tools?.[0];
-      const fn = tool?.function_declarations?.[0];
+      const fn = tool?.functionDeclarations?.[0];
       const outerParams = fn?.parameters;
-      const innerParams = (outerParams?.properties?.outer as any);
+      // We need to cast to access properties since 'properties' in JSONSchema is Record<string, JSONSchemaProperty>
+      // But we know the structure here.
+      const outerProps = outerParams?.properties as Record<string, any>;
+      const innerParams = outerProps?.outer;
   
       expect(innerParams?.properties?.inner).toBeDefined();
       expect(innerParams?.properties?.custom).toBeUndefined();

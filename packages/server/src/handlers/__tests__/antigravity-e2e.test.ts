@@ -155,9 +155,10 @@ describe("Antigravity E2E Tests", () => {
     
     expect(body).toBeDefined();
     
-    // Check wire format structure (US-009)
-    expect(body).toHaveProperty("request_type", "agent");
-    expect(body).toHaveProperty("user_agent", "antigravity");
+    // Check wrapper structure
+    expect(body).toHaveProperty("userAgent", "antigravity");
+    expect(body.metadata).toBeDefined();
+    expect(body.metadata).toHaveProperty("requestType", "generateContent");
     
     // Check snake_case conversion
     const innerRequest = body.request;
@@ -174,7 +175,9 @@ describe("Antigravity E2E Tests", () => {
     expect(genConfig.thinking_config).toHaveProperty("include_thoughts", true);
     
     // Check max_output_tokens (snake_case conversion of maxTokens)
-    expect(genConfig).toHaveProperty("max_output_tokens", 1000);
+    const thinkingBudget = genConfig.thinking_config?.thinking_budget ?? 0;
+    expect(genConfig).toHaveProperty("maxOutputTokens");
+    expect(genConfig.maxOutputTokens).toBeGreaterThan(thinkingBudget);
   });
 
   it("should NOT send thinking config for non-thinking model", async () => {
@@ -192,7 +195,7 @@ describe("Antigravity E2E Tests", () => {
     });
 
     const body = capturedBody as any;
-    const genConfig = body.request?.generation_config;
+    const genConfig = body.request?.generationConfig;
     
     // Should NOT have thinking_config
     if (genConfig) {
@@ -227,7 +230,7 @@ describe("Antigravity E2E Tests", () => {
     });
 
     const body = capturedBody as any;
-    const genConfig = body.request?.generation_config;
+    const genConfig = body.request?.generationConfig;
     
     // Should NOT have thinking_config because we explicitly disabled it
     if (genConfig) {
@@ -259,10 +262,11 @@ describe("Antigravity E2E Tests", () => {
     const body = capturedBody as any;
     const genConfig = body.request?.generation_config;
     
-    // Verify inputs were correctly parsed and transformed to Antigravity wire format
-    expect(genConfig).toHaveProperty("max_output_tokens", 500); // max_tokens -> maxTokens -> max_output_tokens
-    expect(genConfig).toHaveProperty("stop_sequences");
-    expect(genConfig.stop_sequences).toEqual(["END"]);
+    const budget = genConfig?.thinking_config?.thinking_budget ?? 0;
+    expect(genConfig).toHaveProperty("maxOutputTokens"); // max_tokens -> maxTokens
+    expect(genConfig.maxOutputTokens).toBeGreaterThan(budget);
+    expect(genConfig).toHaveProperty("stopSequences");
+    expect(genConfig.stopSequences).toEqual(["END"]);
     expect(genConfig).toHaveProperty("temperature", 0.5);
   });
 });

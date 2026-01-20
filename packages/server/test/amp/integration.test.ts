@@ -6,17 +6,19 @@ import {
   expect,
   test,
 } from "bun:test";
+import '../setup'
 import {
   startServer,
   type LlmuxServer,
   type AmpConfig,
 } from "../../src/server";
+import { createInMemoryServer } from "../../src/utils/in-memory-server";
 import { type ProviderChecker } from "../../src/handlers/fallback";
 import type { ProviderHandlers } from "../../src/amp/routes";
 
 describe("Amp Integration Tests", () => {
   let server: LlmuxServer | null = null;
-  let mockUpstream: ReturnType<typeof Bun.serve> | null = null;
+  let mockUpstream: { port: number; stop: () => void } | null = null;
   let mockUpstreamUrl: string = "";
   const upstreamRequests: Array<{
     path: string;
@@ -25,9 +27,7 @@ describe("Amp Integration Tests", () => {
   }> = [];
 
   beforeAll(() => {
-    mockUpstream = Bun.serve({
-      port: 0,
-      fetch: async (req) => {
+    mockUpstream = createInMemoryServer(async (req) => {
         const url = new URL(req.url);
         let body: unknown = null;
         if (req.method === "POST") {
@@ -65,7 +65,6 @@ describe("Amp Integration Tests", () => {
             headers: { "Content-Type": "application/json" },
           }
         );
-      },
     });
     mockUpstreamUrl = `http://localhost:${mockUpstream.port}`;
   });

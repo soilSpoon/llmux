@@ -71,7 +71,11 @@ export function normalizeStreamingOrder(
         if (!newState.hasTextStarted) {
           if (newState.hasThinkingStarted && !newState.hasThinkingEnded) {
             // Force emit thinking-end before first text
-            events.push(pendingThinkingEnd ?? { type: 'thinking-end' })
+            const endChunk: StreamChunk = { type: 'thinking-end' }
+            if (chunk.id) endChunk.id = chunk.id
+
+            // console.log('Injecting thinking-end', { pending: !!pendingThinkingEnd, chunkId: chunk.id })
+            events.push(pendingThinkingEnd ?? endChunk)
             newState.hasThinkingEnded = true
             pendingThinkingEnd = null
           } else if (pendingThinkingEnd) {

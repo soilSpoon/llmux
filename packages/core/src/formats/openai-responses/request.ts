@@ -28,7 +28,10 @@ export { parseRequest } from '../openai-chat/request'
  */
 export function transformRequest(request: UnifiedRequest, model?: string): OpenAIResponsesRequest {
   // Start with standard Chat Completions transformation
-  const chatRequest = transformToOpenAIChat(request, model) as OpenAIChatRequest
+  const chatRequest = transformToOpenAIChat(
+    request,
+    model || request.model || 'unknown'
+  ) as OpenAIChatRequest
 
   let instructions: string | undefined
   let messages = chatRequest.messages || []

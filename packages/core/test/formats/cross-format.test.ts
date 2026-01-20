@@ -50,23 +50,29 @@ describe('Cross-format transformation', () => {
         { role: 'user', content: 'Hello' }
       ]
     }
-    const geminiCtx: FormatContext = { provider: 'google', model: 'gemini-pro' }
+    const geminiCtx: FormatContext = { provider: 'antigravity', model: 'gemini-pro' }
 
     // Parse from OpenAI
     const unified = OpenAIChatFormat.parseRequest(openaiRequest)
+    // Add required project ID for Antigravity
+    if (unified.metadata) {
+      unified.metadata.project = 'test-project'
+    } else {
+      unified.metadata = { project: 'test-project' }
+    }
 
     // Build to Gemini
-    const geminiRequest = import.meta.require('../../src/formats/google-gemini').GoogleGeminiFormat.buildWireRequest(unified, geminiCtx)
+    const geminiRequest = new (import.meta.require('../../src/formats/gemini').GeminiFormat)().buildWireRequest(unified, geminiCtx)
 
     // Verify Gemini structure
-    expect(geminiRequest.contents).toHaveLength(1)
-    expect(geminiRequest.contents[0].role).toBe('user')
-    expect(geminiRequest.contents[0].parts[0].text).toBe('Hello')
-    expect(geminiRequest.systemInstruction).toBeDefined()
-    expect(geminiRequest.systemInstruction.parts[0].text).toBe('You are helpful.')
+    expect(geminiRequest.request.contents).toHaveLength(1)
+    expect(geminiRequest.request.contents[0].role).toBe('user')
+    expect(geminiRequest.request.contents[0].parts[0].text).toBe('Hello')
+    expect(geminiRequest.request.system_instruction).toBeDefined()
+    expect(geminiRequest.request.system_instruction.parts[0].text).toBe('You are helpful.')
 
     // Parse from Gemini back
-    const unifiedAgain = import.meta.require('../../src/formats/google-gemini').GoogleGeminiFormat.parseRequest(geminiRequest)
+    const unifiedAgain = new (import.meta.require('../../src/formats/gemini').GeminiFormat)().parseRequest(geminiRequest)
 
     // Build back to OpenAI
     const openaiAgain = OpenAIChatFormat.buildWireRequest(unifiedAgain, openaiCtx)

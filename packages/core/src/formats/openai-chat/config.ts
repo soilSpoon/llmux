@@ -1,3 +1,4 @@
+import type { JSONSchemaProperty } from '../../types/json-schema'
 import type { UnifiedRequest } from '../../types/unified'
 import { normalizeReasoningEffort } from '../../util/model-capabilities'
 import type { OpenAIChatRequest, OpenAIChatThinkingConfig } from './types'
@@ -44,7 +45,14 @@ export function parseConfig(request: OpenAIChatRequest): NonNullable<UnifiedRequ
     } else if (format.type === 'text') {
       config.responseFormat = { type: 'text' }
     } else if (format.type === 'json_schema') {
-      config.responseFormat = format
+      config.responseFormat = format as {
+        type: 'json_schema'
+        json_schema: {
+          name: string
+          schema?: JSONSchemaProperty
+          strict?: boolean
+        }
+      }
     } else {
       // Fallback for unknown types (Record<string, unknown>)
       // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties

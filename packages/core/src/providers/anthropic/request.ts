@@ -8,6 +8,7 @@ import type {
   ContentPart,
   GenerationConfig,
   JSONSchemaProperty,
+  JsonObject,
   SystemBlock,
   ThinkingConfig,
   UnifiedMessage,
@@ -151,9 +152,8 @@ export function transform(request: UnifiedRequest, model?: string): AnthropicReq
         description: 'Output the result in this JSON structure',
         input_schema: {
           type: 'object',
-          properties: jsonSchema.schema as Record<string, unknown>,
-          // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
-          required: (jsonSchema.schema as any).required,
+          properties: jsonSchema.schema.properties as JsonObject,
+          required: (jsonSchema.schema as JSONSchemaProperty).required,
           // Anthropic doesn't support 'strict' in the same way, but we pass valid JSON schema
         },
       }
@@ -438,7 +438,7 @@ function transformPart(part: ContentPart): AnthropicContentBlock | null {
           type: 'tool_use',
           id: part.toolCall.id,
           name: part.toolCall.name,
-          input,
+          input: input as JsonObject,
         }
       }
 

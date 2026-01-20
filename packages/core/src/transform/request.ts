@@ -1,5 +1,6 @@
 import type { ProviderName } from '../providers/base'
 import { getProvider } from '../providers/registry'
+import type { JsonValue } from '../types/json-schema'
 import type { ThinkingConfig } from '../types/unified'
 
 export interface TransformOptions {
@@ -35,7 +36,10 @@ export function transformRequest(request: unknown, options: TransformOptions): u
 
   // Merge metadata if specified
   if (options.metadata) {
-    unified.metadata = { ...unified.metadata, ...options.metadata }
+    unified.metadata = {
+      ...unified.metadata,
+      ...(options.metadata as Record<string, JsonValue | undefined>),
+    }
   }
 
   // Validate request before transformation (for structured output, etc.)

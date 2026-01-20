@@ -19,7 +19,9 @@ registerProvider(new OpenAIWebProvider())
 registerProvider(new AnthropicProvider())
 registerProvider(new GeminiProvider())
 registerProvider(new AntigravityProvider())
+registerProvider(new AntigravityProvider('gemini-cli'))
 registerProvider(new OpencodeZenProvider())
+registerProvider(new OpenAIProvider('github-copilot'))
 
 describe('Upstream Request Builder', () => {
   const mockSignatureStore = new SignatureStore()

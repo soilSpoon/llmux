@@ -1,5 +1,30 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import './setup'
 import { createServer, startServer, type LlmuxServer } from '../src/server'
+
+function pickRandomPort(): number {
+  return Math.floor(Math.random() * (60000 - 20000)) + 20000
+}
+
+async function startServerOnRandomPort(): Promise<{ server: LlmuxServer; port: number }> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const port = pickRandomPort()
+    try {
+      const server = await startServer({ port })
+      return { server, port }
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        throw error
+      }
+
+      if (!error.message.toLowerCase().includes('in use')) {
+        throw error
+      }
+    }
+  }
+
+  throw new Error('Failed to allocate a random port for test')
+}
 
 describe('createServer', () => {
   test('creates server with default config', () => {
@@ -41,8 +66,9 @@ describe('startServer', () => {
   })
 
   test('starts server on specific port', async () => {
-    const port = 19876
-    server = await startServer({ port })
+    const result = await startServerOnRandomPort()
+    server = result.server
+    const port = result.port
     expect(server.port).toBe(port)
   })
 

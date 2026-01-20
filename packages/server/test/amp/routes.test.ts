@@ -7,11 +7,13 @@ import {
   expect,
   test,
 } from "bun:test";
+import '../setup'
 import { createAmpRoutes, type ProviderHandlers } from "../../src/amp/routes";
 import {
   FallbackHandler,
   type ProviderChecker,
 } from "../../src/handlers/fallback";
+import { createInMemoryServer } from "../../src/utils/in-memory-server";
 import { createUpstreamProxy } from "../../src/upstream/proxy";
 import { createRouter } from "../../src/router";
 import {
@@ -236,14 +238,12 @@ describe("Models endpoint", () => {
 });
 
 describe("FallbackHandler integration", () => {
-  let mockUpstreamServer: ReturnType<typeof Bun.serve>;
+  let mockUpstreamServer: { port: number; stop: () => void };
   let mockUpstreamUrl: string;
   const upstreamRequests: Array<{ path: string; body: unknown }> = [];
 
   beforeAll(() => {
-    mockUpstreamServer = Bun.serve({
-      port: 0,
-      fetch: async (req) => {
+    mockUpstreamServer = createInMemoryServer(async (req) => {
         const url = new URL(req.url);
         let body: unknown = null;
         if (req.method === "POST") {
@@ -265,7 +265,6 @@ describe("FallbackHandler integration", () => {
             headers: { "Content-Type": "application/json" },
           }
         );
-      },
     });
     mockUpstreamUrl = `http://localhost:${mockUpstreamServer.port}`;
   });

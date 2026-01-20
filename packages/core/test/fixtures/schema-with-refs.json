@@ -1,0 +1,33 @@
+{
+  "description": "Schema with refs: Should inline $ref and handle recursion limits",
+  "input": {
+    "type": "object",
+    "properties": {
+      "user": { "$ref": "#/$defs/User" }
+    },
+    "$defs": {
+      "User": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "bestFriend": { "$ref": "#/$defs/User" }
+        }
+      }
+    }
+  },
+  "expected": {
+    "type": "OBJECT",
+    "properties": {
+      "user": {
+        "type": "OBJECT",
+        "properties": {
+          "name": { "type": "STRING" },
+          "bestFriend": {
+            "type": "OBJECT",
+            "description": "Cyclic ref to User"
+          }
+        }
+      }
+    }
+  }
+}

@@ -110,7 +110,7 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
   if (sourceFormat === 'anthropic-messages') {
     streamingBuilder = new AnthropicStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'openai-chat') {
-    streamingBuilder = new OpenAIChatStreamingBuilder(formatContext.model)
+    streamingBuilder = new OpenAIChatStreamingBuilder()
   } else if (sourceFormat === 'google-gemini') {
     streamingBuilder = new GeminiStreamingBuilder()
   } else if (sourceFormat === 'openai-responses') {

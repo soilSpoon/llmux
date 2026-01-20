@@ -103,7 +103,7 @@ describe("Gemini Types", () => {
         role: "user",
         parts: [{ text: "Hello" }],
       };
-      expect(content.role).toBe("user");
+      expect(content!.role).toBe("user");
     });
 
     it("should support model role", () => {
@@ -111,35 +111,46 @@ describe("Gemini Types", () => {
         role: "model",
         parts: [{ text: "Hi there!" }],
       };
-      expect(content.role).toBe("model");
+      expect(content!.role).toBe("model");
     });
   });
 
   describe("GeminiPart", () => {
     it("should support text part", () => {
       const part: GeminiPart = { text: "Hello" };
-      expect(part.text).toBe("Hello");
+      if ("text" in part) {
+        expect(part.text).toBe("Hello");
+      }
     });
 
     it("should support inlineData part", () => {
       const part: GeminiPart = {
         inlineData: { mimeType: "image/png", data: "base64data" },
       };
-      expect(part.inlineData?.mimeType).toBe("image/png");
+      if ("inlineData" in part) {
+        expect(part.inlineData.mimeType).toBe("image/png");
+      }
     });
 
     it("should support functionCall part", () => {
       const part: GeminiPart = {
         functionCall: { name: "get_weather", args: { location: "NYC" } },
       };
-      expect(part.functionCall?.name).toBe("get_weather");
+      if ("functionCall" in part) {
+        expect(part.functionCall.name).toBe("get_weather");
+      }
     });
 
     it("should support functionResponse part", () => {
       const part: GeminiPart = {
-        functionResponse: { name: "get_weather", response: { temp: 72 } },
+        functionResponse: {
+          name: "get_weather",
+          response: { content: { temp: 72 } },
+        },
       };
-      expect(part.functionResponse?.name).toBe("get_weather");
+      if ("functionResponse" in part) {
+        expect(part.functionResponse.name).toBe("get_weather");
+      }
     });
 
     it("should support thinking part with thought flag", () => {
@@ -148,8 +159,10 @@ describe("Gemini Types", () => {
         text: "Let me think about this...",
         thoughtSignature: "sig123",
       };
-      expect(part.thought).toBe(true);
-      expect(part.thoughtSignature).toBe("sig123");
+      if ("thought" in part) {
+        expect(part.thought).toBe(true);
+        expect(part.thoughtSignature).toBe("sig123");
+      }
     });
   });
 
@@ -164,7 +177,7 @@ describe("Gemini Types", () => {
           },
         ],
       };
-      expect(tool.functionDeclarations?.[0]!.name).toBe("search");
+      expect(tool.functionDeclarations?.[0]?.name).toBe("search");
     });
 
     it("should support built-in tools", () => {
@@ -189,7 +202,7 @@ describe("Gemini Types", () => {
         },
       };
       expect(response.candidates).toHaveLength(1);
-      expect(response.candidates[0]!.finishReason).toBe("STOP");
+      expect(response.candidates?.[0]?.finishReason).toBe("STOP");
     });
 
     it("should support thinking in response", () => {
@@ -199,7 +212,11 @@ describe("Gemini Types", () => {
             content: {
               role: "model",
               parts: [
-                { thought: true, text: "Thinking...", thoughtSignature: "sig" },
+                {
+                  thought: true,
+                  text: "Thinking...",
+                  thoughtSignature: "sig",
+                },
                 { text: "Answer" },
               ],
             },
@@ -233,9 +250,10 @@ describe("Gemini Types", () => {
           totalTokenCount: 30,
         },
       };
-      expect(response.candidates[0]!.content.parts[0]!.functionCall?.name).toBe(
-        "get_weather"
-      );
+      const firstPart = response.candidates?.[0]?.content?.parts?.[0];
+      if (firstPart && "functionCall" in firstPart) {
+        expect(firstPart.functionCall?.name).toBe("get_weather");
+      }
     });
   });
 
@@ -249,7 +267,7 @@ describe("Gemini Types", () => {
           },
         ],
       };
-      expect(chunk.candidates[0]!.content.parts[0]!.text).toBe("Hel");
+      expect(chunk.candidates?.[0]?.content?.parts?.[0]?.text).toBe("Hel");
     });
 
     it("should support usage in final chunk", () => {

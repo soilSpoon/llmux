@@ -1,7 +1,10 @@
 
 import { describe, expect, it } from "bun:test";
-import { transform } from "../../../src/providers/antigravity/request";
-import type { AntigravityRequest } from "../../../src/providers/antigravity/types";
+import { AntigravityProvider } from "../../../src/providers/antigravity";
+
+
+const provider = new AntigravityProvider();
+const transform = (req: any, model: string) => provider.transform(req, model) as any;
 import {
   createUnifiedRequest,
 } from "../_utils/fixtures";
@@ -54,7 +57,7 @@ describe("Antigravity Thinking Block Injection", () => {
       },
     });
 
-    const result = transform(unifiedRequest, 'gemini-2.0-flash-thinking') as AntigravityRequest;
+    const result = transform(unifiedRequest, 'gemini-2.0-flash-thinking');
 
     // Check the assistant message (index 1)
     const assistantMsg = result.request.contents[1];
@@ -68,7 +71,8 @@ describe("Antigravity Thinking Block Injection", () => {
     
     // The second part should be the tool call
     expect(assistantMsg!.parts[1]!.functionCall).toBeDefined();
-    expect(assistantMsg!.parts[1]!.functionCall?.name).toBe("legacy_tool");
+    // encoded name for legacy_tool
+    expect(assistantMsg!.parts[1]!.functionCall?.name).toBe("tbGVnYWN5X3Rvb2w");
   });
 
   it("should NOT inject thinking block if one is already present", () => {
@@ -97,7 +101,7 @@ describe("Antigravity Thinking Block Injection", () => {
       },
     });
 
-    const result = transform(unifiedRequest, 'gemini-2.0-flash-thinking') as AntigravityRequest;
+    const result = transform(unifiedRequest, 'gemini-2.0-flash-thinking');
     
     const assistantMsg = result.request.contents[0];
     // Thinking block is preserved, but signature is replaced if too short (<30 chars)

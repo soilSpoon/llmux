@@ -15,6 +15,7 @@ import type {
   LanguageModelV3ToolCall,
   LanguageModelV3Usage,
 } from '@ai-sdk/provider'
+import type { JsonObject } from '../../types/json'
 import type {
   ContentPart,
   StopReason,
@@ -301,9 +302,13 @@ function generateId(): string {
   return `resp_${Math.random().toString(36).slice(2, 11)}`
 }
 
-function safeJsonParse(str: string): Record<string, unknown> {
+function safeJsonParse(str: string): JsonObject {
   try {
-    return JSON.parse(str)
+    const parsed: unknown = JSON.parse(str)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as JsonObject
+    }
+    return {}
   } catch {
     return {}
   }

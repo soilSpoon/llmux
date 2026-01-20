@@ -35,6 +35,7 @@ import { Router } from './routing'
 import { buildRoutingConfig } from './routing/config-builder'
 import { registerServerStrategies } from './strategies/register'
 import { createUpstreamProxy, type UpstreamProxy } from './upstream/proxy'
+import { registerInMemoryServer, unregisterInMemoryServer } from './utils/in-memory-server'
 
 const logger = createLogger({ service: 'server' })
 
@@ -84,6 +85,16 @@ export interface LlmuxServer {
 const defaultConfig: ServerConfig = {
   port: 8743,
   hostname: 'localhost',
+}
+
+function pickRandomPort(): number {
+  return Math.floor(Math.random() * (60000 - 20000)) + 20000
+}
+
+function isPortInUseError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const message = error.message.toLowerCase()
+  return message.includes('in use') || message.includes('eaddrinuse')
 }
 
 export function createServer(config?: Partial<ServerConfig>): LlmuxServer {
@@ -430,14 +441,62 @@ export async function startServer(config?: Partial<ServerConfig>): Promise<Llmux
 
   logger.debug({ routes: routes.map((r) => `${r.method} ${r.path}`) }, 'Registered routes')
 
-  const server = Bun.serve({
-    port: mergedConfig.port,
-    hostname: mergedConfig.hostname,
+  const bindHostname = mergedConfig.hostname === 'localhost' ? '127.0.0.1' : mergedConfig.hostname
+  const baseOptions = {
+    hostname: bindHostname,
     fetch: withRequestLogging(fetchHandler),
     idleTimeout: 255,
-  })
+  }
 
-  const actualPort = server.port ?? mergedConfig.port
+  const allowInMemoryFallback = process.env.LLMUX_TEST_NO_LISTEN === '1'
+  const maxAttempts = mergedConfig.port === 0 ? 10 : 1
+  let lastError: Error | undefined
+  let server: ReturnType<typeof Bun.serve> | undefined
+  let resolvedPort = mergedConfig.port
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidatePort = mergedConfig.port === 0 ? pickRandomPort() : mergedConfig.port
+
+    try {
+      server = Bun.serve({
+        port: candidatePort,
+        ...baseOptions,
+      })
+      resolvedPort = candidatePort
+      break
+    } catch (error) {
+      if (mergedConfig.port !== 0) {
+        if (allowInMemoryFallback && isPortInUseError(error)) {
+          lastError = error instanceof Error ? error : new Error('Failed to start server')
+          break
+        }
+        throw error
+      }
+      if (!isPortInUseError(error)) {
+        throw error
+      }
+      lastError = error instanceof Error ? error : new Error('Failed to start server')
+    }
+  }
+
+  if (!server) {
+    if (allowInMemoryFallback) {
+      const fallbackPort = mergedConfig.port === 0 ? pickRandomPort() : mergedConfig.port
+      registerInMemoryServer(fallbackPort, fetchHandler)
+
+      return {
+        port: fallbackPort,
+        hostname: mergedConfig.hostname,
+        stop: async () => {
+          unregisterInMemoryServer(fallbackPort)
+        },
+      }
+    }
+
+    throw lastError || new Error('Failed to start server')
+  }
+
+  const actualPort = server.port ?? resolvedPort
 
   return {
     port: actualPort,

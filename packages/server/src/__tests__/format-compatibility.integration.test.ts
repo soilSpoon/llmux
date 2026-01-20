@@ -12,8 +12,8 @@ describe('E2E: Format Compatibility', () => {
   it('should transform OpenAI format to Antigravity format', () => {
     // OpenAI format request (as parsed by OpenAI provider)
     const openaiRequest: UnifiedRequest = {
+      system: 'You are a helpful assistant.',
       messages: [
-        { role: 'user', parts: [{ type: 'text', text: 'You are a helpful assistant.' }] }, // Mapped from system if needed or user
         { role: 'user', parts: [{ type: 'text', text: 'Hello' }] }
       ],
       tools: [
@@ -39,19 +39,19 @@ describe('E2E: Format Compatibility', () => {
     // Verify Antigravity structure
     expect(transformed.request).toBeDefined()
     expect(transformed.request.contents).toBeDefined() // Contents might include both if system prompt not extracted or merged
-    expect(transformed.request.system_instruction).toBeDefined()
+    expect(transformed.request.systemInstruction).toBeDefined()
     // System instruction might be in the request structure or merged into contents
-    const hasSystemText = transformed.request.system_instruction.parts.some((p: any) => p.text.includes('You are a helpful assistant')) ||
+    const hasSystemText = transformed.request.systemInstruction.parts.some((p: any) => p.text.includes('You are a helpful assistant')) ||
                           transformed.request.contents.some((c: any) => c.parts.some((p: any) => p.text.includes('You are a helpful assistant')))
     expect(hasSystemText).toBe(true)
     
     expect(transformed.request.tools).toBeDefined()
-    // Antigravity tools are wrapped in function_declarations (snake_case in wire format)
-    expect(transformed.request.tools[0].function_declarations[0].name).toBe('get_weather')
+    // Tool name is encoded by ToolNameCodec
+    expect(transformed.request.tools[0].functionDeclarations[0].name).toBe('tZ2V0X3dlYXRoZXI')
     
-    // Wire format check (snake_case)
-    expect(transformed.request_type).toBe('agent')
-    expect(transformed.user_agent).toBe('antigravity')
+    // Verify system instruction is present (Antigravity specific)
+    expect(transformed.userAgent).toBe('antigravity')
+    expect(transformed.metadata?.requestType).toBe('generateContent')
   })
 
   it('should transform Anthropic format to Antigravity format', () => {
@@ -86,14 +86,14 @@ describe('E2E: Format Compatibility', () => {
     // Antigravity transform injects system prompt into innerRequest
     // Check if it's there OR in contents (fallback)
     
-    const hasSystemInstruction = transformed.request.system_instruction?.parts?.some((p: any) => p.text?.includes('You are Claude'))
+    const hasSystemInstruction = transformed.request.systemInstruction?.parts?.some((p: any) => p.text?.includes('You are Claude'))
     const hasSystemInContents = transformed.request.contents?.some((c: any) => c.parts?.some((p: any) => p.text?.includes('You are Claude')))
     
     expect(hasSystemInstruction || hasSystemInContents).toBe(true)
     
-    // Generation config check (wire format is snake_case)
-    expect(transformed.request.generation_config.stop_sequences).toContain('END')
-    expect(transformed.request.generation_config.max_output_tokens).toBe(4000)
+    // Generation config check (camelCase wrapper)
+    expect(transformed.request.generationConfig.stopSequences).toContain('END')
+    expect(transformed.request.generationConfig.maxOutputTokens).toBe(4000)
   })
 
   it('should handle Gemini CLI format conversion', () => {

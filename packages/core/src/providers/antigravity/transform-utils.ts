@@ -3,10 +3,10 @@
  * Helper functions for building AntigravityInnerRequest
  */
 
-import type { GeminiRequest } from '../../formats/google-gemini/types'
 import { encodeAntigravityToolName } from '../../schema/reversible-tool-name'
 import type { JSONSchema, RequestMetadata, UnifiedRequest, UnifiedTool } from '../../types/unified'
-import { CLAUDE_MIN_OUTPUT_TOKENS, DEFAULT_THINKING_BUDGET, THINKING_BUDGETS } from './constants'
+import type { GeminiRequest } from '../gemini/types'
+import { DEFAULT_THINKING_BUDGET, THINKING_BUDGETS } from './constants'
 import type {
   AntigravityGenerationConfig,
   AntigravityInnerRequest,
@@ -116,23 +116,10 @@ export function preprocessAntigravityRequest(
   let newThinking = request.thinking
   let modified = false
 
-  // 2.1 Enforce Min Output Tokens for Claude
-  // Claude thinking models require a minimum max_tokens setting
-  if (isClaude) {
-    const currentMaxTokens = newConfig?.maxTokens || 0
-    if (currentMaxTokens < CLAUDE_MIN_OUTPUT_TOKENS) {
-      newConfig = { ...newConfig, maxTokens: CLAUDE_MIN_OUTPUT_TOKENS }
-      modified = true
-    } else if (!newConfig) {
-      newConfig = { maxTokens: CLAUDE_MIN_OUTPUT_TOKENS }
-      modified = true
-    }
-  }
-
-  // 2.2 Determine Budget if missing
+  // 2.1 Determine Budget if missing
   // Antigravity requires an explicit budget if not provided by user
   if (!newThinking?.budget) {
-    let budget = DEFAULT_THINKING_BUDGET
+    let budget: number = DEFAULT_THINKING_BUDGET
 
     const effort = newThinking?.effort
     const level = newThinking?.level
@@ -145,6 +132,16 @@ export function preprocessAntigravityRequest(
 
     newThinking = { ...newThinking, budget, enabled: true }
     modified = true
+  }
+
+  // 2.2 Ensure maxTokens is greater than thinking budget for Claude
+  if (isClaude && newThinking?.budget !== undefined) {
+    const requiredMaxTokens = newThinking.budget + 1
+    const currentMaxTokens = newConfig?.maxTokens
+    if (currentMaxTokens === undefined || currentMaxTokens <= requiredMaxTokens) {
+      newConfig = { ...newConfig, maxTokens: requiredMaxTokens }
+      modified = true
+    }
   }
 
   if (!modified) {

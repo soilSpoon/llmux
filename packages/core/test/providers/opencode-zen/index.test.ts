@@ -219,7 +219,7 @@ describe("OpencodeZenProvider", () => {
 
       expect(result).not.toBeNull();
       if (result && !Array.isArray(result)) {
-        expect(result.type).toBe("content");
+        expect(result.type).toBe("text-delta");
         expect(result.delta?.text).toBe("Hello");
       }
     });

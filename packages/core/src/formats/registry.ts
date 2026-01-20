@@ -11,7 +11,7 @@
 
 import { AnthropicMessagesFormat } from './anthropic-messages'
 import type { FormatId, SchemaFormat } from './base'
-import { GoogleGeminiFormat } from './google-gemini/index'
+import { GeminiFormat } from './gemini/index.js'
 import { OpenAIChatFormat } from './openai-chat'
 import { OpenAIResponsesFormat } from './openai-responses'
 
@@ -23,7 +23,7 @@ export const FORMAT_REGISTRY: Record<FormatId, SchemaFormat> = {
   'openai-chat': OpenAIChatFormat,
   'openai-responses': OpenAIResponsesFormat,
   'anthropic-messages': AnthropicMessagesFormat,
-  'google-gemini': GoogleGeminiFormat,
+  'google-gemini': new GeminiFormat(),
 }
 
 /**

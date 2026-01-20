@@ -53,11 +53,11 @@ describe('RequestLogStore Signature Stripping', () => {
     const postRequest = JSON.parse(entry!.postTransformRequest)
     
     // Check Pre-transform (Unified format)
-    expect(preRequest.messages[0].content[0].thoughtSignature).toBe('[REDACTED]')
+    expect(preRequest.messages[0].content[0]).not.toHaveProperty('thoughtSignature')
     expect(preRequest.messages[0].content[0].thinking).toBe('I need to think...')
     
     // Check Post-transform (Gemini format)
-    expect(postRequest.contents[0].parts[0].thoughtSignature).toBe('[REDACTED]')
+    expect(postRequest.contents[0].parts[0]).not.toHaveProperty('thoughtSignature')
     expect(postRequest.contents[0].parts[0].text).toBe('I need to think...')
     
     store.close()
@@ -94,7 +94,7 @@ describe('RequestLogStore Signature Stripping', () => {
     expect(entry).toBeDefined()
     
     const postRequest = JSON.parse(entry!.postTransformRequest)
-    expect(postRequest.contents[0].parts[0].thought_signature).toBe('[REDACTED]')
+    expect(postRequest.contents[0].parts[0]).not.toHaveProperty('thought_signature')
     
     store.close()
   })
@@ -137,7 +137,7 @@ describe('RequestLogStore Signature Stripping', () => {
     
     // The store stringifies the object
     const postResponse = JSON.parse(entry!.postTransformResponse!)
-    expect(postResponse.contents[0].parts[0].thoughtSignature).toBe('[REDACTED]')
+    expect(postResponse.contents[0].parts[0]).not.toHaveProperty('thoughtSignature')
     
     store.close()
   })

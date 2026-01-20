@@ -16,6 +16,7 @@ import type {
   LanguageModelV3ToolCallPart,
   LanguageModelV3ToolResultPart,
 } from '@ai-sdk/provider'
+import type { JsonObject } from '../../types/json'
 import type {
   ContentPart,
   JSONSchema,
@@ -171,15 +172,22 @@ function parseAssistantMessage(
         thinking: { text: part.text },
       })
     } else if (isToolCallPart(part)) {
+      // Safely convert input to JsonObject
+      let args: JsonObject
+      if (typeof part.input === 'string') {
+        args = safeJsonParse(part.input)
+      } else if (typeof part.input === 'object' && part.input !== null) {
+        // Object inputs from AI SDK are already safe JSON values
+        args = part.input as JsonObject
+      } else {
+        args = {}
+      }
       parts.push({
         type: 'tool_call',
         toolCall: {
           id: part.toolCallId,
           name: part.toolName,
-          arguments:
-            typeof part.input === 'string'
-              ? safeJsonParse(part.input)
-              : (part.input as Record<string, unknown>),
+          arguments: args,
         },
       })
     } else if (isToolResultPart(part)) {
@@ -466,9 +474,13 @@ function parseConfig(options: LanguageModelV3CallOptions): NonNullable<UnifiedRe
 // Utility Functions
 // =============================================================================
 
-function safeJsonParse(str: string): Record<string, unknown> {
+function safeJsonParse(str: string): JsonObject {
   try {
-    return JSON.parse(str)
+    const parsed: unknown = JSON.parse(str)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as JsonObject
+    }
+    return {}
   } catch {
     return {}
   }

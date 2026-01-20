@@ -5,90 +5,44 @@
  * Antigravity wraps Gemini-style requests/responses with additional metadata
  */
 
+import type { MergeExclusive, Simplify } from 'type-fest'
+
 import type {
   GeminiCandidate,
   GeminiContent,
-  GeminiFunctionDeclaration,
-  GeminiGenerationConfig,
+  GeminiExternalRequest,
+  GeminiExternalThinkingConfig,
+  GeminiGenerationConfigBase,
   GeminiResponse,
   GeminiThinkingConfig,
-  GeminiThinkingConfigSnake,
   GeminiTool,
   GeminiToolConfig,
   GeminiUsageMetadata,
 } from '../gemini/types'
 
 // =============================================================================
-// Wire Format Types (for serialization verification)
-// =============================================================================
-
-export interface AntigravityWireRequest {
-  project: string
-  model: string
-  request_type?: string
-  user_agent?: string
-  request_id?: string
-  user_role?: string
-  request: AntigravityWireInnerRequest
-  metadata?: AntigravityRequestMetadata
-  session_id?: string
-}
-
-export interface AntigravityWireInnerRequest {
-  contents: GeminiContent[]
-  system_instruction?: AntigravitySystemInstruction
-  tools?: AntigravityWireTool[]
-  tool_config?: AntigravityWireToolConfig
-  generation_config?: AntigravityWireGenerationConfig
-  session_id?: string
-}
-
-export interface AntigravityWireTool {
-  function_declarations?: GeminiFunctionDeclaration[]
-}
-
-export interface AntigravityWireToolConfig {
-  function_calling_config?: {
-    mode?: 'ANY' | 'NONE' | 'AUTO' | 'VALIDATED'
-    allowed_function_names?: string[]
-  }
-}
-
-export interface AntigravityWireGenerationConfig {
-  candidate_count?: number
-  stop_sequences?: string[]
-  max_output_tokens?: number
-  temperature?: number
-  top_p?: number
-  top_k?: number
-  thinking_config?: {
-    include_thoughts?: boolean
-    thinking_budget?: number
-  }
-}
-
-// =============================================================================
 // Request Types
 // =============================================================================
 
 /**
- * Antigravity Wrapped Request
+ * Antigravity Wrapped Request (Use this as Source of Truth)
+ * Corresponds to the API spec's root object
  */
 export interface AntigravityRequest {
   project: string
   model: string
-  requestId?: string
-  userAgent?: string
-  requestType?: string
-  userRole?: string
   request: AntigravityInnerRequest
+  userAgent?: string
+  requestId?: string
 
-  // Metadata passed through (not injected into inner request)
+  // Metadata passed through but not strictly part of the API spec root
+  // These might be injected into headers or used for logging
   metadata?: AntigravityRequestMetadata
 }
 
 /**
  * Inner request (Gemini-style with Antigravity extensions)
+ * API Spec uses CamelCase for these fields
  */
 export interface AntigravityInnerRequest {
   contents: GeminiContent[]
@@ -97,9 +51,54 @@ export interface AntigravityInnerRequest {
   toolConfig?: GeminiToolConfig
   generationConfig?: AntigravityGenerationConfig
 
-  // Antigravity-specific
+  // Antigravity-specific extensions to the Gemini format
   sessionId?: string
 }
+
+/**
+ * Antigravity External Request Type (Strict SnakeCase for Network)
+ * Formerly known as "WireRequest" or "SnakeRequest"
+ * Represents request format from external clients before normalization
+ */
+export interface AntigravityExternalRequest {
+  project: string
+  model: string
+  request: GeminiExternalRequest
+  user_agent?: string
+  request_id?: string
+  session_id?: string
+  metadata?: AntigravityExternalRequestMetadata
+}
+
+/**
+ * Antigravity request metadata (SnakeCase)
+ */
+export interface AntigravityExternalRequestMetadata {
+  user_role?: string
+  request_type?: string
+  duet_project?: string
+  ide_type?: string
+  platform?: string
+  plugin_type?: string
+  prompt_cache_key?: string
+  [key: string]: unknown // Keep for extensibility but prioritize known fields
+}
+
+/**
+ * Combined thinking config for Antigravity API
+ * Alias for backward compatibility or clarity
+ */
+export type AntigravityThinkingConfig = GeminiThinkingConfig | GeminiExternalThinkingConfig
+
+/**
+ * Common type for various Antigravity request formats
+ */
+export type AnyAntigravityRequest = AntigravityRequest | AntigravityExternalRequest
+
+/**
+ * Common type for various Antigravity response formats
+ */
+export type AnyAntigravityResponse = AntigravityResponse | GeminiResponse
 
 /**
  * Antigravity request metadata (passed in wrapper, not inner request)
@@ -113,6 +112,10 @@ export interface AntigravityRequestMetadata {
 
   // Caching
   promptCacheKey?: string
+
+  // Legacy fields mapped here
+  userRole?: string
+  requestType?: string
 }
 
 /**
@@ -125,18 +128,19 @@ export interface AntigravitySystemInstruction {
 
 /**
  * Generation config with Antigravity extensions
- * Now aliases GeminiGenerationConfig as it supports snake_case natively
+ * Uses MergeExclusive to ensure thinkingConfig (camelCase) and thinking_config (snake_case)
+ * are never present at the same time, reflecting the model-specific behavior of the proxy.
  */
-export type AntigravityGenerationConfig = GeminiGenerationConfig
-
-/**
- * Combined thinking config for Antigravity API
- * Alias for backward compatibility or clarity
- */
-export type AntigravityThinkingConfig = GeminiThinkingConfig | GeminiThinkingConfigSnake
+export type AntigravityGenerationConfig = Simplify<
+  GeminiGenerationConfigBase &
+    MergeExclusive<
+      { thinkingConfig?: GeminiThinkingConfig },
+      { thinking_config?: GeminiExternalThinkingConfig }
+    >
+>
 
 // Legacy aliases if needed by consumers, otherwise can be removed
-export type ClaudeThinkingConfig = GeminiThinkingConfigSnake
+export type ClaudeThinkingConfig = GeminiExternalThinkingConfig
 
 // =============================================================================
 // Response Types
@@ -164,21 +168,63 @@ export interface AntigravityStreamChunk {
   }
 }
 
+/**
+ * Antigravity Stream Payload (Internal)
+ */
+export interface AntigravityStreamPayload {
+  response?: GeminiResponse
+  candidates?: GeminiCandidate[]
+  usageMetadata?: GeminiUsageMetadata
+}
+
 // =============================================================================
 // Type Guards
 // =============================================================================
 
 /**
- * Check if value is an Antigravity request
+ * Check if value is an Antigravity request (internal format)
  */
 export function isAntigravityRequest(value: unknown): value is AntigravityRequest {
   if (!value || typeof value !== 'object') return false
   const obj = value as Record<string, unknown>
+  const request = obj.request as Record<string, unknown> | undefined
+  const hasSnakeCaseRequest =
+    !!request &&
+    ('generation_config' in request ||
+      'system_instruction' in request ||
+      'tool_config' in request ||
+      'safety_settings' in request ||
+      'cached_content' in request)
   return (
     typeof obj.project === 'string' &&
     typeof obj.model === 'string' &&
-    obj.request !== undefined &&
-    typeof obj.request === 'object'
+    typeof obj.request === 'object' &&
+    obj.request !== null &&
+    !hasSnakeCaseRequest &&
+    !('session_id' in obj) // session_id is a marker for External format
+  )
+}
+
+/**
+ * Check if value is an Antigravity External request (snake_case)
+ */
+export function isAntigravityExternalRequest(value: unknown): value is AntigravityExternalRequest {
+  if (!value || typeof value !== 'object') return false
+  const obj = value as Record<string, unknown>
+  const request = obj.request as Record<string, unknown> | undefined
+  const hasSnakeCaseRequest =
+    !!request &&
+    ('generation_config' in request ||
+      'system_instruction' in request ||
+      'tool_config' in request ||
+      'safety_settings' in request ||
+      'cached_content' in request)
+  return (
+    typeof obj.project === 'string' &&
+    typeof obj.model === 'string' &&
+    typeof obj.request === 'object' &&
+    obj.request !== null &&
+    ('session_id' in obj || 'user_agent' in obj || 'request_id' in obj || hasSnakeCaseRequest) // external format markers
   )
 }
 
@@ -187,11 +233,8 @@ export function isAntigravityRequest(value: unknown): value is AntigravityReques
  */
 export function isAntigravityResponse(value: unknown): value is AntigravityResponse {
   if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  // Must have response wrapper with candidates
-  if (!obj.response || typeof obj.response !== 'object') return false
-  const resp = obj.response as Record<string, unknown>
-  return Array.isArray(resp.candidates)
+  const obj = value as AntigravityResponse
+  return !!obj.response && Array.isArray(obj.response.candidates)
 }
 
 /**
@@ -199,11 +242,8 @@ export function isAntigravityResponse(value: unknown): value is AntigravityRespo
  */
 export function isAntigravityStreamChunk(value: unknown): value is AntigravityStreamChunk {
   if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  // Must have response wrapper with candidates
-  if (!obj.response || typeof obj.response !== 'object') return false
-  const resp = obj.response as Record<string, unknown>
-  return Array.isArray(resp.candidates)
+  const obj = value as AntigravityStreamChunk
+  return !!obj.response && Array.isArray(obj.response.candidates)
 }
 
 // =============================================================================

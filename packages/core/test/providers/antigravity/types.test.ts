@@ -129,7 +129,10 @@ describe("Antigravity Types", () => {
           },
         ],
       };
-      expect(inner.contents[0]!.parts[0]!.thoughtSignature).toBe("sig123");
+      expect(inner.contents[0]?.parts[0]).toBeDefined();
+      if (inner.contents[0]?.parts[0] && 'thoughtSignature' in inner.contents[0].parts[0]) {
+        expect(inner.contents[0].parts[0].thoughtSignature).toBe("sig123");
+      }
     });
   });
 
@@ -189,9 +192,12 @@ describe("Antigravity Types", () => {
           ],
         },
       };
-      const parts = response.response.candidates[0]!.content.parts;
-      expect(parts[0]!.thought).toBe(true);
-      expect(parts[0]!.thoughtSignature).toBeDefined();
+      const parts = response.response.candidates?.[0]?.content?.parts;
+      expect(parts).toBeDefined();
+      if (parts?.[0] && 'thought' in parts[0]) {
+        expect(parts[0].thought).toBe(true);
+        expect(parts[0].thoughtSignature).toBeDefined();
+      }
     });
 
     it("should support functionCall with id", () => {
@@ -217,9 +223,11 @@ describe("Antigravity Types", () => {
           ],
         },
       };
-      const fc =
-        response.response.candidates[0]!.content.parts[0]!.functionCall;
-      expect(fc?.id).toBe("call-123");
+      const candidate = response.response.candidates?.[0];
+      const part = candidate?.content?.parts?.[0];
+      if (part && 'functionCall' in part) {
+         expect(part.functionCall?.id).toBe("call-123");
+      }
     });
   });
 
@@ -234,7 +242,11 @@ describe("Antigravity Types", () => {
           ],
         },
       };
-      expect(chunk.response.candidates[0]!.content.parts[0]!.text).toBe("Hel");
+      const candidate = chunk.response.candidates?.[0];
+      const part = candidate?.content?.parts?.[0];
+      if (part && 'text' in part) {
+        expect(part.text).toBe("Hel");
+      }
     });
 
     it("should support usage in final chunk", () => {

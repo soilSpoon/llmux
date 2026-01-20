@@ -4,6 +4,7 @@
  * Handles bidirectional transformation between OpenAI response format and UnifiedResponse.
  */
 
+import type { JsonObject } from '../../types/json'
 import type { ContentPart, StopReason, UnifiedResponse, UsageInfo } from '../../types/unified'
 import type {
   OpenAIChatFinishReason,
@@ -69,7 +70,7 @@ export function transformResponse(response: UnifiedResponse): OpenAIChatResponse
     id: response.id,
     object: 'chat.completion',
     created: Math.floor(Date.now() / 1000),
-    model: response.model || 'gpt-4',
+    model: response.model || '',
     choices: [
       {
         index: 0,
@@ -286,9 +287,13 @@ function transformUsage(usage: UsageInfo): OpenAIChatUsage {
 // Utility Functions
 // =============================================================================
 
-function safeJsonParse(str: string): Record<string, unknown> {
+function safeJsonParse(str: string): JsonObject {
   try {
-    return JSON.parse(str)
+    const parsed: unknown = JSON.parse(str)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as JsonObject
+    }
+    return {}
   } catch {
     return {}
   }

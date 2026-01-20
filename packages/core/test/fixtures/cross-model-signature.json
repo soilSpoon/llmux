@@ -1,0 +1,31 @@
+{
+  "description": "Cross-model signature: Should strip Claude signature when sending to Gemini",
+  "input": {
+    "targetModel": "gemini-pro",
+    "contents": [
+      {
+        "role": "model",
+        "parts": [
+          {
+            "thought": true,
+            "text": "Thinking...",
+            "thoughtSignature": "claude-sig-123"
+          }
+        ]
+      }
+    ]
+  },
+  "expected": {
+    "contents": [
+      {
+        "role": "model",
+        "parts": [
+          {
+            "thought": true,
+            "text": "Thinking..."
+          }
+        ]
+      }
+    ]
+  }
+}

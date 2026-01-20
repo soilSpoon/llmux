@@ -27,6 +27,7 @@
     "@llmux/core": "workspace:*"
   },
   "dependencies": {
-    "@openauthjs/openauth": "^0.4.3"
+    "@openauthjs/openauth": "^0.4.3",
+    "zod": "^4.2.1"
   }
 }

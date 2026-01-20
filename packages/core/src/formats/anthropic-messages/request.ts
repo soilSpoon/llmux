@@ -8,6 +8,7 @@ import type {
   ContentPart,
   GenerationConfig,
   JSONSchemaProperty,
+  JsonObject,
   SystemBlock,
   ThinkingConfig,
   UnifiedMessage,
@@ -168,7 +169,7 @@ export function transformRequest(request: UnifiedRequest, model?: string): Anthr
           description,
           input_schema: {
             type: 'object',
-            properties: schema.properties as Record<string, unknown>,
+            properties: schema.properties as Record<string, JSONSchemaProperty>,
             required: schema.required as string[],
           },
         })
@@ -477,7 +478,7 @@ function transformPart(part: ContentPart): AnthropicContentBlock | null {
           type: 'tool_use',
           id: part.toolCall.id,
           name: part.toolCall.name,
-          input,
+          input: input as JsonObject,
         }
       }
 

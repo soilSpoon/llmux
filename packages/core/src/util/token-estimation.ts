@@ -46,7 +46,7 @@ export function calculateGeminiTotalInputTokens(
     if (!content.parts) continue
 
     for (const part of content.parts) {
-      if (part.inlineData) {
+      if ('inlineData' in part && part.inlineData) {
         imageTokens += estimateGeminiImageTokens(part.inlineData)
       }
     }

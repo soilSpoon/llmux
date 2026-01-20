@@ -105,10 +105,7 @@ export function parseRequest(request: OpenAIChatRequest): UnifiedRequest {
 /**
  * Transform a UnifiedRequest into OpenAI Chat request format.
  */
-export function transformRequest(
-  request: UnifiedRequest,
-  model: string = 'gpt-4'
-): OpenAIChatRequest {
+export function transformRequest(request: UnifiedRequest, model: string): OpenAIChatRequest {
   const result: OpenAIChatRequest = {
     model,
     messages: [],

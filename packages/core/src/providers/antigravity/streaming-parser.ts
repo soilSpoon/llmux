@@ -1,7 +1,11 @@
 import crypto from 'node:crypto'
-import { decodeAntigravityToolName } from '../../schema/reversible-tool-name'
+import type { AnthropicStreamEvent } from '../../formats/anthropic-messages/types'
 import type { StreamChunk } from '../../types/unified'
+import { ToolNameCodec } from '../../util/tool-name-codec'
+import type { GeminiCandidate, GeminiResponse } from '../gemini/types'
 import { mapToStopReason } from './streaming-utils'
+
+type GeminiStreamChunk = GeminiResponse
 
 export interface AntigravityParserState {
   currentBlockType: 'thinking' | 'text' | 'tool_use' | null
@@ -30,30 +34,35 @@ export class AntigravityStreamingParser {
         return null
       }
 
-      const parsed = JSON.parse(cleaned) as Record<string, unknown>
+      const parsed = JSON.parse(cleaned)
 
       // 1. Detect Anthropic-style SSE event
-      if (parsed.type && typeof parsed.type === 'string') {
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        'type' in parsed &&
+        typeof parsed.type === 'string'
+      ) {
         this.state.detectedFormat = 'anthropic'
+        const event = parsed as AnthropicStreamEvent
 
-        if (parsed.type === 'message_start') {
-          const message = parsed.message as Record<string, unknown>
-          const usage = message?.usage as Record<string, unknown>
+        if (event.type === 'message_start') {
+          const usage = event.message.usage
           return {
             type: 'usage',
             usage: {
-              inputTokens: (usage?.input_tokens as number) || 0,
-              outputTokens: (usage?.output_tokens as number) || 0,
+              inputTokens: usage.input_tokens || 0,
+              outputTokens: usage.output_tokens || 0,
             },
           }
         }
 
-        if (parsed.type === 'content_block_start') {
-          const contentBlock = parsed.content_block as Record<string, unknown>
-          const blockType = contentBlock?.type as string
-          const index = (parsed.index as number) || 0
+        if (event.type === 'content_block_start') {
+          const contentBlock = event.content_block
+          const blockType = contentBlock.type
+          const index = event.index
 
-          this.state.currentBlockType = blockType as 'thinking' | 'text' | 'tool_use'
+          this.state.currentBlockType = blockType
           this.state.currentBlockIndex = index
 
           if (blockType === 'text') {
@@ -71,10 +80,9 @@ export class AntigravityStreamingParser {
           }
           if (blockType === 'tool_use') {
             this.state.hasToolUseBlock = true
-            const id = (contentBlock?.id as string) || `call_${crypto.randomUUID()}`
-            // Ensure we decode the tool name just like we do for Gemini format
-            const rawName = (contentBlock?.name as string) || 'unknown'
-            const name = decodeAntigravityToolName(rawName)
+            const id = contentBlock.id || `call_${crypto.randomUUID()}`
+            const codec = new ToolNameCodec()
+            const name = codec.decode(contentBlock.name || 'unknown')
 
             return {
               type: 'tool-call-start',
@@ -85,86 +93,72 @@ export class AntigravityStreamingParser {
           return null
         }
 
-        if (parsed.type === 'content_block_delta') {
-          const delta = parsed.delta as Record<string, unknown>
-          const deltaType = delta?.type as string
-          const index = (parsed.index as number) || 0
+        if (event.type === 'content_block_delta') {
+          const delta = event.delta
+          const index = event.index
 
-          if (deltaType === 'text_delta') {
+          if (delta.type === 'text_delta') {
             return {
               type: 'text-delta',
-              delta: { text: (delta?.text as string) || '' },
+              delta: { text: delta.text || '' },
               blockIndex: index,
             }
           }
-          if (deltaType === 'thinking_delta') {
+          if (delta.type === 'thinking_delta') {
             return {
               type: 'thinking-delta',
               delta: {
                 thinking: {
-                  text: (delta?.thinking as string) || '',
+                  text: delta.thinking || '',
                 },
               },
               blockIndex: index,
             }
           }
-          if (deltaType === 'input_json_delta') {
+          if (delta.type === 'input_json_delta') {
             return {
               type: 'tool-input-delta',
-              delta: { partialJson: (delta?.partial_json as string) || '' },
+              delta: { partialJson: delta.partial_json || '' },
               blockIndex: index,
             }
           }
           return null
         }
 
-        if (parsed.type === 'content_block_stop') {
-          const index = (parsed.index as number) || 0
-
-          // If the current block was a tool use, we MUST emit tool-call-end
-          // so that the pipeline knows the tool call is complete.
+        if (event.type === 'content_block_stop') {
+          const index = event.index
           if (this.state.currentBlockType === 'tool_use') {
-            this.state.currentBlockType = null // Reset
+            this.state.currentBlockType = null
             return {
               type: 'tool-call-end',
               blockIndex: index,
             }
           }
-
-          // For other blocks (text, thinking), generic block_stop is fine
-          // (or could be specific if StreamChunk supports it)
-          this.state.currentBlockType = null // Reset
+          this.state.currentBlockType = null
           return { type: 'block_stop', blockIndex: index }
         }
 
-        if (parsed.type === 'message_delta') {
-          const deltaObj = parsed.delta as Record<string, unknown>
-          const rawReason = (deltaObj?.stop_reason as string) || 'end_turn'
+        if (event.type === 'message_delta') {
+          const rawReason = event.delta.stop_reason || 'end_turn'
           const unifiedReason = mapToStopReason(rawReason)
-          const usage = parsed.usage as Record<string, unknown>
+          const usage = event.usage
 
-          // Store finish state for flush()
           this.state.finishReason = rawReason
           if (usage) {
             this.state.finalUsage = {
               inputTokens: 0,
-              outputTokens: (usage.output_tokens as number) || 0,
+              outputTokens: usage.output_tokens || 0,
             }
           }
 
           return {
             type: 'finish',
             finishReason: { unified: unifiedReason, raw: rawReason },
-            usage: usage
-              ? {
-                  inputTokens: 0,
-                  outputTokens: (usage.output_tokens as number) || 0,
-                }
-              : undefined,
+            usage: usage ? { inputTokens: 0, outputTokens: usage.output_tokens || 0 } : undefined,
           }
         }
 
-        if (parsed.type === 'message_stop') {
+        if (event.type === 'message_stop') {
           return {
             type: 'finish',
             finishReason: { unified: 'end_turn', raw: 'message_stop' },
@@ -177,49 +171,47 @@ export class AntigravityStreamingParser {
       // 2. Check for Antigravity/Gemini wrapped format
       this.state.detectedFormat = 'gemini'
 
-      let geminiChunk = parsed
-      if (parsed.response && typeof parsed.response === 'object') {
-        geminiChunk = parsed.response as Record<string, unknown>
+      const payload = parsed as {
+        response?: GeminiStreamChunk
+        candidates?: unknown
+        usageMetadata?: unknown
       }
+      const geminiChunk: GeminiStreamChunk | undefined =
+        payload.response || (payload.candidates ? (payload as GeminiStreamChunk) : undefined)
 
-      // If it looks like Gemini candidates
-      if (geminiChunk.candidates && Array.isArray(geminiChunk.candidates)) {
-        const candidate = geminiChunk.candidates[0] as Record<string, unknown> | undefined
+      if (geminiChunk?.candidates && Array.isArray(geminiChunk.candidates)) {
+        const candidate = geminiChunk.candidates[0] as GeminiCandidate
         if (!candidate) return null
 
         const chunks: StreamChunk[] = []
-        const content = candidate.content as Record<string, unknown> | undefined
+        const content = candidate.content
         if (content?.parts && Array.isArray(content.parts)) {
           for (const part of content.parts) {
-            const p = part as Record<string, unknown>
-            if (p.text !== undefined && typeof p.text === 'string') {
-              // If it has thought (or thought_signature in snake_case wire format), it's thinking delta
-              if (p.thought || p.thought_signature || p.thoughtSignature) {
+            if ('text' in part && part.text !== undefined && typeof part.text === 'string') {
+              const isThinking =
+                'thought' in part || 'thought_signature' in part || 'thoughtSignature' in part
+              if (isThinking) {
                 chunks.push({
                   type: 'thinking-delta',
-                  delta: {
-                    thinking: {
-                      text: p.text,
-                    },
-                  },
+                  delta: { thinking: { text: part.text } },
                 })
               } else {
                 chunks.push({
                   type: 'text-delta',
-                  delta: { text: p.text },
+                  delta: { text: part.text },
                 })
               }
-            } else if (p.functionCall && typeof p.functionCall === 'object') {
-              const fc = p.functionCall as Record<string, unknown>
+            } else if ('functionCall' in part && part.functionCall) {
+              const fc = part.functionCall
+              const codec = new ToolNameCodec()
               chunks.push({
                 type: 'tool-call-start',
                 toolCall: {
-                  id: (fc.id as string) || `call_${crypto.randomUUID()}`,
-                  name: decodeAntigravityToolName((fc.name as string) || 'unknown'),
+                  id: fc.id || `call_${crypto.randomUUID()}`,
+                  name: codec.decode(fc.name || 'unknown'),
                 },
               })
-              const argsStr =
-                typeof fc.args === 'string' ? (fc.args as string) : JSON.stringify(fc.args)
+              const argsStr = typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args)
               chunks.push({
                 type: 'tool-input-delta',
                 delta: { partialJson: argsStr },
@@ -229,9 +221,8 @@ export class AntigravityStreamingParser {
           }
         }
 
-        if (candidate.finishReason && typeof candidate.finishReason === 'string') {
+        if (candidate.finishReason) {
           const unifiedReason = mapToStopReason(candidate.finishReason)
-          // Store finish state for flush()
           this.state.finishReason = candidate.finishReason
           chunks.push({
             type: 'finish',
@@ -239,12 +230,11 @@ export class AntigravityStreamingParser {
           })
         }
 
-        const usageMetadata = geminiChunk.usageMetadata as Record<string, unknown> | undefined
+        const usageMetadata = geminiChunk.usageMetadata
         if (usageMetadata) {
-          // Store final usage for flush()
           this.state.finalUsage = {
-            inputTokens: (usageMetadata.promptTokenCount as number) || 0,
-            outputTokens: (usageMetadata.candidatesTokenCount as number) || 0,
+            inputTokens: usageMetadata.promptTokenCount || 0,
+            outputTokens: usageMetadata.candidatesTokenCount || 0,
           }
           chunks.push({
             type: 'usage',

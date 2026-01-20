@@ -1,394 +1,86 @@
 /**
  * Gemini GenerateContent API Types
  * Based on docs/reference/gemini-api-schema.md
+ *
+ * NOTE: This file is a compatibility layer.
+ * The strict source of truth is now in `../../formats/google-gemini/types.ts`.
  */
 
-// =============================================================================
-// Request Types
-// =============================================================================
+import type {
+  AntigravityProviderRequestPayload as GeminiExternalRequest,
+  AntigravityGenerationConfig as GeminiGenerationConfigBase,
+} from '../../formats/gemini/antigravity/types.js'
 
-/**
- * Gemini GenerateContent Request
- */
-export interface GeminiRequest {
-  contents: GeminiContent[]
-  systemInstruction?: GeminiSystemInstruction
-  tools?: GeminiTool[]
-  toolConfig?: GeminiToolConfig
-  generationConfig?: GeminiGenerationConfig
-  safetySettings?: GeminiSafetySettings[]
-  cachedContent?: string
+export type { GeminiGenerationConfigBase, GeminiExternalRequest }
+
+import type {
+  GeminiCliFunctionCall,
+  GeminiCliFunctionDeclaration,
+  GeminiCliFunctionResponse,
+  GeminiCliContent as GeminiContent,
+  GeminiCliPart as GeminiPart,
+  GeminiCliRequest as GeminiRequest,
+  GeminiSchema,
+  GeminiCliTool as GeminiTool,
+  GeminiCliToolConfig as GeminiToolConfig,
+} from '../../formats/gemini/gemini-cli/types.js'
+
+export type {
+  GeminiContent,
+  GeminiPart,
+  GeminiRequest,
+  GeminiTool,
+  GeminiToolConfig,
+  GeminiCliFunctionCall,
+  GeminiCliFunctionResponse,
+  GeminiCliFunctionDeclaration,
+  GeminiSchema,
 }
 
-/**
- * Content structure (message)
- */
-export interface GeminiContent {
-  role: 'user' | 'model'
-  parts: GeminiPart[]
-}
+import type { GeminiCandidate, GeminiResponse } from '../../formats/gemini/shared/response.js'
+export type { GeminiCandidate, GeminiResponse }
 
-/**
- * System instruction (NOT a string - must be object with parts)
- */
-export interface GeminiSystemInstruction {
-  parts: Array<{ text: string }>
-}
-
-/**
- * Part types
- */
-export interface GeminiPart {
-  // Text content
-  text?: string
-
-  // Inline binary data (images, etc.)
-  inlineData?: {
-    mimeType: string
-    data: string // base64 encoded
-  }
-
-  // Cloud storage file reference
-  fileData?: {
-    mimeType: string
-    fileUri: string
-  }
-
-  // Function/tool call (model output)
-  functionCall?: GeminiFunctionCall
-
-  // Function/tool response (user input)
-  functionResponse?: GeminiFunctionResponse
-
-  // Thinking blocks (Gemini 2.5/3)
-  thought?: boolean
-  thought_signature?: string
-  // Internal convenience alias for transforms (camelCase)
-  thoughtSignature?: string
-
-  // Media resolution hint
-  mediaResolution?: 'low' | 'medium' | 'high'
-}
-
-/**
- * Function call
- */
-export interface GeminiFunctionCall {
-  name: string
-  args: Record<string, unknown> | string // Support both complete objects and partial JSON strings for streaming
-  id?: string // Optional ID for Antigravity
-}
-
-/**
- * Function response
- */
-export interface GeminiFunctionResponse {
-  name: string
-  response: Record<string, unknown>
-  id?: string // Optional ID for Antigravity
-}
-
-/**
- * Tool definition
- */
-export interface GeminiTool {
-  // Function declarations for custom tools
-  functionDeclarations?: GeminiFunctionDeclaration[]
-
-  // Built-in tools
-  googleSearch?: Record<string, unknown>
-  googleSearchRetrieval?: Record<string, unknown>
-  enterpriseWebSearch?: Record<string, unknown>
-  urlContext?: Record<string, unknown>
-  codeExecution?: Record<string, unknown>
-  googleMaps?: Record<string, unknown>
-  computerUse?: Record<string, unknown>
-}
-
-/**
- * Function declaration
- */
-export interface GeminiFunctionDeclaration {
-  name: string
-  description?: string
-  parameters?: GeminiSchema
-  parametersJsonSchema?: GeminiSchema // Alternative key name
-}
-
-/**
- * Gemini Schema (similar to JSON Schema but with uppercase types)
- */
-export interface GeminiSchema {
-  type?: 'STRING' | 'INTEGER' | 'BOOLEAN' | 'NUMBER' | 'ARRAY' | 'OBJECT'
-  format?: 'enum' | 'date-time'
-  description?: string
-  nullable?: boolean
-  items?: GeminiSchema
-  properties?: Record<string, GeminiSchema>
-  required?: string[]
-  enum?: string[]
-  anyOf?: GeminiSchema[]
-}
-
-/**
- * Tool config
- */
-export interface GeminiToolConfig {
-  functionCallingConfig?: {
-    mode: 'AUTO' | 'ANY' | 'NONE' | 'VALIDATED'
-    allowedFunctionNames?: string[]
-  }
-}
-
-/**
- * Generation config
- */
-import type { MergeExclusive, Simplify } from 'type-fest'
-
-// ... existing imports ...
-
-/**
- * Generation config
- */
-export type GeminiGenerationConfig = Simplify<
-  GeminiGenerationConfigBase &
-    MergeExclusive<
-      { thinkingConfig?: GeminiThinkingConfig },
-      { thinking_config?: GeminiThinkingConfigSnake }
-    >
->
-
-export interface GeminiGenerationConfigBase {
-  temperature?: number
-  topP?: number
-  topK?: number
-  maxOutputTokens?: number
-  candidateCount?: number
-  stopSequences?: string[]
-  presencePenalty?: number
-  frequencyPenalty?: number
-  responseMimeType?: 'text/plain' | 'application/json'
-  responseSchema?: GeminiSchema
-  // Allow unified response format for discriminated union matching (legacy/hybrid support)
-  responseFormat?: GeminiResponseFormat
-  seed?: number
-  responseLogprobs?: boolean
-  logprobs?: number
-
-  // Modality controls
-  responseModalities?: ('TEXT' | 'IMAGE' | 'AUDIO' | 'VIDEO')[]
-
-  // Speech output
-  speechConfig?: {
-    voiceConfig: {
-      prebuiltVoiceConfig: { voiceName: string }
-    }
-  }
-}
-
-/**
- * Legacy/Unified-compatible response format for Gemini
- */
-export interface GeminiResponseFormat {
-  type: 'text' | 'json_object' | 'json_schema'
-  json_schema?: {
-    name: string
-    strict?: boolean
-    schema?: Record<string, unknown>
-    description?: string
-  }
-}
-
-/**
- * Thinking config (CamelCase - Standard Gemini)
- */
-export interface GeminiThinkingConfig {
-  includeThoughts?: boolean
-  // For Gemini 2.5 models - use token budget
-  thinkingBudget?: number
-  // For Gemini 3 models - use level
-  thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
-}
-
-/**
- * Thinking config (SnakeCase - Antigravity/Claude compatibility)
- */
-export interface GeminiThinkingConfigSnake {
+export type GeminiExternalThinkingConfig = {
   include_thoughts?: boolean
   thinking_budget?: number
-  thinking_level?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
+  thinking_level?: string
 }
 
-/**
- * Safety settings
- */
-export interface GeminiSafetySettings {
-  category: string
-  threshold: string
+export type GeminiThinkingConfig = {
+  includeThoughts?: boolean
+  thinkingBudget?: number
+  thinkingLevel?: string
 }
 
-// =============================================================================
-// Response Types
-// =============================================================================
-
-/**
- * Gemini GenerateContent Response
- */
-export interface GeminiResponse {
-  candidates: GeminiCandidate[]
-  usageMetadata?: GeminiUsageMetadata
-  promptFeedback?: GeminiPromptFeedback
-  responseId?: string
-  modelVersion?: string
-}
-
-/**
- * Candidate
- */
-export interface GeminiCandidate {
-  index?: number
-  content: GeminiContent
-  finishReason?: GeminiFinishReason
-  safetyRatings?: GeminiSafetyRating[]
-  citationMetadata?: GeminiCitationMetadata
-  groundingMetadata?: GeminiGroundingMetadata
-  urlContextMetadata?: GeminiUrlContextMetadata
-  logprobsResult?: unknown
-}
-
-/**
- * Finish reason
- */
-export type GeminiFinishReason =
-  | 'FINISH_REASON_UNSPECIFIED'
-  | 'STOP'
-  | 'MAX_TOKENS'
-  | 'SAFETY'
-  | 'RECITATION'
-  | 'OTHER'
-  | 'BLOCKLIST'
-  | 'PROHIBITED_CONTENT'
-  | 'SPII'
-
-/**
- * Usage metadata
- */
-export interface GeminiUsageMetadata {
-  promptTokenCount: number
-  candidatesTokenCount: number
-  totalTokenCount: number
+export type GeminiUsageMetadata = {
+  promptTokenCount?: number
+  candidatesTokenCount?: number
+  totalTokenCount?: number
   thoughtsTokenCount?: number
   cachedContentTokenCount?: number
-  promptTokensDetails?: Array<{ modality: string; tokenCount: number }>
-  candidatesTokensDetails?: Array<{ modality: string; tokenCount: number }>
-  trafficType?: string
 }
 
-/**
- * Prompt feedback
- */
-export interface GeminiPromptFeedback {
-  blockReason?: string
-  safetyRatings?: GeminiSafetyRating[]
+export type GeminiStreamChunk = GeminiResponse
+
+import { isRecord } from '../../util/type-guards.js'
+
+// Type Guards for Legacy Support
+export function isGeminiRequest(obj: unknown): obj is GeminiRequest {
+  return isRecord(obj) && Array.isArray(obj.contents)
 }
 
-/**
- * Safety rating
- */
-export interface GeminiSafetyRating {
-  category: string
-  probability: string
-  blocked?: boolean
+export function isGeminiResponse(obj: unknown): obj is GeminiResponse {
+  return isRecord(obj) && Array.isArray(obj.candidates)
 }
 
-/**
- * Citation metadata
- */
-export interface GeminiCitationMetadata {
-  citationSources?: Array<{
-    startIndex?: number
-    endIndex?: number
-    uri?: string
-    license?: string
-  }>
-}
-
-/**
- * Grounding metadata
- */
-export interface GeminiGroundingMetadata {
-  webSearchQueries?: string[]
-  groundingChunks?: Array<{
-    web?: {
-      uri: string
-      title?: string
-    }
-  }>
-}
-
-/**
- * URL context metadata
- */
-export interface GeminiUrlContextMetadata {
-  urlMetadata?: Array<{
-    retrievedUrl?: string
-    urlRetrievalStatus?: string
-  }>
-}
-
-// =============================================================================
-// Streaming Types
-// =============================================================================
-
-/**
- * Gemini Streaming Chunk (same structure as response)
- */
-export interface GeminiStreamChunk {
-  candidates: GeminiCandidate[]
-  usageMetadata?: GeminiUsageMetadata
-}
-
-// =============================================================================
-// Type Guards
-// =============================================================================
-
-/**
- * Check if value is a Gemini request
- */
-export function isGeminiRequest(value: unknown): value is GeminiRequest {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  // Must have contents array and NOT have messages (which is OpenAI style)
-  return Array.isArray(obj.contents) && !('messages' in obj)
-}
-
-/**
- * Check if value is a Gemini response
- */
-export function isGeminiResponse(value: unknown): value is GeminiResponse {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  return Array.isArray(obj.candidates)
-}
-
-/**
- * Check if value is Gemini content
- */
-export function isGeminiContent(value: unknown): value is GeminiContent {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
+export function isGeminiContent(obj: unknown): obj is GeminiContent {
   return (
-    typeof obj.role === 'string' &&
-    (obj.role === 'user' || obj.role === 'model') &&
+    isRecord(obj) &&
+    (obj.role === 'user' || obj.role === 'model' || obj.role === 'tool') &&
     Array.isArray(obj.parts)
   )
 }
 
-/**
- * Check if value is a Gemini stream chunk
- */
-export function isGeminiStreamChunk(value: unknown): value is GeminiStreamChunk {
-  if (!value || typeof value !== 'object') return false
-  const obj = value as Record<string, unknown>
-  return Array.isArray(obj.candidates)
+export function isGeminiStreamChunk(obj: unknown): obj is GeminiStreamChunk {
+  return isGeminiResponse(obj)
 }

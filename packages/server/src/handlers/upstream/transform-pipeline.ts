@@ -2,6 +2,7 @@ import {
   createLogger,
   formatIdToProviderName,
   getProvider,
+  type JsonValue,
   type MetadataInjectionStrategy,
   type ProviderName,
   type ThinkingPolicy,
@@ -11,9 +12,30 @@ import type { SignatureStore } from '../../stores'
 import { applyPromptCaching } from '../caching-utils'
 import { removeThinkingFromBody } from '../request-handler'
 import { sanitizeRequestSignatures } from '../request-sanitizer'
+import type { Content, Message } from '../thinking-utils'
 import type { ProxyOptions } from '../types'
 
 const logger = createLogger({ service: 'transform-pipeline' })
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isMessage(value: unknown): value is Message {
+  return isPlainObject(value)
+}
+
+function isContent(value: unknown): value is Content {
+  return isPlainObject(value)
+}
+
+function isMessageArray(value: unknown): value is Message[] {
+  return Array.isArray(value) && value.every(isMessage)
+}
+
+function isContentArray(value: unknown): value is Content[] {
+  return Array.isArray(value) && value.every(isContent)
+}
 
 export interface TransformPipelineInput {
   body: Record<string, unknown>
@@ -59,9 +81,11 @@ export async function executeTransformPipeline(
   }
 
   // 2. Signature Sanitization
-  const messagesBeforeSanitize = Array.isArray(body.messages) ? body.messages : []
+  const messagesBeforeSanitize = isMessageArray(body.messages) ? body.messages : undefined
+  const contentsBeforeSanitize = isContentArray(body.contents) ? body.contents : undefined
   const sanitizeResult = sanitizeRequestSignatures({
-    messages: messagesBeforeSanitize as Record<string, unknown>[],
+    messages: messagesBeforeSanitize,
+    contents: contentsBeforeSanitize,
     model: currentModel,
     projectId: currentProjectId,
     signatureStore,
@@ -71,6 +95,9 @@ export async function executeTransformPipeline(
 
   if (sanitizeResult.messages) {
     body.messages = sanitizeResult.messages
+  }
+  if (sanitizeResult.contents) {
+    body.contents = sanitizeResult.contents
   }
   const isClaudeFresh = sanitizeResult.strategy === 'claude-fresh'
 
@@ -87,8 +114,7 @@ export async function executeTransformPipeline(
   // 1. Policy explicitly disables it (policyEnabled === false)
   // 2. We are in Claude Fresh mode (stripping signatures means we can't send thinking config securely/compatibly)
   // 3. Policy says don't send to upstream (sendThinkingToUpstream === false)
-  const shouldDisableThinking =
-    policyEnabled === false || isClaudeFresh || sendThinkingToUpstream === false
+  const shouldDisableThinking = policyEnabled === false || sendThinkingToUpstream === false
 
   if (shouldDisableThinking) {
     if (unifiedRequest.thinking) {
@@ -128,7 +154,7 @@ export async function executeTransformPipeline(
       model: currentModel || '',
       projectId: currentProjectId,
       requestId: reqId,
-    })
+    }) as Record<string, JsonValue | undefined>
 
     unifiedRequest.metadata = {
       ...unifiedRequest.metadata,

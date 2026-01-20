@@ -1,7 +1,8 @@
-/**
- * Anthropic Claude API Types
- * Based on docs/reference/anthropic-api-schema.md
- */
+import type {
+  JSONSchemaProperty as JSONSchema,
+  JsonObject,
+  JsonRecord,
+} from '../../types/json-schema.js'
 
 // =============================================================================
 // Request Types
@@ -102,11 +103,11 @@ export interface AnthropicDocumentBlock {
 /**
  * Tool use block (in assistant messages)
  */
-export interface AnthropicToolUseBlock {
+export interface AnthropicToolUseBlock<TInput = JsonRecord> {
   type: 'tool_use'
   id: string
   name: string
-  input: Record<string, unknown>
+  input: TInput
   cache_control?: { type: 'ephemeral' }
 }
 
@@ -152,14 +153,7 @@ export interface AnthropicTool {
   type?: 'custom'
   name: string
   description?: string
-  input_schema: {
-    type?: string
-    properties?: Record<string, unknown>
-    required?: string[]
-    additionalProperties?: boolean
-    $defs?: Record<string, unknown>
-    strict?: boolean
-  }
+  input_schema: JSONSchema
   cache_control?: { type: 'ephemeral' }
 }
 
@@ -247,7 +241,7 @@ export interface AnthropicContentBlockStartEvent {
   index: number
   content_block:
     | { type: 'text'; text: string }
-    | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+    | { type: 'tool_use'; id: string; name: string; input: JsonObject }
     | { type: 'thinking'; thinking: string }
 }
 

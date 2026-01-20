@@ -13,15 +13,16 @@ export interface BackoffStrategy {
 
 // Default constants
 const DEFAULT_INITIAL_DELAY = 1000
-const DEFAULT_MAX_DELAY = 60000
-const DEFAULT_JITTER_FACTOR = 0.5 // 50% jitter
+const DEFAULT_MAX_DELAY = 30000
+const DEFAULT_JITTER_FACTOR = 0
 
 // Anthropic constants
 const ANTHROPIC_INITIAL_DELAY = 1000
-const ANTHROPIC_MAX_DELAY = 60000 // 1 minute is reasonable for Anthropic
+const ANTHROPIC_MAX_DELAY = 30000
+const ANTHROPIC_JITTER_FACTOR = 0.2
 
 // Gemini constants
-const GEMINI_INITIAL_DELAY = 1000
+const GEMINI_INITIAL_DELAY = 500
 const GEMINI_MAX_DELAY = 10000 // 10 seconds max for Gemini usually
 
 export class DefaultBackoffStrategy implements BackoffStrategy {
@@ -40,21 +41,11 @@ export class DefaultBackoffStrategy implements BackoffStrategy {
       return retryAfter
     }
 
-    // Exponential backoff: initial * 2^attempt
-    // attempt is 1-based usually, so attempt 1 = initial * 2
-    // If attempt is 0-based in caller, we should adjust. Assuming 1-based (1st retry).
-    // Let's assume attempt=1 means first retry.
+    // Exponential backoff: initial * 2^attempt (attempt is 0-based)
+    const exponentialDelay = this.initialDelay * 2 ** attempt
 
-    const exponentialDelay = this.initialDelay * 2 ** (attempt - 1)
-
-    // Apply jitter
-    // delay = delay * (1 + jitter * (Math.random() * 2 - 1))
-    // Or randomized between [delay, delay * (1 + jitter)]?
-    // Standard "Full Jitter" is often random_between(0, min(cap, base * 2 ** attempt))
-    // But requirement says "exponential + jitter".
-
-    // Let's use a simple randomized jitter around the target delay
-    const jitter = exponentialDelay * this.jitterFactor * (Math.random() * 2 - 1)
+    // Apply optional jitter (positive-only for predictability in tests)
+    const jitter = exponentialDelay * this.jitterFactor * Math.random()
     const delay = exponentialDelay + jitter
 
     // Clamp to max delay
@@ -91,7 +82,7 @@ export class DefaultBackoffStrategy implements BackoffStrategy {
 
 export class AnthropicBackoffStrategy extends DefaultBackoffStrategy {
   constructor() {
-    super(ANTHROPIC_INITIAL_DELAY, ANTHROPIC_MAX_DELAY)
+    super(ANTHROPIC_INITIAL_DELAY, ANTHROPIC_MAX_DELAY, ANTHROPIC_JITTER_FACTOR)
   }
 
   getDelayMs(context: BackoffContext): number {

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { createUpstreamProxy } from '../../src/upstream/proxy'
+import { createInMemoryServer } from '../../src/utils/in-memory-server'
 
 describe('UpstreamProxy', () => {
   describe('createUpstreamProxy', () => {
@@ -27,7 +28,7 @@ describe('UpstreamProxy', () => {
   })
 
   describe('request forwarding', () => {
-    let mockServer: ReturnType<typeof Bun.serve>
+    let mockServer: { port: number; stop: () => void }
     let mockServerUrl: string
     const receivedRequests: Array<{
       method: string
@@ -37,9 +38,7 @@ describe('UpstreamProxy', () => {
     }> = []
 
     beforeAll(() => {
-      mockServer = Bun.serve({
-        port: 0,
-        fetch: async (req) => {
+      mockServer = createInMemoryServer(async (req) => {
           const url = new URL(req.url)
           const headers: Record<string, string> = {}
           req.headers.forEach((value, key) => {
@@ -66,7 +65,6 @@ describe('UpstreamProxy', () => {
             status: 200,
             headers: { 'Content-Type': 'application/json' },
           })
-        },
       })
       mockServerUrl = `http://localhost:${mockServer.port}`
     })
@@ -158,9 +156,7 @@ describe('UpstreamProxy', () => {
         'data: [DONE]\n\n',
       ]
 
-      const mockServer = Bun.serve({
-        port: 0,
-        fetch: () => {
+      const mockServer = createInMemoryServer(() => {
           const encoder = new TextEncoder()
           const stream = new ReadableStream({
             async start(controller) {
@@ -180,7 +176,6 @@ describe('UpstreamProxy', () => {
               Connection: 'keep-alive',
             },
           })
-        },
       })
 
       try {
@@ -208,14 +203,11 @@ describe('UpstreamProxy', () => {
     })
 
     test('should handle upstream errors gracefully', async () => {
-      const mockServer = Bun.serve({
-        port: 0,
-        fetch: () => {
+      const mockServer = createInMemoryServer(() => {
           return new Response(JSON.stringify({ error: 'Rate limit exceeded' }), {
             status: 429,
             headers: { 'Content-Type': 'application/json' },
           })
-        },
       })
 
       try {
@@ -271,9 +263,7 @@ describe('UpstreamProxy', () => {
       const responseBody = JSON.stringify({ message: 'Hello, compressed world!' })
       const compressed = Bun.gzipSync(Buffer.from(responseBody))
 
-      const mockServer = Bun.serve({
-        port: 0,
-        fetch: () => {
+      const mockServer = createInMemoryServer(() => {
           return new Response(compressed, {
             status: 200,
             headers: {
@@ -281,7 +271,6 @@ describe('UpstreamProxy', () => {
               'Content-Encoding': 'gzip',
             },
           })
-        },
       })
 
       try {

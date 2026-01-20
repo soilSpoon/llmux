@@ -1,3 +1,4 @@
+import type { JsonObject } from '../../types/json'
 import type { ContentPart, UnifiedMessage } from '../../types/unified'
 import type {
   OpenAIChatAssistantMessage,
@@ -256,9 +257,13 @@ export function extractTextContent(content: string | OpenAIChatContentPart[]): s
     .join('\n')
 }
 
-function safeJsonParse(str: string): Record<string, unknown> {
+function safeJsonParse(str: string): JsonObject {
   try {
-    return JSON.parse(str)
+    const parsed: unknown = JSON.parse(str)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as JsonObject
+    }
+    return {}
   } catch {
     return {}
   }

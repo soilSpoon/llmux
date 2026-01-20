@@ -7,8 +7,15 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { transform as transformRequest } from "../../../src/providers/antigravity/request";
+import { AntigravityProvider } from "../../../src/providers/antigravity";
 import type { UnifiedRequest } from "../../../src/types/unified";
+
+const provider = new AntigravityProvider();
+const transformRequest = (req: UnifiedRequest, model: string) => provider.transform(req, model) as any;
+
+import { ToolNameCodec } from "../../../src/util/tool-name-codec";
+
+const codec = new ToolNameCodec();
 
 describe("Antigravity Request Compliance", () => {
   describe("Tool Name Encoding in Tool Definitions", () => {
@@ -27,8 +34,8 @@ describe("Antigravity Request Compliance", () => {
       const result = transformRequest(request, 'test-model');
 
       // Tool name should be encoded
-      const toolDecl = result.request.tools?.[0]?.function_declarations?.[0];
-      expect(toolDecl?.name).toBe("mcp__slash__read_file");
+      const toolDecl = result.request.tools?.[0]?.functionDeclarations?.[0];
+      expect(toolDecl?.name).toBe(codec.encode("mcp/read_file"));
     });
 
     it("should encode slash in tool name in conversation history (functionCall)", () => {
@@ -69,7 +76,7 @@ describe("Antigravity Request Compliance", () => {
       const assistantContent = result.request.contents[1];
       const functionCallPart = assistantContent?.parts?.[0];
       expect(functionCallPart?.functionCall?.name).toBe(
-        "mcp__slash__read_file"
+        codec.encode("mcp/read_file")
       );
     });
   });
@@ -98,11 +105,11 @@ describe("Antigravity Request Compliance", () => {
       const result = transformRequest(request, 'test-model');
 
       // const should be converted to enum: [value]
-      const toolDecl = result.request.tools?.[0]?.function_declarations?.[0];
+      const toolDecl = result.request.tools?.[0]?.functionDeclarations?.[0];
       const typeParam = toolDecl?.parameters?.properties?.type;
       expect(typeParam?.enum).toEqual(["email"]);
-      // Verify 'const' key is not present in the transformed schema
-      const typeParamKeys = typeParam ? Object.keys(typeParam) : [];
+      // Verify 'const' key is not present in the transformed schema (type is Record<string, unknown> usually)
+      const typeParamKeys = typeParam ? Object.keys(typeParam as object) : [];
       expect(typeParamKeys).not.toContain("const");
     });
   });
@@ -131,7 +138,8 @@ describe("Antigravity Request Compliance", () => {
 
       // This should either throw, log a warning, or handle gracefully
       // For now we test that it doesn't crash and produces valid output
-      expect(() => transformRequest(request, 'test-model')).not.toThrow();
+      const provider = new AntigravityProvider();
+      expect(() => provider.transform(request, 'test-model')).not.toThrow();
     });
   });
 });
@@ -139,10 +147,6 @@ describe("Antigravity Request Compliance", () => {
 describe("Antigravity Response Compliance", () => {
   describe("Tool Name Decoding in Responses", () => {
     it("should decode __slash__ to slash in tool call names (non-streaming)", async () => {
-      const { parseResponse } = await import(
-        "../../../src/providers/antigravity/response"
-      );
-
       // Simulated Antigravity response with encoded tool name
       const antigravityResponse = {
         response: {
@@ -153,7 +157,7 @@ describe("Antigravity Response Compliance", () => {
                 parts: [
                   {
                     functionCall: {
-                      name: "mcp__slash__read_file",
+                      name: "tbWNwL3JlYWRfZmlsZQ", // "mcp/read_file" encoded with t-prefix
                       args: { path: "/tmp/test.txt" },
                       id: "call_123",
                     },
@@ -171,7 +175,7 @@ describe("Antigravity Response Compliance", () => {
         },
       };
 
-      const result = parseResponse(antigravityResponse);
+      const result = provider.parseResponse(antigravityResponse);
 
       // Tool call name should be decoded back to original
       // UnifiedResponse has 'content' array, not 'parts'
@@ -180,19 +184,17 @@ describe("Antigravity Response Compliance", () => {
     });
 
     it("should decode __slash__ to slash in streaming tool call chunks", async () => {
-      const { parseStreamChunk } = await import(
-        "../../../src/providers/antigravity/streaming"
-      );
-
       // Simulated streaming chunk as SSE string (parseStreamChunk takes string)
-      const sseChunk = `data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"mcp__slash__write_file","args":{"path":"/tmp/out.txt","content":"data"},"id":"call_456"}}]}}]}}`;
+      // "mcp/write_file" encoded as "tbWNwL3dyaXRlX2ZpbGU"
+      const sseChunk = `data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"functionCall":{"name":"tbWNwL3dyaXRlX2ZpbGU","args":{"path":"/tmp/out.txt","content":"data"},"id":"call_456"}}]}}]}}`;
 
-      const result = parseStreamChunk(sseChunk);
+      const result = provider.parseStreamChunk(sseChunk);
 
       // Streaming tool call should also decode the name
       // Result can be a single StreamChunk or array
       const chunk = Array.isArray(result) ? result[0] : result;
-      expect(chunk?.delta?.toolCall?.name).toBe("mcp/write_file");
+      // Tool call is at top level in unified chunk for 'tool-call' type
+      expect(chunk?.toolCall?.name).toBe("mcp/write_file");
     });
   });
 });

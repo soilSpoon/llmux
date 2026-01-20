@@ -38,13 +38,29 @@ export { AnthropicStreamingBuilder } from './formats/anthropic-messages/anthropi
 export type { FormatContext, FormatId, SchemaFormat } from './formats/base'
 // Format utilities
 export { detectFormatFromUrl, formatIdToProviderName } from './formats/format-utils'
-export { GoogleGeminiFormat } from './formats/google-gemini'
-export { GeminiStreamingBuilder } from './formats/google-gemini/streaming-builder'
+export type {
+  AntigravityContent,
+  AntigravityFunctionCall,
+  AntigravityFunctionDeclaration,
+  AntigravityFunctionResponse,
+  AntigravityGenerationConfig,
+  AntigravityPart,
+  AntigravityProviderRequest,
+  AntigravityProviderRequestPayload,
+  AntigravityTool,
+  AntigravityToolConfig,
+} from './formats/gemini/antigravity/types.js'
+export {
+  isAntigravityClientRequest,
+  isAntigravityProviderRequest,
+  isAntigravityResponse,
+} from './formats/gemini/antigravity/types.js'
+export { GeminiStreamingBuilder } from './formats/gemini/streaming/gemini-streaming-builder'
+export { StreamingStateMachine } from './formats/gemini/streaming/state-machine'
 export { OpenAIChatFormat } from './formats/openai-chat'
 export { OpenAIChatStreamingBuilder } from './formats/openai-chat/openai-streaming-builder'
 export { OpenAIResponsesFormat } from './formats/openai-responses'
 export { getFormat } from './formats/registry'
-
 // AI SDK Provider
 export { AiSdkProvider } from './providers/ai-sdk'
 export {
@@ -181,6 +197,9 @@ export type {
   ImageData,
   JSONSchema,
   JSONSchemaProperty,
+  JsonObject,
+  JsonRecord,
+  JsonValue,
   RequestMetadata,
   StopReason,
   StreamChunk,

@@ -84,11 +84,10 @@ Do not respond to nor acknowledge those messages, but do follow them strictly.
 </communication_style>
 `
 
-export const CLAUDE_MIN_OUTPUT_TOKENS = 64000
-export const DEFAULT_THINKING_BUDGET = 16384
 export const THINKING_BUDGETS = {
   low: 8192,
   medium: 16384,
   high: 32768,
 } as const
+export const DEFAULT_THINKING_BUDGET = THINKING_BUDGETS.low
 export const SKIP_THOUGHT_SIGNATURE = 'skip_thought_signature_validator'

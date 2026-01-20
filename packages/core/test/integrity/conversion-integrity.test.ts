@@ -1,8 +1,10 @@
 
 import { describe, it, expect } from 'bun:test'
 import { AnthropicMessagesFormat } from '../../src/formats/anthropic-messages'
-import { GoogleGeminiFormat } from '../../src/formats/google-gemini'
+import { GeminiFormat } from '../../src/formats/gemini'
 import type { UnifiedRequest } from '../../src/types/unified'
+
+const format = new GeminiFormat()
 
 describe('Conversion Integrity (Lossless Round-Trip)', () => {
   describe('Anthropic -> Unified -> Anthropic', () => {
@@ -134,7 +136,7 @@ describe('Conversion Integrity (Lossless Round-Trip)', () => {
       }
 
       // 2. Parse
-      const unified = GoogleGeminiFormat.parseRequest(rawGeminiBody)
+      const unified = format.parseRequest(rawGeminiBody)
       
       // Verify
       const part = unified.messages[0]?.parts[0]
@@ -142,7 +144,7 @@ describe('Conversion Integrity (Lossless Round-Trip)', () => {
       expect(part?.toolCall?.id).toBe('call_abc123')
 
       // 3. Build back
-      const built = GoogleGeminiFormat.buildWireRequest(unified, { model: 'gemini-2.5-flash', provider: 'antigravity' }) as Record<string, any>
+      const built = format.buildWireRequest(unified, { model: 'gemini-1.5-flash', provider: 'google' }) as Record<string, any>
 
       // 4. Verify
       expect(built.contents).toBeDefined()
@@ -169,11 +171,11 @@ describe('Conversion Integrity (Lossless Round-Trip)', () => {
         }
       }
 
-      const unified = GoogleGeminiFormat.parseRequest(rawGeminiBody)
+      const unified = format.parseRequest(rawGeminiBody)
       
       expect(unified.system).toBe('You are a helpful assistant.')
 
-      const built = GoogleGeminiFormat.buildWireRequest(unified, { model: 'gemini-1.5-flash', provider: 'antigravity' }) as Record<string, any>
+      const built = format.buildWireRequest(unified, { model: 'gemini-1.5-flash', provider: 'google' }) as Record<string, any>
 
       expect(built.systemInstruction).toBeDefined()
       if (built.systemInstruction && built.systemInstruction.parts && built.systemInstruction.parts[0]) {
@@ -194,7 +196,7 @@ describe('Conversion Integrity (Lossless Round-Trip)', () => {
             }]
         }
 
-        const gemini = GoogleGeminiFormat.buildWireRequest(unified, { model: 'gemini-1.5-pro', provider: 'antigravity' }) as Record<string, any>
+        const gemini = format.buildWireRequest(unified, { model: 'gemini-1.5-pro', provider: 'google' }) as Record<string, any>
         
         // Gemini doesn't have native thinking blocks in API input yet (as of standard SDK)
         // Usually converted to text or ignored?

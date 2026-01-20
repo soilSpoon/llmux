@@ -4,6 +4,7 @@
  * Handles transformation between OpenAI Responses API response and UnifiedResponse.
  */
 
+import type { JsonObject } from '../../types/json'
 import type { UnifiedResponse } from '../../types/unified'
 import type { ResponsesOutputItem, ResponsesResponse } from './types'
 
@@ -80,13 +81,27 @@ export function parseResponse(response: unknown): UnifiedResponse {
   }
 
   // Preserve full metadata for lossless round-trip
+  // Note: We explicitly cast metadata since responsesResponse may have loose types
   result.metadata = {
-    ...responsesResponse,
-    // Ensure we have camelCase versions for internal use if needed,
-    // but keeping everything from responsesResponse allows lossless roundtrip
+    responseId: responsesResponse.id,
+    id: responsesResponse.id,
+    object: responsesResponse.object,
+    status: responsesResponse.status,
+    model: responsesResponse.model,
     createdAt: responsesResponse.created_at,
     completedAt: responsesResponse.completed_at ?? null,
-    responseId: responsesResponse.id,
+    created_at: responsesResponse.created_at,
+    completed_at: responsesResponse.completed_at,
+    background: responsesResponse.background,
+    instructions: responsesResponse.instructions,
+    temperature: responsesResponse.temperature,
+    top_p: responsesResponse.top_p,
+    truncation: responsesResponse.truncation,
+    store: responsesResponse.store,
+    error: responsesResponse.error,
+    incomplete_details: responsesResponse.incomplete_details,
+    user: responsesResponse.user,
+    metadata: responsesResponse.metadata as JsonObject | undefined,
   }
 
   // Parse usage
@@ -190,9 +205,13 @@ export function transformResponse(response: UnifiedResponse): ResponsesResponse 
   return result
 }
 
-function safeJsonParse(str: string): Record<string, unknown> {
+function safeJsonParse(str: string): JsonObject {
   try {
-    return JSON.parse(str)
+    const parsed: unknown = JSON.parse(str)
+    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as JsonObject
+    }
+    return {}
   } catch {
     return {}
   }

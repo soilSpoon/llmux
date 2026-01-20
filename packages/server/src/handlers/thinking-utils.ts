@@ -30,8 +30,12 @@ export type ThinkingStrategy = ThinkingStrategyName
 export function getThinkingStrategy(model?: string, provider?: string): ThinkingStrategy {
   if (!model) return 'none'
   const family = getModelFamily(model)
-  if (provider === 'antigravity' && family === 'claude') return 'none'
-  if (family === 'claude') return 'claude-fresh'
+  if (family === 'claude') {
+    if (!provider || provider === 'antigravity' || provider === 'gemini-cli') {
+      return 'claude-fresh'
+    }
+    return 'none'
+  }
   if (family === 'gemini') return 'gemini-cache'
   return 'none'
 }

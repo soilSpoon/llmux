@@ -87,13 +87,17 @@ export async function buildUpstreamRequest(
 
   const isClaudeFreshStrategy =
     getThinkingStrategy(currentModel, effectiveProvider) === 'claude-fresh'
+  const shouldDisableThinkingForFresh =
+    isClaudeFreshStrategy &&
+    effectiveProvider !== 'antigravity' &&
+    effectiveProvider !== 'gemini-cli'
 
   const thinkingPolicy = computeThinkingPolicy({
     model: currentModel || '',
     mode,
     clientThinking,
     optionsThinking: options.thinking,
-    isClaudeFresh: isClaudeFreshStrategy,
+    isClaudeFresh: shouldDisableThinkingForFresh,
     sourceFormat: options.sourceFormat,
     targetProvider: effectiveProvider,
   })

@@ -69,9 +69,10 @@ export class OpenAIResponsesStreamingBuilder {
     const results: string[] = []
 
     // Normalize chunks
-    const normalizedChunks = normalizeStreamingOrder(chunk, this.state.normalization)
+    const normalizedResult = normalizeStreamingOrder([chunk], this.state.normalization)
+    this.state.normalization = normalizedResult.newState // Update state
 
-    for (const normalizedChunk of normalizedChunks) {
+    for (const normalizedChunk of normalizedResult.events) {
       results.push(...this.processChunk(normalizedChunk))
     }
 

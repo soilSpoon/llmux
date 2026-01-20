@@ -12,6 +12,7 @@ import {
   extractModel,
   type ProviderChecker,
 } from "../../src/handlers/fallback";
+import { createInMemoryServer } from "../../src/utils/in-memory-server";
 import {
   createUpstreamProxy,
   type UpstreamProxy,
@@ -156,14 +157,12 @@ describe("extractModel", () => {
 });
 
 describe("FallbackHandler.wrap", () => {
-  let mockUpstreamServer: ReturnType<typeof Bun.serve>;
+  let mockUpstreamServer: { port: number; stop: () => void };
   let mockUpstreamUrl: string;
   const upstreamRequests: Array<{ path: string; body: unknown }> = [];
 
   beforeAll(() => {
-    mockUpstreamServer = Bun.serve({
-      port: 0,
-      fetch: async (req) => {
+    mockUpstreamServer = createInMemoryServer(async (req) => {
         const url = new URL(req.url);
         let body: unknown = null;
         if (req.method === "POST") {
@@ -185,7 +184,6 @@ describe("FallbackHandler.wrap", () => {
             headers: { "Content-Type": "application/json" },
           }
         );
-      },
     });
     mockUpstreamUrl = `http://localhost:${mockUpstreamServer.port}`;
   });
