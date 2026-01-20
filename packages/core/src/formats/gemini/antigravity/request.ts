@@ -593,15 +593,12 @@ export function buildAntigravityRequest(
     {
       contents: sanitizedContents,
 
-      system_instruction,
       systemInstruction: system_instruction,
 
       tools,
 
-      tool_config,
       toolConfig: tool_config,
 
-      generation_config,
       generationConfig: generation_config,
 
       sessionId: req.metadata?.sessionId,

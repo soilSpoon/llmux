@@ -25,6 +25,5 @@ export function buildAntigravityEnvelope(
     request: payload,
     userAgent: options.userAgent,
     requestId: options.requestId || randomUUID(),
-    metadata: options.metadata,
   }
 }
