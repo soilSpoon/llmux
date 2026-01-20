@@ -298,6 +298,45 @@ function convertChunkToSSE(chunk: StreamChunk): string | string[] {
       return ''
     }
 
+    case 'text-delta': {
+      const text = chunk.delta?.text
+      if (text) {
+        return formatSSE('content_block_delta', {
+          type: 'content_block_delta',
+          index: blockIndex,
+          delta: {
+            type: 'text_delta',
+            text: text,
+          },
+        })
+      }
+      return ''
+    }
+
+    case 'thinking-delta': {
+      if (chunk.delta?.thinking?.text) {
+        return formatSSE('content_block_delta', {
+          type: 'content_block_delta',
+          index: blockIndex,
+          delta: {
+            type: 'thinking_delta',
+            thinking: chunk.delta.thinking.text,
+          },
+        })
+      }
+      if (chunk.delta?.thinking?.signature) {
+        return formatSSE('content_block_delta', {
+          type: 'content_block_delta',
+          index: blockIndex,
+          delta: {
+            type: 'signature_delta',
+            signature: chunk.delta.thinking.signature,
+          },
+        })
+      }
+      return ''
+    }
+
     case 'thinking': {
       if (chunk.delta?.thinking?.text) {
         return formatSSE('content_block_delta', {
