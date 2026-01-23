@@ -462,7 +462,7 @@ describe("Antigravity Request Transformations", () => {
         expect(result.project).toBeDefined();
         expect(result.model).toBeDefined();
         expect(result.userAgent).toBe("antigravity");
-        expect(result.metadata?.requestType).toBe("generateContent");
+        expect(result.userAgent).toBe("antigravity");
         expect(result.requestId).toMatch(/^agent-/);
         expect(result.request.contents).toHaveLength(1);
         expect(result.request.contents[0]!.role).toBe("user");

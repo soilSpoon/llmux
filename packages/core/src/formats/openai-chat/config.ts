@@ -54,9 +54,8 @@ export function parseConfig(request: OpenAIChatRequest): NonNullable<UnifiedRequ
         }
       }
     } else {
-      // Fallback for unknown types (Record<string, unknown>)
-      // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
-      config.responseFormat = format as any
+      // Fallback for unknown types (preserve as-is if compatible)
+      config.responseFormat = format as NonNullable<UnifiedRequest['config']>['responseFormat']
     }
   }
   if (request.service_tier) {
@@ -94,9 +93,8 @@ export function parseGLMThinking(
   }
 
   // Parse thinking budget (used by Gemini, Claude via Antigravity)
-  const configAny = config as Record<string, unknown>
-  if (typeof configAny.budget_tokens === 'number') {
-    result.budget = configAny.budget_tokens
+  if (config.budget_tokens !== undefined) {
+    result.budget = config.budget_tokens
   }
 
   return result

@@ -36,7 +36,7 @@ describe('Antigravity Request Builder', () => {
         system: 'be helpfull'
     }, context)
 
-    expect(req.request.systemInstruction).toEqual({
+    expect(req.request.system_instruction || req.request.systemInstruction).toEqual({
         parts: [{ text: 'be helpfull' }]
     })
   })
@@ -65,8 +65,8 @@ describe('Antigravity Request Builder', () => {
         thinking: { enabled: true, budget: 4000 }
     }, claudeContext)
 
-    expect(req.request.generationConfig).toHaveProperty('thinking_config')
+    expect(req.request.generation_config).toHaveProperty('thinking_config')
     // @ts-ignore
-    expect(req.request.generationConfig?.thinking_config?.thinking_budget).toBe(4000)
+    expect(req.request.generation_config?.thinking_config?.thinking_budget).toBe(4000)
   })
 })

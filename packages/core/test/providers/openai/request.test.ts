@@ -143,6 +143,7 @@ describe("OpenAI Request Transform", () => {
             },
             required: ["location"],
           },
+          strict: true,
         },
       });
     });

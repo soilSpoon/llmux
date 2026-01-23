@@ -25,7 +25,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
 
     const provider = new AntigravityProvider()
     const result = provider.transform(request, model) as any
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
+    const thinkingConfig = 
+      result.request.generationConfig?.thinkingConfig || 
+      result.request.generation_config?.thinking_config ||
+      result.request.generationConfig?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
     expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(8192)
@@ -42,7 +45,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
 
     const provider = new AntigravityProvider()
     const result = provider.transform(request, model) as any
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
+    const thinkingConfig = 
+      result.request.generationConfig?.thinkingConfig || 
+      result.request.generation_config?.thinking_config ||
+      result.request.generationConfig?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
     expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(16384)
@@ -59,7 +65,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
 
     const provider = new AntigravityProvider()
     const result = provider.transform(request, model) as any
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
+    const thinkingConfig = 
+      result.request.generationConfig?.thinkingConfig || 
+      result.request.generation_config?.thinking_config ||
+      result.request.generationConfig?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
     expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(32768)
@@ -77,7 +86,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
 
     const provider = new AntigravityProvider()
     const result = provider.transform(request, model) as any
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
+    const thinkingConfig = 
+      result.request.generationConfig?.thinkingConfig || 
+      result.request.generation_config?.thinking_config ||
+      result.request.generationConfig?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
     expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(20000)
@@ -93,7 +105,10 @@ describe('Antigravity Thinking Budget Mapping', () => {
 
     const provider = new AntigravityProvider()
     const result = provider.transform(request, model) as any
-    const thinkingConfig = result.request.generationConfig?.thinkingConfig || result.request.generation_config?.thinking_config
+    const thinkingConfig = 
+      result.request.generationConfig?.thinkingConfig || 
+      result.request.generation_config?.thinking_config ||
+      result.request.generationConfig?.thinking_config
     
     expect(thinkingConfig).toBeDefined()
     expect(thinkingConfig?.thinkingBudget || thinkingConfig?.thinking_budget).toBe(8192)

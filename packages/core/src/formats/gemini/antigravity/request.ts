@@ -592,15 +592,10 @@ export function buildAntigravityRequest(
   return buildAntigravityEnvelope(
     {
       contents: sanitizedContents,
-
-      systemInstruction: system_instruction,
-
+      system_instruction: system_instruction,
       tools,
-
-      toolConfig: tool_config,
-
-      generationConfig: generation_config,
-
+      tool_config: tool_config,
+      generation_config: generation_config,
       sessionId: req.metadata?.sessionId,
     },
 

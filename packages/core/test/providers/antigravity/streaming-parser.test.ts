@@ -22,6 +22,7 @@ describe('AntigravityStreamingParser', () => {
               parts: [
                 {
                   text: 'Thinking...',
+                  thought: true,
                   thoughtSignature: 'some-signature',
                 },
               ],
@@ -38,6 +39,7 @@ describe('AntigravityStreamingParser', () => {
         delta: {
           thinking: {
             text: 'Thinking...',
+            signature: 'some-signature',
           },
         },
       },
@@ -54,6 +56,7 @@ describe('AntigravityStreamingParser', () => {
               parts: [
                 {
                   text: 'Thinking...',
+                  thought: true,
                   thought_signature: 'some-signature',
                 },
               ],
@@ -70,6 +73,7 @@ describe('AntigravityStreamingParser', () => {
         delta: {
           thinking: {
             text: 'Thinking...',
+            signature: 'some-signature',
           },
         },
       },

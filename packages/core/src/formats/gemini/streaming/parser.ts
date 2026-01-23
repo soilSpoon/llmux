@@ -81,7 +81,6 @@ export function parseGeminiStreamChunk(chunk: unknown): StreamChunk[] | null {
   }
 
   const candidate = response.candidates[0]
-  const part = candidate.content?.parts?.[0]
   const chunks: StreamChunk[] = []
 
   if (response.usageMetadata) {
@@ -95,50 +94,52 @@ export function parseGeminiStreamChunk(chunk: unknown): StreamChunk[] | null {
     })
   }
 
-  if (part) {
-    const isThinking = part.thought === true
-    const signature = part.thoughtSignature || part.thought_signature
+  if (candidate.content?.parts) {
+    for (const part of candidate.content.parts) {
+      const isThinking = part.thought === true
+      const signature = part.thoughtSignature || part.thought_signature
 
-    if (isThinking && part.text) {
-      chunks.push({
-        type: 'thinking-delta',
-        delta: {
-          thinking: { text: part.text, signature },
-        },
-      })
-    } else if (part.text) {
-      if (signature) {
+      if (isThinking && part.text) {
         chunks.push({
           type: 'thinking-delta',
           delta: {
-            thinking: { text: '', signature },
+            thinking: { text: part.text, signature },
+          },
+        })
+      } else if (part.text) {
+        if (signature) {
+          chunks.push({
+            type: 'thinking-delta',
+            delta: {
+              thinking: { text: '', signature },
+            },
+          })
+        }
+
+        chunks.push({
+          type: 'text-delta',
+          delta: { text: part.text },
+        })
+      } else if (part.functionCall) {
+        const codec = new ToolNameCodec()
+        const toolId = part.functionCall.id || `call_${Math.random().toString(36).slice(2)}`
+
+        chunks.push({
+          type: 'tool_call',
+          delta: {
+            type: 'tool_call',
+            toolCall: {
+              id: toolId,
+              name: codec.decode(part.functionCall.name),
+              arguments: (part.functionCall.args || {}) as JsonObject | string,
+            },
           },
         })
       }
-
-      chunks.push({
-        type: 'text-delta',
-        delta: { text: part.text },
-      })
-    } else if (part.functionCall) {
-      const codec = new ToolNameCodec()
-      const toolId = part.functionCall.id || `call_${Math.random().toString(36).slice(2)}`
-
-      chunks.push({
-        type: 'tool_call',
-        delta: {
-          type: 'tool_call',
-          toolCall: {
-            id: toolId,
-            name: codec.decode(part.functionCall.name),
-            arguments: (part.functionCall.args || {}) as JsonObject | string,
-          },
-        },
-      })
     }
   }
 
-  if (candidate.finishReason && candidate.finishReason !== 'STOP') {
+  if (candidate.finishReason) {
     chunks.push({
       type: 'finish',
       finishReason: {

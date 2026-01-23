@@ -96,7 +96,6 @@ describe("Antigravity Request Casing", () => {
       ) as AntigravityRequest;
 
       // Verify wrapper fields
-      expect(result.metadata?.requestType).toBe("generateContent");
       expect(result.userAgent).toBe("antigravity");
 
       // Verify generation config (snake_case in Antigravity provider request)

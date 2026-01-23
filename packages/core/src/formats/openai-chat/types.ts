@@ -69,6 +69,7 @@ export interface OpenAIChatRequest {
 export interface OpenAIChatThinkingConfig {
   type?: 'enabled' | 'disabled'
   clear_thinking?: boolean
+  budget_tokens?: number
 }
 
 /**

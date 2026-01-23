@@ -206,18 +206,17 @@ export function transformRequest(
       result.parallel_tool_calls = request.config.parallelToolCalls
     }
     if (request.config.responseFormat) {
-      // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
-      const format = request.config.responseFormat as any
-      if (format === 'json') {
+      const format = request.config.responseFormat
+      // Handle legacy 'json' string if it exists in runtime data
+      if ((format as unknown) === 'json') {
         result.response_format = { type: 'json_object' }
-      } else if (typeof request.config.responseFormat === 'object') {
-        const format = request.config.responseFormat
+      } else if (typeof format === 'object') {
         if ('type' in format) {
           if (format.type === 'text' || format.type === 'json_object') {
             result.response_format = { type: format.type }
           } else if (format.type === 'json_schema' && 'json_schema' in format) {
             // Pass through JSON schema
-            result.response_format = format as unknown as {
+            result.response_format = format as {
               type: 'json_schema'
               json_schema: {
                 name: string
@@ -228,9 +227,19 @@ export function transformRequest(
             }
           }
         } else {
-          // Fallback for Record<string, unknown>
-          // biome-ignore lint/suspicious/noExplicitAny: Relaxed type for unknown properties
-          result.response_format = format as any
+          // Fallback for Record<string, unknown> - try to cast to expected structure or ignore
+          // strict mode: we should only assign if it matches the type.
+          // For now, if it doesn't match known types, we skip assignment or force cast with unknown if we trust it fits the loose union.
+          // Given strict requirements, we'll try to keep it safe.
+          const unknownFormat = format as unknown as
+            | { type: 'text' | 'json_object' }
+            | {
+                type: 'json_schema'
+                json_schema: { name: string; schema?: Record<string, unknown> }
+              }
+          if (unknownFormat.type) {
+            result.response_format = unknownFormat
+          }
         }
       }
     }

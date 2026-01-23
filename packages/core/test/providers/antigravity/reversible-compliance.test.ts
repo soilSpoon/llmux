@@ -193,8 +193,8 @@ describe("Antigravity Response Compliance", () => {
       // Streaming tool call should also decode the name
       // Result can be a single StreamChunk or array
       const chunk = Array.isArray(result) ? result[0] : result;
-      // Tool call is at top level in unified chunk for 'tool-call' type
-      expect(chunk?.toolCall?.name).toBe("mcp/write_file");
+      // Tool call is in delta for 'tool_call' type chunks
+      expect(chunk?.delta?.toolCall?.name).toBe("mcp/write_file");
     });
   });
 });

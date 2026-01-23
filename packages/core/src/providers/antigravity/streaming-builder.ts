@@ -211,7 +211,18 @@ export class AntigravityStreamingBuilder {
         }
         results.push(formatSSEEvent('content_block_delta', evt))
       } else if (c.type === 'finish' && c.finishReason) {
-        let stopReason = c.finishReason.raw || c.finishReason.unified
+        // [FIX] Ensure any open block is stopped before emitting message_delta/stop
+        if (this.state.currentBlockType) {
+          const stopEvt = {
+            type: 'content_block_stop',
+            index: this.state.currentBlockIndex,
+          }
+          results.push(formatSSEEvent('content_block_stop', stopEvt))
+          this.state.currentBlockType = null
+          this.state.currentBlockIndex++
+        }
+
+        let stopReason = c.finishReason.unified || c.finishReason.raw
         if (this.state.hasToolUseBlock && stopReason === 'end_turn') {
           stopReason = 'tool_use'
         }

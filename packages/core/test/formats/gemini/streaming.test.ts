@@ -92,12 +92,19 @@ describe('Antigravity Streaming State Machine', () => {
     
     expect(result).not.toBeNull()
     if (Array.isArray(result)) {
-      expect(result.length).toBe(1)
-      const first = result[0]
+      expect(result.length).toBe(2)
+      const thinking = result[0]
+      if (thinking && thinking.type === 'thinking-delta') {
+         expect(thinking.delta?.thinking?.signature).toBe('some-signature')
+      } else {
+         throw new Error('Expected thinking-delta chunk first')
+      }
+
+      const first = result[1]
       if (first && first.type === 'text-delta') {
         expect(first.delta?.text).toBe('안녕하세요! 무엇을 도와드릴까요?')
       } else {
-        throw new Error('Expected text-delta chunk')
+        throw new Error('Expected text-delta chunk second')
       }
     }
   })
