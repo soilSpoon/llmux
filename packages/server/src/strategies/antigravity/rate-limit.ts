@@ -1,6 +1,6 @@
 import { ANTIGRAVITY_ENDPOINT_FALLBACKS } from '@llmux/auth'
 import type { RateLimitContext, RateLimitStrategy } from '@llmux/core'
-import { getModelFamily, isClaudeWeeklyLimit } from '../../handlers/family-rate-limiting'
+import { getModelFamily, isClaudeWeeklyLimit } from '../../handlers/rate-limit-store'
 
 export class AntigravityRateLimitStrategy implements RateLimitStrategy {
   readonly strategyType = 'rateLimit'

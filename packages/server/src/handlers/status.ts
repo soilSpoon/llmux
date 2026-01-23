@@ -1,6 +1,6 @@
 import { CredentialStorage, isApiKeyCredential, isOAuthCredential } from '@llmux/auth'
 import type { UsageInfo } from '@llmux/core'
-import { globalCooldownManager } from '../cooldown'
+import { rateLimitStore } from './rate-limit-store'
 
 export interface StatusResponse {
   version: 1
@@ -115,7 +115,7 @@ export async function handleStatus(_request: Request): Promise<Response> {
 
   // 2. Collect cooldowns
   const cooldownEntries: CooldownEntry[] = []
-  for (const { key, resetAt, backoffLevel } of globalCooldownManager.getAll()) {
+  for (const { key, resetAt, backoffLevel } of rateLimitStore.getAllGlobal()) {
     const remainingMs = Math.max(0, resetAt - now)
     const active = remainingMs > 0
     const providerId = key.split(':')[0] ?? 'unknown'

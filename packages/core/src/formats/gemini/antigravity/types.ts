@@ -147,7 +147,7 @@ export interface AntigravityFunctionCall {
 export interface AntigravityFunctionResponse {
   id: string
   name: string
-  response: Record<string, unknown>
+  response: Record<string, unknown> | JsonObject
 }
 
 export interface AntigravityTool {
@@ -171,11 +171,6 @@ export interface AntigravityToolConfig {
  * Generation Config - Model Family별로 상이함 (Union Type)
  * PRD US-002, US-003 준수
  */
-export type AntigravityGenerationConfig =
-  | ClaudeGenerationConfig
-  | GeminiGenerationConfig
-  | CommonGenerationConfig
-
 interface CommonGenerationConfig {
   temperature?: number
   topP?: number
@@ -185,20 +180,13 @@ interface CommonGenerationConfig {
   stopSequences?: string[]
 }
 
-// Claude: snake_case thinking_config
 export interface ClaudeGenerationConfig extends CommonGenerationConfig {
   thinking_config?: {
     include_thoughts: boolean
     thinking_budget: number
-    thinking_level?: string // Optional for compatibility/extension
+    thinking_level?: string
   }
 }
-
-// Gemini: camelCase thinkingConfig (Antigravity wraps it, but internal keys might differ based on API version?)
-// PRD Appendix A.2: Gemini 3 (thinkingLevel), Gemini 2.5 (thinkingBudget)
-// Note: Even on Antigravity, Gemini models usually take snake_case at the top level of generation_config,
-// but the inner thinking config keys might follow specific rules.
-// Let's define strictly based on PRD FR-19, FR-20.
 
 export interface GeminiGenerationConfig extends CommonGenerationConfig {
   thinking_config?: {
@@ -209,6 +197,27 @@ export interface GeminiGenerationConfig extends CommonGenerationConfig {
   thinkingConfig?: {
     includeThoughts?: boolean
     thinkingLevel?: 'MINIMAL' | 'LOW' | 'MEDIUM' | 'HIGH'
+    thinkingBudget?: number
+  }
+}
+
+/**
+ * Generation Config - Model Family별로 상이함 (Union Type)
+ * 리터럴 할당 시 호환성을 위해 교차 타입을 활용하거나 선택적 필드를 포함합니다.
+ */
+export type AntigravityGenerationConfig = (
+  | ClaudeGenerationConfig
+  | GeminiGenerationConfig
+  | CommonGenerationConfig
+) & {
+  thinking_config?: {
+    include_thoughts?: boolean
+    thinking_budget?: number
+    thinking_level?: string
+  }
+  thinkingConfig?: {
+    includeThoughts?: boolean
+    thinkingLevel?: string
     thinkingBudget?: number
   }
 }

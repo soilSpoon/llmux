@@ -2,7 +2,7 @@ import type { ProviderName } from '@llmux/core'
 import type { ModelMapping } from '../config'
 import type { RequestFormat } from '../middleware/format'
 import type { Router } from '../routing'
-import type { ModelFamily } from './family-rate-limiting'
+import type { ModelFamily } from './account-rotation-with-tier'
 
 export interface ProxyOptions {
   sourceFormat: RequestFormat

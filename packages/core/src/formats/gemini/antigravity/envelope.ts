@@ -25,5 +25,7 @@ export function buildAntigravityEnvelope(
     request: payload,
     userAgent: options.userAgent,
     requestId: options.requestId || randomUUID(),
+    // Metadata removed from JSON body as it causes "Unknown name" error in Antigravity API
+    // metadata: options.metadata,
   }
 }

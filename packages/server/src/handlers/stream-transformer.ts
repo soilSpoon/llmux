@@ -106,7 +106,18 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
     )
   }
 
-  // 2. Determine BUILDER from Source Format
+  // 2. Initialize StreamingPipeline from Provider (Priority)
+  // Some providers (like Antigravity) require stateful parsing that SchemaFormat doesn't support yet
+  try {
+    const providerConfig = getProvider(targetProvider)
+    if (providerConfig.createStreamingPipeline) {
+      streamingPipeline = providerConfig.createStreamingPipeline(formatContext.model)
+    }
+  } catch (error) {
+    logger.warn({ error: String(error), targetProvider }, 'Failed to create streaming pipeline')
+  }
+
+  // 3. Determine BUILDER from Source Format
   if (sourceFormat === 'anthropic-messages') {
     streamingBuilder = new AnthropicStreamingBuilder(formatContext.model)
   } else if (sourceFormat === 'openai-chat') {
@@ -148,19 +159,101 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
         if (!rawEvent.trim()) continue
 
         // Provider Strategy: Handle raw stream event (e.g. signature extraction)
-        if (providerStrategy?.handleStreamEvent) {
-          providerStrategy.handleStreamEvent({
-            event: rawEvent,
-            context: options as unknown as ProviderStreamContext,
-            state: {
-              accumulatedSignatures: streamContext.accumulatedSignatures,
-            },
-          })
+        try {
+          if (providerStrategy?.handleStreamEvent) {
+            providerStrategy.handleStreamEvent({
+              event: rawEvent,
+              context: options as unknown as ProviderStreamContext,
+              state: {
+                accumulatedSignatures: streamContext.accumulatedSignatures,
+              },
+            })
+          }
+        } catch (strategyError) {
+          logger.warn(
+            { error: String(strategyError) },
+            'Provider strategy handleStreamEvent failed'
+          )
         }
 
         try {
-          // New Architecture: Use Builder Pattern
-          if (streamingBuilder && formatParser?.parseStreamChunk) {
+          // Priority 1: Use Provider StreamingPipeline (Stateful/Complex)
+          if (streamingPipeline) {
+            // 1. Parse: Raw SSE → Unified StreamChunk
+            const parsed = streamingPipeline.parse(rawEvent)
+
+            if (!parsed) {
+              continue
+            }
+
+            // 누적 텍스트 업데이트 (파싱된 청크에서 텍스트 추출)
+            const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
+            const filteredChunks: StreamChunk[] = []
+
+            for (const chunk of parsedChunks) {
+              // Deduplicate thinking chunks
+              if (
+                (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
+                chunk.delta?.thinking
+              ) {
+                const thinking = chunk.delta.thinking
+                const signature = thinking.signature
+                const text = thinking.text
+
+                // If signature matches last one, check if text is duplicate
+                if (signature && signature === streamContext.lastThinkingSignature) {
+                  if (text === streamContext.lastThinkingText) {
+                    continue // Skip duplicate
+                  }
+                }
+
+                streamContext.lastThinkingSignature = signature
+                streamContext.lastThinkingText = text
+                streamContext.accumulatedThinking += text || ''
+              } else if (
+                (chunk.type === 'text-delta' || chunk.type === 'content') &&
+                chunk.delta?.text
+              ) {
+                streamContext.accumulatedText += chunk.delta.text
+              }
+
+              filteredChunks.push(chunk)
+            }
+
+            // 2. Build: Unified StreamChunk → Target format SSE
+            const built = streamingPipeline.build(filteredChunks)
+
+            if (!built) {
+              continue
+            }
+
+            // 3. Filter: Decide which outputs to include
+            const outputs = Array.isArray(built) ? built : [built]
+            for (const output of outputs) {
+              if (!output.trim()) continue
+
+              // Filter decides if we include this output
+              if (!streamingPipeline.filter(output)) {
+                continue
+              }
+
+              // Stop buffering if limit reached, but continue streaming
+              if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                streamContext.fullResponse += output
+              } else if (!loggedTruncationWarning) {
+                logger.warn(
+                  { reqId: options.reqId, bufferSize: streamContext.fullResponse.length },
+                  'Stream buffer limit reached, truncation enabled'
+                )
+                loggedTruncationWarning = true
+              }
+
+              streamContext.chunkCount++
+              controller.enqueue(encoder.encode(output))
+            }
+          }
+          // Priority 2: Use SchemaFormat Parser + StreamingBuilder (Stateless/Standard)
+          else if (streamingBuilder && formatParser?.parseStreamChunk) {
             // 1. Parse: Gemini SSE -> Unified StreamChunk
             const parsed = formatParser.parseStreamChunk(rawEvent)
 
@@ -225,81 +318,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                 controller.enqueue(encoder.encode(output))
               }
             }
-          }
-          // Legacy: Use StreamingPipeline
-          else if (streamingPipeline) {
-            // 1. Parse: Raw SSE → Unified StreamChunk
-            const parsed = streamingPipeline.parse(rawEvent)
-
-            if (!parsed) {
-              continue
-            }
-
-            // 누적 텍스트 업데이트 (파싱된 청크에서 텍스트 추출)
-            const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
-            const filteredChunks = []
-
-            for (const chunk of parsedChunks) {
-              // Deduplicate thinking chunks
-              if (
-                (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
-                chunk.delta?.thinking
-              ) {
-                const thinking = chunk.delta.thinking
-                const signature = thinking.signature
-                const text = thinking.text
-
-                // If signature matches last one, check if text is duplicate
-                if (signature && signature === streamContext.lastThinkingSignature) {
-                  if (text === streamContext.lastThinkingText) {
-                    continue // Skip duplicate
-                  }
-                }
-
-                streamContext.lastThinkingSignature = signature
-                streamContext.lastThinkingText = text
-                streamContext.accumulatedThinking += text || ''
-              } else if (
-                (chunk.type === 'text-delta' || chunk.type === 'content') &&
-                chunk.delta?.text
-              ) {
-                streamContext.accumulatedText += chunk.delta.text
-              }
-
-              filteredChunks.push(chunk)
-            }
-
-            // 2. Build: Unified StreamChunk → Target format SSE
-            const built = streamingPipeline.build(filteredChunks)
-
-            if (!built) {
-              continue
-            }
-
-            // 3. Filter: Decide which outputs to include
-            const outputs = Array.isArray(built) ? built : [built]
-            for (const output of outputs) {
-              if (!output.trim()) continue
-
-              // Filter decides if we include this output
-              if (!streamingPipeline.filter(output)) {
-                continue
-              }
-
-              // Stop buffering if limit reached, but continue streaming
-              if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
-                streamContext.fullResponse += output
-              } else if (!loggedTruncationWarning) {
-                logger.warn(
-                  { reqId: options.reqId, bufferSize: streamContext.fullResponse.length },
-                  'Stream buffer limit reached, truncation enabled'
-                )
-                loggedTruncationWarning = true
-              }
-
-              streamContext.chunkCount++
-              controller.enqueue(encoder.encode(output))
-            }
           } else {
             // No builder/pipeline - Pass through with warning
             if (streamContext.chunkCount === 0) {
@@ -324,7 +342,10 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           }
         } catch (error) {
           logger.error(
-            { error: error instanceof Error ? error.message : String(error) },
+            {
+              error: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : undefined,
+            },
             'Stream chunk transform error'
           )
           throw error
@@ -344,18 +365,78 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           if (!event.trim()) continue
 
           // Provider Strategy: Handle raw stream event in flush
-          if (providerStrategy?.handleStreamEvent) {
-            providerStrategy.handleStreamEvent({
-              event,
-              context: options as unknown as ProviderStreamContext,
-              state: {
-                accumulatedSignatures: streamContext.accumulatedSignatures,
+          try {
+            if (providerStrategy?.handleStreamEvent) {
+              providerStrategy.handleStreamEvent({
+                event,
+                context: options as unknown as ProviderStreamContext,
+                state: {
+                  accumulatedSignatures: streamContext.accumulatedSignatures,
+                },
+              })
+            }
+          } catch (strategyError) {
+            logger.warn(
+              {
+                error: String(strategyError),
+                stack: strategyError instanceof Error ? strategyError.stack : undefined,
               },
-            })
+              'Provider strategy handleStreamEvent failed in flush'
+            )
           }
 
           try {
-            if (streamingBuilder && formatParser?.parseStreamChunk) {
+            if (streamingPipeline) {
+              const parsed = streamingPipeline.parse(event)
+
+              if (!parsed) continue
+
+              const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
+              const filteredChunks: StreamChunk[] = []
+
+              for (const chunk of parsedChunks) {
+                if (chunk.type === 'text-delta' || chunk.type === 'content') {
+                  if (streamContext.accumulatedText.length < MAX_STREAM_BUFFER_SIZE) {
+                    streamContext.accumulatedText += chunk.delta?.text || ''
+                  }
+                } else if (chunk.type === 'thinking-delta' || chunk.type === 'thinking') {
+                  const thinking = chunk.delta?.thinking
+                  const signature = thinking?.signature
+                  const text = thinking?.text
+
+                  if (signature && signature === streamContext.lastThinkingSignature) {
+                    if (text === streamContext.lastThinkingText) {
+                      continue // Skip duplicate
+                    }
+                  }
+
+                  streamContext.lastThinkingSignature = signature
+                  streamContext.lastThinkingText = text
+                  streamContext.accumulatedThinking += text
+                }
+
+                filteredChunks.push(chunk)
+              }
+
+              const built = streamingPipeline.build(filteredChunks)
+
+              if (!built) continue
+
+              const outputs = Array.isArray(built) ? built : [built]
+              for (const output of outputs) {
+                if (!output.trim()) continue
+
+                if (!streamingPipeline.filter(output)) {
+                  continue
+                }
+
+                if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+                  streamContext.fullResponse += output
+                }
+                streamContext.chunkCount++
+                controller.enqueue(encoder.encode(output))
+              }
+            } else if (streamingBuilder && formatParser?.parseStreamChunk) {
               const parsed = formatParser.parseStreamChunk(event)
               if (!parsed) continue
 
@@ -391,60 +472,6 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
                   controller.enqueue(encoder.encode(output))
                 }
               }
-            } else if (streamingPipeline) {
-              const parsed = streamingPipeline.parse(event)
-
-              if (!parsed) {
-                continue
-              }
-
-              const parsedChunks = Array.isArray(parsed) ? parsed : [parsed]
-              const filteredChunks: StreamChunk[] = []
-
-              for (const chunk of parsedChunks) {
-                if (chunk.type === 'text-delta' || chunk.type === 'content') {
-                  if (streamContext.accumulatedText.length < MAX_STREAM_BUFFER_SIZE) {
-                    streamContext.accumulatedText += chunk.delta?.text || ''
-                  }
-                } else if (chunk.type === 'thinking-delta' || chunk.type === 'thinking') {
-                  const thinking = chunk.delta?.thinking
-                  const signature = thinking?.signature
-                  const text = thinking?.text
-
-                  if (signature && signature === streamContext.lastThinkingSignature) {
-                    if (text === streamContext.lastThinkingText) {
-                      continue // Skip duplicate
-                    }
-                  }
-
-                  streamContext.lastThinkingSignature = signature
-                  streamContext.lastThinkingText = text
-                  streamContext.accumulatedThinking += text
-                }
-
-                filteredChunks.push(chunk)
-              }
-
-              const built = streamingPipeline.build(filteredChunks)
-
-              if (!built) {
-                continue
-              }
-
-              const outputs = Array.isArray(built) ? built : [built]
-              for (const output of outputs) {
-                if (!output.trim()) continue
-
-                if (!streamingPipeline.filter(output)) {
-                  continue
-                }
-
-                if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
-                  streamContext.fullResponse += output
-                }
-                streamContext.chunkCount++
-                controller.enqueue(encoder.encode(output))
-              }
             } else {
               // Pass through in flush
               if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
@@ -455,7 +482,10 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
             }
           } catch (error) {
             logger.error(
-              { error: error instanceof Error ? error.message : String(error) },
+              {
+                error: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : undefined,
+              },
               'Stream flush transform error'
             )
           }
@@ -463,20 +493,8 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
       }
 
       // Flush final state from pipeline/builder
-      if (streamingBuilder) {
-        const finalOutputs = streamingBuilder.flush()
-
-        if (finalOutputs && finalOutputs.length > 0) {
-          const finalStr = finalOutputs.join('')
-
-          if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
-            streamContext.fullResponse += finalStr
-          }
-          streamContext.chunkCount += finalOutputs.length
-          controller.enqueue(encoder.encode(finalStr))
-        } else {
-        }
-      } else if (streamingPipeline) {
+      // Priority 1: StreamingPipeline (if it was used)
+      if (streamingPipeline) {
         const final = streamingPipeline.flush()
         if (final) {
           const finalOutputs = Array.isArray(final) ? final : [final]
@@ -487,7 +505,20 @@ export function createStreamTransformer(options: StreamTransformerOptions) {
           }
           streamContext.chunkCount += finalOutputs.length
           controller.enqueue(encoder.encode(finalStr))
-        } else {
+        }
+      }
+      // Priority 2: StreamingBuilder (only if pipeline wasn't used)
+      else if (streamingBuilder) {
+        const finalOutputs = streamingBuilder.flush()
+
+        if (finalOutputs && finalOutputs.length > 0) {
+          const finalStr = finalOutputs.join('')
+
+          if (streamContext.fullResponse.length < MAX_STREAM_BUFFER_SIZE) {
+            streamContext.fullResponse += finalStr
+          }
+          streamContext.chunkCount += finalOutputs.length
+          controller.enqueue(encoder.encode(finalStr))
         }
       }
 

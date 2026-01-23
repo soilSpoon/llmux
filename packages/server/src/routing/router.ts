@@ -1,8 +1,8 @@
 import { createLogger, type ProviderName } from '@llmux/core'
 import type { RoutingConfig } from '../config'
-import { type CooldownManager, globalCooldownManager } from '../cooldown'
 import { AllCooldownError } from '../handlers/error-utils'
 import { parseModelMapping } from '../handlers/model-mapping'
+import { type RateLimitStore, rateLimitStore } from '../handlers/rate-limit-store'
 import type { ModelLookup } from '../models/lookup'
 import { ModelRouter } from './model-router'
 import type { UpstreamProvider } from './types'
@@ -16,13 +16,13 @@ export interface RouteResult {
 
 export class Router {
   private config: RoutingConfig
-  private cooldownManager: CooldownManager
+  private rateLimitStore: RateLimitStore
   private currentIndex = 0
   private modelRouter: ModelRouter
 
   constructor(config: RoutingConfig = {}, modelLookup?: ModelLookup) {
     this.config = config
-    this.cooldownManager = globalCooldownManager
+    this.rateLimitStore = rateLimitStore
 
     // Transform legacy modelMapping to new format if needed
     // routing/types.ts: UpstreamProvider = ProviderName | 'openai-web' | 'opencode-zen'
@@ -94,7 +94,10 @@ export class Router {
     // Check both the specific provider:model key AND the requested model alias
     // This ensures that if handleRateLimit failed to resolve the provider key (e.g. missing mapping),
     // we still respect the rate limit on the model name itself.
-    if (this.cooldownManager.isAvailable(key) && this.cooldownManager.isAvailable(requestedModel)) {
+    if (
+      !this.rateLimitStore.isGlobalCooldown(key) &&
+      !this.rateLimitStore.isGlobalCooldown(requestedModel)
+    ) {
       return {
         provider: resolution.providerId as ProviderName,
         model: resolution.targetModel,
@@ -106,7 +109,7 @@ export class Router {
       const fallbackModel = fallback.model || resolution.targetModel
       const fallbackKey = `${fallback.provider}:${fallbackModel}`
 
-      const available = this.cooldownManager.isAvailable(fallbackKey)
+      const available = !this.rateLimitStore.isGlobalCooldown(fallbackKey)
       logger.debug(
         {
           requestedModel,
@@ -133,7 +136,7 @@ export class Router {
       ] as UpstreamProvider
       if (provider) {
         const legacyKey = `${provider}:${requestedModel}`
-        if (this.cooldownManager.isAvailable(legacyKey)) {
+        if (!this.rateLimitStore.isGlobalCooldown(legacyKey)) {
           return {
             provider,
             model: requestedModel,
@@ -169,30 +172,30 @@ export class Router {
 
   isAvailable(provider: string, model: string): boolean {
     const key = `${provider}:${model}`
-    return this.cooldownManager.isAvailable(key)
+    return !this.rateLimitStore.isGlobalCooldown(key)
   }
 
   handleRateLimit(model: string, retryAfterMs?: number): void {
     logger.warn({ model, retryAfterMs }, '[Router] Marking model as rate-limited')
 
     // Always mark the raw model name key
-    this.cooldownManager.markRateLimited(model, retryAfterMs)
+    this.rateLimitStore.markGlobalCooldown(model, retryAfterMs)
 
     if (this.config.modelMapping?.[model]) {
       const mapping = this.config.modelMapping[model]
       const key = `${mapping.provider}:${mapping.model}`
-      this.cooldownManager.markRateLimited(key, retryAfterMs)
+      this.rateLimitStore.markGlobalCooldown(key, retryAfterMs)
     }
 
     // Also handle if model is already in provider:model format
     if (model.includes(':')) {
-      this.cooldownManager.markRateLimited(model, retryAfterMs)
+      this.rateLimitStore.markGlobalCooldown(model, retryAfterMs)
     }
 
     // Attempt sync resolution
     const result = this.modelRouter.resolveSync(model)
     const key = `${result.providerId}:${result.targetModel}`
-    this.cooldownManager.markRateLimited(key, retryAfterMs)
+    this.rateLimitStore.markGlobalCooldown(key, retryAfterMs)
   }
 
   /**
@@ -201,7 +204,7 @@ export class Router {
    */
   handleSuccess(provider: string, model: string): void {
     const key = `${provider}:${model}`
-    this.cooldownManager.reset(key)
+    this.rateLimitStore.resetGlobalCooldown(key)
   }
 }
 

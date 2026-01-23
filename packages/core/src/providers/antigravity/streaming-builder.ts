@@ -39,7 +39,14 @@ export class AntigravityStreamingBuilder {
       // Auto-emit message_start on first content block (Anthropic format)
       if (
         !this.state.messageStartGenerated &&
-        (c.type === 'text-delta' || c.type === 'thinking-start' || c.type === 'thinking-delta')
+        (c.type === 'text-delta' ||
+          c.type === 'content' ||
+          c.type === 'thinking-start' ||
+          c.type === 'thinking-delta' ||
+          c.type === 'tool-call-start' ||
+          c.type === 'tool-input-delta' ||
+          // Handle tool_call (from Gemini/Antigravity generic parser)
+          c.type === 'tool_call')
       ) {
         const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
         const msgStart = {
@@ -60,20 +67,142 @@ export class AntigravityStreamingBuilder {
       }
 
       // Convert StreamChunk to Anthropic SSE (prefer Anthropic format for consistency)
-      if (c.type === 'text-delta' && c.delta?.text) {
+      if ((c.type === 'text-delta' || c.type === 'content') && c.delta?.text) {
+        // Automatically start text block if not started
+        if (this.state.currentBlockType !== 'text') {
+          // If we were in another block, stop it first
+          if (this.state.currentBlockType) {
+            const stopEvt = {
+              type: 'content_block_stop',
+              index: this.state.currentBlockIndex,
+            }
+            results.push(formatSSEEvent('content_block_stop', stopEvt))
+            this.state.currentBlockIndex++
+          }
+
+          // Start new text block
+          this.state.currentBlockType = 'text'
+          const startEvt = {
+            type: 'content_block_start',
+            index: this.state.currentBlockIndex,
+            content_block: { type: 'text', text: '' },
+          }
+          results.push(formatSSEEvent('content_block_start', startEvt))
+        }
+
         const evt = {
           type: 'content_block_delta',
-          index: c.blockIndex || 0,
+          index: this.state.currentBlockIndex,
           delta: { type: 'text_delta', text: c.delta.text },
         }
         results.push(formatSSEEvent('content_block_delta', evt))
       } else if (c.type === 'thinking-delta' && c.delta?.thinking) {
+        // Automatically start thinking block if not started
+        if (this.state.currentBlockType !== 'thinking') {
+          // If we were in another block, stop it first
+          if (this.state.currentBlockType) {
+            const stopEvt = {
+              type: 'content_block_stop',
+              index: this.state.currentBlockIndex,
+            }
+            results.push(formatSSEEvent('content_block_stop', stopEvt))
+            this.state.currentBlockIndex++
+          }
+
+          // Start new thinking block
+          this.state.currentBlockType = 'thinking'
+          const startEvt = {
+            type: 'content_block_start',
+            index: this.state.currentBlockIndex,
+            content_block: { type: 'thinking', thinking: '' },
+          }
+          results.push(formatSSEEvent('content_block_start', startEvt))
+        }
+
         const evt = {
           type: 'content_block_delta',
-          index: c.blockIndex || 0,
+          index: this.state.currentBlockIndex,
           delta: { type: 'thinking_delta', thinking: c.delta.thinking.text },
         }
         results.push(formatSSEEvent('content_block_delta', evt))
+
+        if (c.delta.thinking.signature) {
+          const sigEvt = {
+            type: 'content_block_delta',
+            index: this.state.currentBlockIndex,
+            delta: {
+              type: 'signature_delta',
+              signature: c.delta.thinking.signature,
+            },
+          }
+          results.push(formatSSEEvent('content_block_delta', sigEvt))
+        }
+      } else if (c.type === 'thinking-start') {
+        // Explicit thinking start
+        if (this.state.currentBlockType) {
+          const stopEvt = {
+            type: 'content_block_stop',
+            index: this.state.currentBlockIndex,
+          }
+          results.push(formatSSEEvent('content_block_stop', stopEvt))
+          this.state.currentBlockIndex++
+        }
+
+        this.state.currentBlockType = 'thinking'
+        const startEvt = {
+          type: 'content_block_start',
+          index: this.state.currentBlockIndex,
+          content_block: { type: 'thinking', thinking: '' },
+        }
+        results.push(formatSSEEvent('content_block_start', startEvt))
+      } else if (c.type === 'thinking-end') {
+        // Explicit thinking end
+        if (this.state.currentBlockType === 'thinking') {
+          const stopEvt = {
+            type: 'content_block_stop',
+            index: this.state.currentBlockIndex,
+          }
+          results.push(formatSSEEvent('content_block_stop', stopEvt))
+          this.state.currentBlockType = null
+          this.state.currentBlockIndex++
+        }
+      } else if (
+        (c.type === 'tool-call-start' && c.toolCall) ||
+        (c.type === 'tool_call' && c.delta?.toolCall)
+      ) {
+        // Automatically start tool_use block if not started
+        if (this.state.currentBlockType !== 'tool_use') {
+          // If we were in another block, stop it first
+          if (this.state.currentBlockType) {
+            const stopEvt = {
+              type: 'content_block_stop',
+              index: this.state.currentBlockIndex,
+            }
+            results.push(formatSSEEvent('content_block_stop', stopEvt))
+            this.state.currentBlockIndex++
+          }
+
+          // Start new tool_use block
+          this.state.currentBlockType = 'tool_use'
+          this.state.hasToolUseBlock = true
+
+          // Handle both tool-call-start (explicit) and tool_call (generic/delta)
+          const toolCall = c.type === 'tool-call-start' ? c.toolCall : c.delta?.toolCall
+
+          if (toolCall) {
+            const startEvt = {
+              type: 'content_block_start',
+              index: this.state.currentBlockIndex,
+              content_block: {
+                type: 'tool_use',
+                id: toolCall.id,
+                name: toolCall.name,
+                input: {},
+              },
+            }
+            results.push(formatSSEEvent('content_block_start', startEvt))
+          }
+        }
       } else if (c.type === 'tool-input-delta' && c.delta?.partialJson) {
         const evt = {
           type: 'content_block_delta',
@@ -113,12 +242,6 @@ export class AntigravityStreamingBuilder {
         }
       } else if (c.type === 'block_stop') {
         // Skip block_stop - will be handled in flush()
-      } else if (c.type === 'thinking-end') {
-        // Skip explicit thinking-end for Anthropic wire format as it's handled via block transitions
-        // or implicit block stops. However, if we need to force a block transition,
-        // the normalizeStreamingOrder ensures thinking-end comes before text-delta.
-        // We can optionally emit a content_block_stop here if we track block state precisely.
-        // For now, Antigravity builder logic is simpler and relies on client to handle stops.
       }
     }
 

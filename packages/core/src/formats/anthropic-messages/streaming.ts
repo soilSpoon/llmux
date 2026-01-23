@@ -158,6 +158,14 @@ function handleContentBlockStart(event: AnthropicContentBlockStartEvent): Stream
         delta: { type: 'thinking', thinking: { text: '' } },
       }
 
+    case 'redacted_thinking':
+      return {
+        type: 'redacted-thinking',
+        blockIndex,
+        blockType: 'redacted_thinking',
+        delta: { type: 'redacted_thinking', redactedThinking: block.data },
+      }
+
     default:
       return null
   }
@@ -273,6 +281,13 @@ function handleError(event: AnthropicErrorEvent): StreamChunk {
 
 function convertChunkToSSE(chunk: StreamChunk): string | string[] {
   const blockIndex = chunk.blockIndex ?? 0
+
+  // DEBUG LOGGING
+  if (chunk.type !== 'usage' && chunk.type !== 'message_start' && chunk.type !== 'message_stop') {
+    console.log(
+      `[DEBUG] convertChunkToSSE received: type=${chunk.type}, keys=${Object.keys(chunk)}, delta=${JSON.stringify(chunk.delta || {})}`
+    )
+  }
 
   switch (chunk.type) {
     case 'content': {

@@ -63,13 +63,14 @@ export interface UnifiedMessage {
  * ContentPart - Union type for all content block types
  */
 export interface ContentPart {
-  type: 'text' | 'image' | 'tool_call' | 'tool_result' | 'thinking'
+  type: 'text' | 'image' | 'tool_call' | 'tool_result' | 'thinking' | 'redacted_thinking'
 
   text?: string
   image?: ImageData
   toolCall?: ToolCall
   toolResult?: ToolResult
   thinking?: ThinkingBlock
+  redactedThinking?: string // For redacted thinking data
   cacheControl?: CacheControl // Preserves Anthropic cache_control
 
   /**
@@ -418,6 +419,7 @@ export type UnifiedStreamChunkType =
   | 'thinking-start'
   | 'thinking-delta'
   | 'thinking-end'
+  | 'redacted-thinking' // New: For redacted thinking blocks
   // Meta events
   | 'usage'
   | 'finish'

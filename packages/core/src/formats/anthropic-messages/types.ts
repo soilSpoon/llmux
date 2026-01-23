@@ -243,6 +243,7 @@ export interface AnthropicContentBlockStartEvent {
     | { type: 'text'; text: string }
     | { type: 'tool_use'; id: string; name: string; input: JsonObject }
     | { type: 'thinking'; thinking: string }
+    | { type: 'redacted_thinking'; data: string }
 }
 
 /**

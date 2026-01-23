@@ -62,7 +62,9 @@ export function linearizeForClaude(messages: UnifiedMessage[]): UnifiedMessage[]
         const futureMsg = messages[j]
         if (!futureMsg) continue
 
-        if (futureMsg.role === 'tool') {
+        // Check if future message contains tool results (role can be 'tool' or 'user' for Anthropic)
+        const hasToolResults = futureMsg.parts.some((p) => p.type === 'tool_result')
+        if (hasToolResults) {
           const matchingParts = futureMsg.parts.filter(
             (p) => p.type === 'tool_result' && callIds.includes(p.toolResult?.toolCallId || '')
           )
@@ -97,11 +99,7 @@ function cleanupLinearizedMessages(messages: UnifiedMessage[]): UnifiedMessage[]
   const seenResultIds = new Set<string>()
 
   for (const msg of messages) {
-    if (msg.role === 'tool') {
-      continue
-    }
-
-    if (msg.role === 'user') {
+    if (msg.role === 'user' || msg.role === 'tool') {
       const parts = msg.parts.filter((p) => {
         if (p.type === 'tool_result') {
           const id = p.toolResult?.toolCallId || ''
@@ -112,6 +110,7 @@ function cleanupLinearizedMessages(messages: UnifiedMessage[]): UnifiedMessage[]
         return true
       })
 
+      // If all parts were filtered out (empty message), skip it
       if (parts.length > 0) {
         final.push({ ...msg, parts })
       }

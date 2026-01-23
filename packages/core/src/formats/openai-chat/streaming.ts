@@ -193,10 +193,15 @@ export function parseStreamChunk(chunk: string): StreamChunk | StreamChunk[] | n
  * @param modelOverride - Optional model name to use instead of chunk.model or default
  * @returns The SSE-formatted string
  */
-export function transformStreamChunk(chunk: StreamChunk, modelOverride?: string): string {
+export function transformStreamChunk(
+  chunk: StreamChunk,
+  options?: string | { modelOverride?: string; includeRole?: boolean }
+): string {
   const id = `chatcmpl-${generateId()}`
   const created = Math.floor(Date.now() / 1000)
   const index = chunk.blockIndex ?? 0
+  const modelOverride = typeof options === 'string' ? options : options?.modelOverride
+  const includeRole = typeof options === 'object' ? options?.includeRole : false
   const model = modelOverride || chunk.model
 
   switch (chunk.type) {
@@ -209,7 +214,10 @@ export function transformStreamChunk(chunk: StreamChunk, modelOverride?: string)
         choices: [
           {
             index,
-            delta: { content: chunk.delta?.text || '' },
+            delta: {
+              content: chunk.delta?.text || '',
+              ...(includeRole ? { role: 'assistant' } : {}),
+            },
             finish_reason: null,
           },
         ],
@@ -224,7 +232,10 @@ export function transformStreamChunk(chunk: StreamChunk, modelOverride?: string)
         choices: [
           {
             index,
-            delta: { content: chunk.delta?.text || '' },
+            delta: {
+              content: chunk.delta?.text || '',
+              ...(includeRole ? { role: 'assistant' } : {}),
+            },
             finish_reason: null,
           },
         ],
@@ -256,6 +267,7 @@ export function transformStreamChunk(chunk: StreamChunk, modelOverride?: string)
             index,
             delta: {
               tool_calls: [transformToolCallDelta(chunk)],
+              ...(includeRole ? { role: 'assistant' } : {}),
             },
             finish_reason: null,
           },
@@ -286,7 +298,10 @@ export function transformStreamChunk(chunk: StreamChunk, modelOverride?: string)
         choices: [
           {
             index,
-            delta: { reasoning_content: chunk.delta?.thinking?.text || '' },
+            delta: {
+              reasoning_content: chunk.delta?.thinking?.text || '',
+              ...(includeRole ? { role: 'assistant' } : {}),
+            },
             finish_reason: null,
           },
         ],

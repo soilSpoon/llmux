@@ -223,10 +223,10 @@ function parseClientRequest(
 }
 
 function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): UnifiedMessage[] {
-  return contents.map((c) => {
+  return contents.map((c): UnifiedMessage => {
     return {
       role: c.role === 'model' ? 'assistant' : 'user',
-      parts: c.parts.map((p) => {
+      parts: c.parts.map((p): ContentPart => {
         // Handle both camelCase and snake_case keys
         const text = 'text' in p ? p.text : undefined
         const thought = 'thought' in p ? p.thought : undefined
@@ -250,7 +250,7 @@ function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): 
         }
 
         // Text Block
-        if (text !== undefined) return { type: 'text', text }
+        if (text !== undefined) return { type: 'text', text } as ContentPart
 
         // Inline Data (Image)
         if ('inlineData' in p && p.inlineData) {
@@ -260,7 +260,7 @@ function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): 
               mimeType: p.inlineData.mimeType,
               data: p.inlineData.data,
             },
-          }
+          } as ContentPart
         }
         if ('inline_data' in p && p.inline_data) {
           return {
@@ -269,7 +269,7 @@ function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): 
               mimeType: p.inline_data.mime_type,
               data: p.inline_data.data,
             },
-          }
+          } as ContentPart
         }
 
         // Function Call
@@ -281,7 +281,7 @@ function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): 
               name: codec.decode(p.functionCall.name),
               arguments: p.functionCall.args,
             },
-          }
+          } as ContentPart
         }
         if ('function_call' in p && p.function_call) {
           const fc = p.function_call
@@ -293,7 +293,7 @@ function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): 
               name: codec.decode(fc.name),
               arguments: fc.args,
             },
-          }
+          } as ContentPart
         }
 
         // Function Response
@@ -304,7 +304,7 @@ function parseContents(contents: (AntigravityContent | GeminiClientContent)[]): 
           return parseFunctionResponse(p.function_response)
         }
 
-        return { type: 'text', text: '' } // Fallback
+        return { type: 'text', text: '' }
       }),
     }
   })
@@ -336,7 +336,7 @@ function parseFunctionResponse(fr: {
       toolCallId: fr.id || '',
       content: contentStr,
     },
-  }
+  } as ContentPart
 }
 
 function parseThinking(

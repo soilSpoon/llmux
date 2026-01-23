@@ -8,6 +8,8 @@
 import {
   type AntigravityProviderRequest,
   type AntigravityResponse,
+  isAntigravityClientRequest,
+  isAntigravityProviderRequest,
   isAntigravityResponse,
 } from '../../formats/gemini/antigravity/types'
 import type { GeminiCliRequest } from '../../formats/gemini/gemini-cli/types'
@@ -17,7 +19,7 @@ import type { UnifiedError } from '../../types/error'
 import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified'
 import { BaseProvider, type ProviderConfig, type ProviderName } from '../base'
 import { createAntigravityStreamingPipeline } from './streaming-pipeline'
-import { isAntigravityRequest } from './types'
+// import { isAntigravityRequest } from './types'
 
 export class AntigravityProvider extends BaseProvider {
   readonly name: ProviderName
@@ -36,7 +38,7 @@ export class AntigravityProvider extends BaseProvider {
   }
 
   isSupportedRequest(request: unknown): boolean {
-    if (isAntigravityRequest(request)) return true
+    if (isAntigravityProviderRequest(request) || isAntigravityClientRequest(request)) return true
 
     // Supports { payload: { contents: ... } } structure
     if (request && typeof request === 'object') {

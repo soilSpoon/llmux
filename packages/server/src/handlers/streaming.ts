@@ -139,8 +139,25 @@ export async function handleStreamingProxy(
 
     const bodyStream = response.body
     bodyStream.pipeTo(transformStream.writable).catch((error) => {
-      streamContext.error = error instanceof Error ? error.message : String(error)
-      logger.error({ reqId, error: streamContext.error }, '[Streaming] Pipe Error')
+      // Handle explicit 'undefined' error which often means stream abortion or upstream reset
+      const errorMessage =
+        error === undefined
+          ? 'Stream aborted or upstream reset connection (undefined error)'
+          : error instanceof Error
+            ? error.message
+            : String(error)
+
+      streamContext.error = errorMessage
+      logger.error(
+        {
+          reqId,
+          error: errorMessage,
+          rawError: typeof error,
+          rawErrorValue: String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+        },
+        '[Streaming] Pipe Error'
+      )
     })
 
     return new Response(transformStream.readable, {

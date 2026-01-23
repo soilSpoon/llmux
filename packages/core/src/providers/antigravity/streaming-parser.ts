@@ -1,14 +1,12 @@
 import crypto from 'node:crypto'
 import type { AnthropicStreamEvent } from '../../formats/anthropic-messages/types'
+import { parseGeminiStreamChunk } from '../../formats/gemini/streaming/parser'
 import type { StreamChunk } from '../../types/unified'
 import { ToolNameCodec } from '../../util/tool-name-codec'
-import type { GeminiCandidate, GeminiResponse } from '../gemini/types'
 import { mapToStopReason } from './streaming-utils'
 
-type GeminiStreamChunk = GeminiResponse
-
 export interface AntigravityParserState {
-  currentBlockType: 'thinking' | 'text' | 'tool_use' | null
+  currentBlockType: 'thinking' | 'text' | 'tool_use' | 'redacted_thinking' | null
   currentBlockIndex: number
   hasToolUseBlock: boolean
   detectedFormat: 'anthropic' | 'gemini' | null
@@ -169,80 +167,20 @@ export class AntigravityStreamingParser {
       }
 
       // 2. Check for Antigravity/Gemini wrapped format
-      this.state.detectedFormat = 'gemini'
+      const chunks = parseGeminiStreamChunk(parsed)
+      if (chunks) {
+        this.state.detectedFormat = 'gemini'
 
-      const payload = parsed as {
-        response?: GeminiStreamChunk
-        candidates?: unknown
-        usageMetadata?: unknown
-      }
-      const geminiChunk: GeminiStreamChunk | undefined =
-        payload.response || (payload.candidates ? (payload as GeminiStreamChunk) : undefined)
-
-      if (geminiChunk?.candidates && Array.isArray(geminiChunk.candidates)) {
-        const candidate = geminiChunk.candidates[0] as GeminiCandidate
-        if (!candidate) return null
-
-        const chunks: StreamChunk[] = []
-        const content = candidate.content
-        if (content?.parts && Array.isArray(content.parts)) {
-          for (const part of content.parts) {
-            if ('text' in part && part.text !== undefined && typeof part.text === 'string') {
-              const isThinking =
-                'thought' in part || 'thought_signature' in part || 'thoughtSignature' in part
-              if (isThinking) {
-                chunks.push({
-                  type: 'thinking-delta',
-                  delta: { thinking: { text: part.text } },
-                })
-              } else {
-                chunks.push({
-                  type: 'text-delta',
-                  delta: { text: part.text },
-                })
-              }
-            } else if ('functionCall' in part && part.functionCall) {
-              const fc = part.functionCall
-              const codec = new ToolNameCodec()
-              chunks.push({
-                type: 'tool-call-start',
-                toolCall: {
-                  id: fc.id || `call_${crypto.randomUUID()}`,
-                  name: codec.decode(fc.name || 'unknown'),
-                },
-              })
-              const argsStr = typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args)
-              chunks.push({
-                type: 'tool-input-delta',
-                delta: { partialJson: argsStr },
-              })
-              chunks.push({ type: 'tool-call-end' })
-            }
+        for (const chunk of chunks) {
+          if (chunk.type === 'usage' && chunk.usage) {
+            this.state.finalUsage = chunk.usage
+          }
+          if (chunk.type === 'finish' && chunk.finishReason) {
+            this.state.finishReason = chunk.finishReason.raw
           }
         }
 
-        if (candidate.finishReason) {
-          const unifiedReason = mapToStopReason(candidate.finishReason)
-          this.state.finishReason = candidate.finishReason
-          chunks.push({
-            type: 'finish',
-            finishReason: { unified: unifiedReason, raw: candidate.finishReason },
-          })
-        }
-
-        const usageMetadata = geminiChunk.usageMetadata
-        if (usageMetadata) {
-          this.state.finalUsage = {
-            inputTokens: usageMetadata.promptTokenCount || 0,
-            outputTokens: usageMetadata.candidatesTokenCount || 0,
-          }
-          chunks.push({
-            type: 'usage',
-            usage: this.state.finalUsage,
-          })
-        }
-
-        return chunks.length > 0 ? chunks : null
+        return chunks
       }
 
       return null

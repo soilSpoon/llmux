@@ -10,6 +10,7 @@ import { transformStreamChunk } from './streaming'
 export class OpenAIChatStreamingBuilder {
   private state = {
     finished: false,
+    hasSentRole: false,
     streamingState: {
       hasThinkingStarted: false,
       hasThinkingEnded: false,
@@ -35,7 +36,22 @@ export class OpenAIChatStreamingBuilder {
     const results: string[] = []
 
     for (const normalizedChunk of normalizedEvents) {
-      const output = transformStreamChunk(normalizedChunk)
+      let includeRole = false
+      if (!this.state.hasSentRole) {
+        // Add role to the first chunk that carries content or thinking
+        if (
+          normalizedChunk.type === 'content' ||
+          normalizedChunk.type === 'text-delta' ||
+          normalizedChunk.type === 'thinking' ||
+          normalizedChunk.type === 'thinking-delta' ||
+          normalizedChunk.type === 'tool_call'
+        ) {
+          includeRole = true
+          this.state.hasSentRole = true
+        }
+      }
+
+      const output = transformStreamChunk(normalizedChunk, { includeRole })
       if (output) {
         // In OpenAI format, each data line is followed by \n\n
         results.push(`${output}\n\n`)

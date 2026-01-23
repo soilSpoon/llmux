@@ -44,6 +44,7 @@ export type {
   AntigravityFunctionDeclaration,
   AntigravityFunctionResponse,
   AntigravityGenerationConfig,
+  AntigravityMetadata,
   AntigravityPart,
   AntigravityProviderRequest,
   AntigravityProviderRequestPayload,
@@ -98,11 +99,6 @@ export type {
   AnthropicTool,
 } from './providers/anthropic/types'
 export { AntigravityProvider } from './providers/antigravity'
-export type {
-  AntigravityInnerRequest,
-  AntigravityRequest,
-  AntigravityResponse,
-} from './providers/antigravity/types'
 export type { BackoffContext, BackoffStrategy } from './providers/backoff'
 export {
   AnthropicBackoffStrategy,

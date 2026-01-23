@@ -6,7 +6,7 @@ import {
   type ProviderName,
 } from '@llmux/core'
 import { accountRotationManager } from './account-rotation'
-import { getModelFamily } from './family-rate-limiting'
+import { getModelFamily } from './rate-limit-store'
 import type { ErrorHandlingContext, ErrorHandlingResult, RetryState } from './types'
 
 const logger = createLogger({ service: 'rate-limit-handler' })

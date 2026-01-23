@@ -541,6 +541,9 @@ function transformTools(tools: UnifiedTool[]): AnthropicTool[] {
       properties: tool.parameters.properties,
       required: tool.parameters.required,
     },
+    // Anthropic implicitly supports strict schema if schema is valid
+    // No explicit 'strict' field in AnthropicTool definition currently,
+    // but providing full JSON schema structure enables it.
   }))
 }
 

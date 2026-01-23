@@ -35,9 +35,8 @@ export interface AntigravityRequest {
   userAgent?: string
   requestId?: string
 
-  // Metadata passed through but not strictly part of the API spec root
-  // These might be injected into headers or used for logging
-  metadata?: AntigravityRequestMetadata
+  // Metadata removed from API spec root to fix validation errors
+  // metadata?: AntigravityRequestMetadata
 }
 
 /**

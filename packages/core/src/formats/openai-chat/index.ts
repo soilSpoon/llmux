@@ -70,7 +70,7 @@ export const OpenAIChatFormat: SchemaFormat = {
   },
 
   buildWireRequest(unified: UnifiedRequest, ctx: FormatContext): unknown {
-    return transformRequest(unified, ctx.model)
+    return transformRequest(unified, ctx.model, ctx.provider)
   },
 
   parseResponse(res: unknown): UnifiedResponse {

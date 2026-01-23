@@ -1,11 +1,5 @@
 import type { JsonValue } from '../../types/json-schema.js'
-import type {
-  StopReason,
-  StreamChunk,
-  UnifiedRequest,
-  UnifiedResponse,
-} from '../../types/unified.js'
-import { ToolNameCodec } from '../../util/tool-name-codec.js'
+import type { StreamChunk, UnifiedRequest, UnifiedResponse } from '../../types/unified.js'
 import { isJsonValue, isRecord } from '../../util/type-guards.js'
 import type { FormatContext, FormatId, SchemaFormat } from '../base.js'
 import { getAntigravityHeaders } from './antigravity/headers.js'
@@ -21,8 +15,9 @@ import { resolveGeminiFamilyCapabilities } from './capabilities.js'
 import { getGeminiCliHeaders } from './gemini-cli/headers.js'
 import { buildGeminiCliRequest } from './gemini-cli/request.js'
 import type { GeminiCliRequest } from './gemini-cli/types.js'
-import { buildGeminiResponse, type GeminiResponse } from './shared/response.js'
+import { buildGeminiResponse } from './shared/response.js'
 import { GeminiStreamingBuilder } from './streaming/gemini-streaming-builder.js'
+import { parseGeminiStreamChunk } from './streaming/parser.js'
 import { StreamingStateMachine } from './streaming/state-machine.js'
 
 function sanitizeMetadata(meta: UnifiedRequest['metadata']): Record<string, JsonValue> | undefined {
@@ -48,28 +43,9 @@ function isGeminiCliRequest(request: unknown): request is GeminiCliRequest {
   )
 }
 
-function isGeminiResponse(val: unknown): val is GeminiResponse {
-  return isRecord(val) && Array.isArray(val.candidates)
-}
-
 function isNestedContents(req: unknown): boolean {
   if (!isRecord(req)) return false
   return 'request' in req && isRecord(req.request) && 'contents' in req.request
-}
-
-function mapFinishReason(reason?: string): StopReason {
-  if (!reason) return null
-  switch (reason) {
-    case 'STOP':
-      return 'end_turn'
-    case 'MAX_TOKENS':
-      return 'max_tokens'
-    case 'SAFETY':
-    case 'RECITATION':
-      return 'content_filter'
-    default:
-      return null
-  }
 }
 
 /**
@@ -180,8 +156,7 @@ export class GeminiFormat implements SchemaFormat {
     return new StreamingStateMachine()
   }
 
-  parseStreamChunk(chunk: unknown): StreamChunk | null {
-    let data: GeminiResponse
+  parseStreamChunk(chunk: unknown): StreamChunk | StreamChunk[] | null {
     try {
       let jsonStr = typeof chunk === 'string' ? chunk : ''
       if (jsonStr.startsWith('data: ')) {
@@ -189,84 +164,10 @@ export class GeminiFormat implements SchemaFormat {
       }
 
       const raw = jsonStr ? JSON.parse(jsonStr) : chunk
-      if (!raw || typeof raw !== 'object') return null
-
-      // Check for wrapped Antigravity response
-      if (isAntigravityResponse(raw)) {
-        data = raw.response
-      } else if (isGeminiResponse(raw)) {
-        data = raw
-      } else {
-        return null
-      }
+      return parseGeminiStreamChunk(raw)
     } catch {
       return null
     }
-
-    if (!data || !data.candidates?.[0]) return null
-
-    const candidate = data.candidates[0]
-    const part = candidate.content?.parts?.[0]
-
-    // Usage
-    if (data.usageMetadata) {
-      return {
-        type: 'usage',
-        usage: {
-          inputTokens: data.usageMetadata.promptTokenCount || 0,
-          outputTokens: data.usageMetadata.candidatesTokenCount || 0,
-          totalTokens: data.usageMetadata.totalTokenCount || 0,
-        },
-      }
-    }
-
-    // Finish
-    if (candidate.finishReason && candidate.finishReason !== 'STOP') {
-      if (!part) {
-        return {
-          type: 'finish',
-          finishReason: {
-            unified: mapFinishReason(candidate.finishReason),
-            raw: candidate.finishReason,
-          },
-        }
-      }
-    }
-
-    // Content
-    if (part) {
-      if (part.thought && part.text) {
-        return {
-          type: 'thinking-delta',
-          delta: {
-            thinking: { text: part.text, signature: part.thoughtSignature },
-          },
-        }
-      }
-      if (part.text) {
-        return {
-          type: 'text-delta',
-          delta: { text: part.text },
-        }
-      }
-      if (part.functionCall) {
-        const codec = new ToolNameCodec()
-        const args = part.functionCall.args
-        return {
-          type: 'tool_call',
-          delta: {
-            type: 'tool_call',
-            toolCall: {
-              id: part.functionCall.id || 'unknown',
-              name: codec.decode(part.functionCall.name),
-              arguments: typeof args === 'string' ? JSON.parse(args) : args,
-            },
-          },
-        }
-      }
-    }
-
-    return null
   }
 
   buildStreamChunk(chunk: StreamChunk): string | string[] {

@@ -65,6 +65,7 @@ export function transformTool(tool: UnifiedTool): OpenAIChatTool {
       name: tool.name,
       description: tool.description,
       parameters: parameters as unknown as OpenAIChatFunctionParameters,
+      strict: true, // Default strict: true as per modern best practices
     },
   }
 }

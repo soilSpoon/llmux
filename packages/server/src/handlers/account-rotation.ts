@@ -2,19 +2,22 @@ import { createHash } from 'node:crypto'
 import { type Credential, isOAuthCredential, type OAuthCredential, TokenRefresh } from '@llmux/auth'
 import { createLogger } from '@llmux/core'
 import { AccountRotationWithTierManager, type ModelFamily } from './account-rotation-with-tier'
-import { getModelFamily } from './family-rate-limiting'
-import { rateLimitStore } from './rate-limit-store'
+import { getModelFamily, rateLimitStore } from './rate-limit-store'
 
 const logger = createLogger({ service: 'account-rotation-manager' })
 
+export function getAccountId(credential: Credential): string {
+  if (isOAuthCredential(credential)) {
+    return credential.accountId || credential.email || 'unknown-oauth'
+  }
+  // For API keys or other types, use a hash of the credential itself as a stable ID
+  const str = JSON.stringify(credential)
+  return createHash('sha256').update(str).digest('hex').slice(0, 16)
+}
+
 export class AccountRotationManager {
   private getAccountId(credential: Credential): string {
-    if (isOAuthCredential(credential)) {
-      return credential.accountId || credential.email || 'unknown-oauth'
-    }
-    // For API keys or other types, use a hash of the credential itself as a stable ID
-    const str = JSON.stringify(credential)
-    return createHash('sha256').update(str).digest('hex').slice(0, 16)
+    return getAccountId(credential)
   }
 
   /**

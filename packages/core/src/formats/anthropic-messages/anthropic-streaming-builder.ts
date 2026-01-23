@@ -1,7 +1,24 @@
 import crypto from 'node:crypto'
-import type { StreamChunk, ThinkingBlock } from '../../types/unified'
+import type { JsonObject, StreamChunk } from '../../types/unified'
 import { normalizeStreamingOrder, type StreamingState } from '../../util/stream-normalizer'
 import { formatSSE } from './streaming'
+
+interface BuilderState {
+  phase: 'idle' | 'message_started' | 'block_started' | 'finished'
+  currentBlockType: 'text' | 'thinking' | 'tool_use' | 'redacted_thinking' | null
+  currentBlockIndex: number
+  messageId: string
+  hasToolUseBlock: boolean
+  currentToolName: string
+  currentToolId: string
+  streamingState: StreamingState
+}
+
+type AnthropicContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; thinking: string }
+  | { type: 'redacted_thinking'; data: string }
+  | { type: 'tool_use'; id: string; name: string; input: JsonObject }
 
 /**
  * Anthropic Streaming Builder
@@ -11,25 +28,23 @@ import { formatSSE } from './streaming'
  * message_start -> content_block_start -> content_block_delta -> content_block_stop -> message_delta -> message_stop
  */
 export class AnthropicStreamingBuilder {
-  private state = {
-    phase: 'idle' as 'idle' | 'message_started' | 'block_started' | 'finished',
-    currentBlockType: null as 'text' | 'thinking' | 'tool_use' | null,
-    currentBlockIndex: 0,
-    messageId: '',
-    accumulatedToolInput: '', // For merging partial JSON if needed
-    hasToolUseBlock: false, // Track if any tool_use block was emitted
-    currentToolName: '', // Track current tool name to detect changes
-    currentToolId: '', // Track current tool id to detect changes
-    currentThinkingBlocks: [] as ThinkingBlock[], // Track thinking blocks to reset/handle state
-    streamingState: {
-      hasThinkingStarted: false,
-      hasThinkingEnded: false,
-      hasTextStarted: false,
-    } as StreamingState,
-  }
+  private state: BuilderState
 
   constructor(private model: string) {
-    this.state.messageId = `msg_${Math.random().toString(36).slice(2, 11)}`
+    this.state = {
+      phase: 'idle',
+      currentBlockType: null,
+      currentBlockIndex: 0,
+      messageId: `msg_${Math.random().toString(36).slice(2, 11)}`,
+      hasToolUseBlock: false,
+      currentToolName: '',
+      currentToolId: '',
+      streamingState: {
+        hasThinkingStarted: false,
+        hasThinkingEnded: false,
+        hasTextStarted: false,
+      },
+    }
   }
 
   /**
@@ -67,14 +82,11 @@ export class AnthropicStreamingBuilder {
         }
         results.push(formatSSE('message_start', msgStart))
         this.state.phase = 'message_started'
-
-        // Reset thinking blocks state on message start (US-007)
-        this.state.currentThinkingBlocks = []
       }
 
       // Handle finish/done chunks
       if (normalizedChunk.type === 'finish' || normalizedChunk.type === 'done') {
-        results.push(...this.handleFinish(normalizedChunk, results))
+        results.push(...this.handleFinish(normalizedChunk))
         continue
       }
 
@@ -126,7 +138,8 @@ export class AnthropicStreamingBuilder {
 
       // Handle implicit finish in content chunk (common in Gemini/Antigravity)
       // Only trigger if we have a stopReason (Gemini sends usage on every chunk, but stopReason only on last)
-      if (normalizedChunk.stopReason) {
+      const rawStopReason = normalizedChunk.finishReason?.raw || normalizedChunk.stopReason
+      if (rawStopReason) {
         if (this.state.phase === 'block_started') {
           results.push(
             formatSSE('content_block_stop', {
@@ -137,11 +150,15 @@ export class AnthropicStreamingBuilder {
           this.state.phase = 'message_started'
         }
 
-        let unifiedReason = normalizedChunk.stopReason || 'end_turn'
+        let unifiedReason =
+          normalizedChunk.finishReason?.unified || normalizedChunk.stopReason || 'end_turn'
 
         // Patch stop_reason: if we had a tool_use block, stop_reason should be 'tool_use'
         // (Gemini sends 'end_turn' even for tool calls)
-        if (this.state.hasToolUseBlock && unifiedReason === 'end_turn') {
+        if (
+          this.state.hasToolUseBlock &&
+          (unifiedReason === 'end_turn' || unifiedReason === null)
+        ) {
           unifiedReason = 'tool_use'
         }
 
@@ -217,7 +234,8 @@ export class AnthropicStreamingBuilder {
     return results
   }
 
-  private handleFinish(chunk: StreamChunk, results: string[]): string[] {
+  private handleFinish(chunk: StreamChunk): string[] {
+    const results: string[] = []
     // Close any open block first
     if (this.state.phase === 'block_started') {
       results.push(
@@ -229,11 +247,26 @@ export class AnthropicStreamingBuilder {
       this.state.phase = 'message_started' // Back to message level
     }
 
+    const rawReason = chunk.finishReason?.raw || chunk.stopReason
     let unifiedReason = chunk.finishReason?.unified || chunk.stopReason || 'end_turn'
+
+    // Safety: ensure no raw non-Anthropic reasons leak through
+    // Map common non-standard reasons to 'end_turn'
+    if (typeof rawReason === 'string') {
+      if (['stop', 'STOP', 'finish'].includes(rawReason)) {
+        unifiedReason = 'end_turn'
+      } else if (['length', 'MAX_TOKENS'].includes(rawReason)) {
+        unifiedReason = 'max_tokens'
+      } else if (['content_filter', 'SAFETY'].includes(rawReason)) {
+        // Anthropic doesn't have content_filter stop reason in message_delta
+        // It usually returns end_turn or sends an error.
+        unifiedReason = 'end_turn'
+      }
+    }
 
     // Patch stop_reason: if we had a tool_use block, stop_reason should be 'tool_use'
     // (Gemini sends 'end_turn' even for tool calls)
-    if (this.state.hasToolUseBlock && unifiedReason === 'end_turn') {
+    if (this.state.hasToolUseBlock && (unifiedReason === 'end_turn' || unifiedReason === null)) {
       unifiedReason = 'tool_use'
     }
 
@@ -281,8 +314,6 @@ export class AnthropicStreamingBuilder {
       if (toolCall) {
         if (toolCall.name !== this.state.currentToolName) return true
         // If we have an explicit ID and it's different, it's a new block
-        // Note: For providers that stream partial tool usage without IDs in subsequent chunks,
-        // we must be careful. But typically a new tool_call start provides an ID.
         if (toolCall.id && toolCall.id !== this.state.currentToolId) return true
       }
     }
@@ -290,7 +321,8 @@ export class AnthropicStreamingBuilder {
     return false
   }
 
-  private getBlockType(chunk: StreamChunk): 'text' | 'thinking' | 'tool_use' {
+  private getBlockType(chunk: StreamChunk): 'text' | 'thinking' | 'tool_use' | 'redacted_thinking' {
+    if (chunk.type === 'redacted-thinking') return 'redacted_thinking'
     if (
       chunk.type === 'thinking' ||
       chunk.type === 'thinking-start' ||
@@ -310,23 +342,33 @@ export class AnthropicStreamingBuilder {
     const type = this.getBlockType(chunk)
     this.state.currentBlockType = type
 
-    const content_block: Record<string, unknown> = { type }
+    let content_block: AnthropicContentBlock
 
     if (type === 'text') {
-      content_block.text = '' // Start empty
+      content_block = { type: 'text', text: '' } // Start empty
     } else if (type === 'thinking') {
-      content_block.thinking = '' // Start empty
-    } else if (type === 'tool_use') {
+      content_block = { type: 'thinking', thinking: '' } // Start empty
+    } else if (type === 'redacted_thinking') {
+      content_block = { type: 'redacted_thinking', data: chunk.delta?.redactedThinking || '' }
+    } else {
+      // tool_use
       // Track that we have emitted a tool_use block (for stop_reason patching)
       this.state.hasToolUseBlock = true
       // For tool_use, we typically get name/id in tool-call-start (chunk.toolCall)
       // or from google-gemini format (chunk.delta.toolCall)
       const toolCall = chunk.toolCall || chunk.delta?.toolCall
-      content_block.name = toolCall?.name || 'unknown'
-      content_block.id = toolCall?.id || `call_${crypto.randomUUID()}`
-      content_block.input = {} // Start empty input
-      this.state.currentToolName = content_block.name as string
-      this.state.currentToolId = content_block.id as string
+      const name = toolCall?.name || 'unknown'
+      const id = toolCall?.id || `call_${crypto.randomUUID()}`
+
+      this.state.currentToolName = name
+      this.state.currentToolId = id
+
+      content_block = {
+        type: 'tool_use',
+        id,
+        name,
+        input: {}, // Start empty input
+      }
     }
 
     return [
@@ -351,15 +393,27 @@ export class AnthropicStreamingBuilder {
       )
     } else if (
       (chunk.type === 'thinking-delta' || chunk.type === 'thinking') &&
-      chunk.delta?.thinking?.text
+      chunk.delta?.thinking
     ) {
-      events.push(
-        formatSSE('content_block_delta', {
-          type: 'content_block_delta',
-          index: this.state.currentBlockIndex,
-          delta: { type: 'thinking_delta', thinking: chunk.delta.thinking.text },
-        })
-      )
+      const thinking = chunk.delta.thinking
+      if (thinking.text) {
+        events.push(
+          formatSSE('content_block_delta', {
+            type: 'content_block_delta',
+            index: this.state.currentBlockIndex,
+            delta: { type: 'thinking_delta', thinking: thinking.text },
+          })
+        )
+      }
+      if (thinking.signature) {
+        events.push(
+          formatSSE('content_block_delta', {
+            type: 'content_block_delta',
+            index: this.state.currentBlockIndex,
+            delta: { type: 'signature_delta', signature: thinking.signature },
+          })
+        )
+      }
     } else if (
       (chunk.type === 'tool-input-delta' || chunk.type === 'tool_call') &&
       chunk.delta?.partialJson

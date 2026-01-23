@@ -105,7 +105,11 @@ export function parseRequest(request: OpenAIChatRequest): UnifiedRequest {
 /**
  * Transform a UnifiedRequest into OpenAI Chat request format.
  */
-export function transformRequest(request: UnifiedRequest, model: string): OpenAIChatRequest {
+export function transformRequest(
+  request: UnifiedRequest,
+  model: string,
+  provider?: string
+): OpenAIChatRequest {
   const result: OpenAIChatRequest = {
     model,
     messages: [],
@@ -113,6 +117,7 @@ export function transformRequest(request: UnifiedRequest, model: string): OpenAI
   }
 
   const isReasoning = isReasoningModel(model)
+  const isCopilot = provider === 'github-copilot'
 
   // Add system messages
   // Prefer systemBlocks (multiple blocks) over single system string to preserve structure
@@ -188,16 +193,16 @@ export function transformRequest(request: UnifiedRequest, model: string): OpenAI
     }
 
     // Map extended fields
-    if (request.config.logprobs !== undefined) {
+    if (request.config.logprobs !== undefined && !isCopilot) {
       result.logprobs = !!request.config.logprobs
       if (typeof request.config.logprobs === 'number') {
         result.top_logprobs = request.config.logprobs
       }
     }
-    if (request.config.serviceTier) {
+    if (request.config.serviceTier && !isCopilot) {
       result.service_tier = request.config.serviceTier
     }
-    if (request.config.parallelToolCalls !== undefined) {
+    if (request.config.parallelToolCalls !== undefined && !isCopilot) {
       result.parallel_tool_calls = request.config.parallelToolCalls
     }
     if (request.config.responseFormat) {
@@ -246,34 +251,36 @@ export function transformRequest(request: UnifiedRequest, model: string): OpenAI
   }
 
   // Transform thinking config
-  if (isGLMModel(model)) {
-    // GLM 4.7 has thinking enabled by default, so we need to explicitly disable it
-    if (request.thinking?.enabled === true) {
-      result.thinking = transformToGLMThinking(request.thinking)
-    } else {
-      // Explicitly disable thinking for GLM models when not enabled
-      result.thinking = { type: 'disabled' }
-    }
-  } else if (request.thinking) {
-    if (isReasoningModel(model)) {
-      // O-series models use reasoning_effort format
-      result.reasoning_effort = request.thinking.effort || 'medium'
-    } else {
-      // Other models use reasoning_effort as well
-      if (request.thinking.enabled) {
+  if (!isCopilot) {
+    if (isGLMModel(model)) {
+      // GLM 4.7 has thinking enabled by default, so we need to explicitly disable it
+      if (request.thinking?.enabled === true) {
+        result.thinking = transformToGLMThinking(request.thinking)
+      } else {
+        // Explicitly disable thinking for GLM models when not enabled
+        result.thinking = { type: 'disabled' }
+      }
+    } else if (request.thinking) {
+      if (isReasoningModel(model)) {
+        // O-series models use reasoning_effort format
         result.reasoning_effort = request.thinking.effort || 'medium'
       } else {
-        result.reasoning_effort = 'none'
+        // Other models use reasoning_effort as well
+        if (request.thinking.enabled) {
+          result.reasoning_effort = request.thinking.effort || 'medium'
+        } else {
+          result.reasoning_effort = 'none'
+        }
       }
     }
   }
 
   // Transform metadata fields
   if (request.metadata) {
-    if (request.metadata.serviceTier !== undefined) {
+    if (request.metadata.serviceTier !== undefined && !isCopilot) {
       result.service_tier = request.metadata.serviceTier as string
     }
-    if (request.metadata.parallelToolCalls !== undefined) {
+    if (request.metadata.parallelToolCalls !== undefined && !isCopilot) {
       result.parallel_tool_calls = request.metadata.parallelToolCalls as boolean
     }
   }

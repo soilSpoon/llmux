@@ -199,7 +199,14 @@ export function createAnthropicStreamingPipeline(model: string): StreamingPipeli
 
       for (const c of chunks) {
         // Auto-emit message_start on first content block
-        if (!state.messageStartSent && (c.type === 'text-delta' || c.type === 'thinking-start')) {
+        if (
+          !state.messageStartSent &&
+          (c.type === 'text-delta' ||
+            c.type === 'thinking-start' ||
+            c.type === 'thinking-delta' ||
+            c.type === 'tool-call-start' ||
+            c.type === 'tool-input-delta')
+        ) {
           const msgId = `msg_${Math.random().toString(36).slice(2, 11)}`
           const msgStart = JSON.stringify({
             type: 'message_start',
